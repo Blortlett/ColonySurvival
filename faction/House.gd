@@ -1,6 +1,6 @@
 class_name House
 extends RefCounted
-## A rectangle of walls with one door and a house fire in the middle.
+## A rectangle of walls with one door, a house fire in the middle, wood floors and furniture.
 
 enum State { PLANNED, BUILDING, COMPLETE }
 
@@ -13,9 +13,12 @@ var interior: Rect2i
 var fire_cell: Vector2i
 var door_cell: Vector2i
 var wall_cells: Array[Vector2i] = []
+var floor_cells: Array[Vector2i] = [] # every interior cell except the fire (agreed)
+var chest_cell: Vector2i
 var capacity: int
 var occupants: Array[int] = []
 var fire: Campfire = null
+var chest: Furniture = null
 
 
 func _init(fid: int, interior_rect: Rect2i, cap: int) -> void:
@@ -35,11 +38,17 @@ func _init(fid: int, interior_rect: Rect2i, cap: int) -> void:
 			if interior.has_point(c) or c == door_cell:
 				continue
 			wall_cells.append(c)
+	for x in range(interior.position.x, interior.end.x):
+		for y in range(interior.position.y, interior.end.y):
+			var c := Vector2i(x, y)
+			if c != fire_cell:
+				floor_cells.append(c)
+	chest_cell = interior.position # top-left corner, away from the door
 
 
-## Interior size needed: CELLS_PER_OCCUPANT per occupant + 1 cell for the fire.
+## Interior size needed: CELLS_PER_OCCUPANT per occupant + 1 for the fire + 1 per furniture piece.
 static func interior_size(cap: int) -> Vector2i:
-	var area := Cfg.CELLS_PER_OCCUPANT * cap + 1
+	var area := Cfg.CELLS_PER_OCCUPANT * cap + 1 + Cfg.FURNITURE_PER_HOUSE
 	var w := int(ceil(sqrt(float(area))))
 	var h := int(ceil(float(area) / w))
 	return Vector2i(w, h)
@@ -51,3 +60,11 @@ func footprint() -> Rect2i:
 
 func has_room() -> bool:
 	return occupants.size() < capacity
+
+
+## The chest, if it's still standing.
+func live_chest() -> Furniture:
+	if chest and World.furniture.get(chest.cell) == chest:
+		return chest
+	chest = null
+	return null

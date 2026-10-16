@@ -2,13 +2,15 @@ class_name Task
 extends RefCounted
 ## One claimable job on a faction task board.
 
-enum Type { PLACE_HOUSE_FIRE, BUILD_WALL, BUILD_DOOR, REFUEL }
+enum Type { PLACE_HOUSE_FIRE, BUILD_WALL, BUILD_DOOR, REFUEL, BUILD_FLOOR, PLACE_CHEST }
 
 const PRIORITY := {
 	Type.PLACE_HOUSE_FIRE: 60,
 	Type.BUILD_WALL: 50,
 	Type.BUILD_DOOR: 50,
 	Type.REFUEL: 100,
+	Type.BUILD_FLOOR: 45,
+	Type.PLACE_CHEST: 40,
 }
 const CLAIM_TIMEOUT := 90.0
 
@@ -39,6 +41,8 @@ func cost() -> Dictionary:
 		Type.PLACE_HOUSE_FIRE: return Items.BUILD_COSTS["house_fire"]
 		Type.BUILD_WALL: return Items.BUILD_COSTS["wall"]
 		Type.BUILD_DOOR: return Items.BUILD_COSTS["door"]
+		Type.BUILD_FLOOR: return Items.BUILD_COSTS["floor"]
+		Type.PLACE_CHEST: return Items.BUILD_COSTS["chest"]
 	return {"wood": 1}
 
 

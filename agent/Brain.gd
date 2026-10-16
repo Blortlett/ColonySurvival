@@ -81,6 +81,11 @@ static func think(a: Agent) -> void:
 			set_job(a, _warm_job(a))
 			return
 		if a.hunger < Cfg.HUNGER_SEEK and a.inv.count("berry") == 0:
+			# At home, eat from the chest before going out for berries (agreed).
+			var ch := Stock.home_chest(a)
+			if ch and ch.store.count("berry") > 0:
+				set_job(a, chest_job(ch, {"berry": -3}, Job.PRIO_NEEDS))
+				return
 			var g := _gather_job("berry", 4, Job.PRIO_NEEDS)
 			set_job(a, g)
 			return
@@ -260,6 +265,13 @@ static func _wander_job(a: Agent) -> Job:
 	return j
 
 
+static func chest_job(ch: Furniture, plan: Dictionary, prio: int = Job.PRIO_LADDER) -> Job:
+	var j := Job.new(Job.Kind.CHEST, prio)
+	j.chest = ch
+	j.transfer = plan
+	return j
+
+
 static func _gather_job(item: String, amount: int, prio: int = Job.PRIO_LADDER) -> Job:
 	var j := Job.new(Job.Kind.GATHER, prio)
 	j.item = item
@@ -288,6 +300,9 @@ static func _run(a: Agent, dt: float) -> void:
 		Job.Kind.LOOT: _run_loot(a, j, dt)
 		Job.Kind.DELIVER: _run_deliver(a, j, dt)
 		Job.Kind.FOLLOW: _run_follow(a, j, dt)
+		Job.Kind.CHEST:
+			if _chest_step(a, j, dt):
+				_done(a)
 
 
 static func _done(a: Agent) -> void:
@@ -361,6 +376,21 @@ static func _gather_step(a: Agent, j: Job, dt: float) -> bool:
 	return false
 
 
+## Walk to j.chest and apply j.transfer. Returns true when finished (or impossible).
+static func _chest_step(a: Agent, j: Job, dt: float) -> bool:
+	var ch := j.chest
+	if ch == null or World.furniture.get(ch.cell) != ch:
+		return true
+	var m := move_to(a, ch.cell, dt)
+	if m == Move.FAILED:
+		_blacklist_cell(a, ch.cell)
+		return true
+	if m == Move.MOVING:
+		return false
+	Stock.transfer(a, ch, j.transfer)
+	return true
+
+
 static func _run_warm(a: Agent, j: Job, dt: float) -> void:
 	var f := j.fire
 	if f == null or not f.burning() or World.fires.get(f.cell) != f:
@@ -429,17 +459,29 @@ static func _run_task(a: Agent, j: Job, dt: float) -> void:
 			return
 		cost = {"wood": max(1, min(fire.wood_space(), a.capacity() / 2))}
 	if not a.inv.has_cost(cost):
+		if j.chest:
+			if _chest_step(a, j, dt):
+				j.chest = null
+				j.item = ""
+			return
 		if j.item == "" or a.inv.count(j.item) >= j.amount:
 			j.item = ""
 			for k in cost:
 				if a.inv.count(k) < cost[k]:
 					j.item = k
-					# Gather a bit extra for walls so one trip covers several tasks.
-					j.amount = cost[k] * (4 if t.type == Task.Type.BUILD_WALL else 1)
+					# Gather a bit extra for walls/floors so one trip covers several tasks.
+					var bulk := t.type == Task.Type.BUILD_WALL or t.type == Task.Type.BUILD_FLOOR
+					j.amount = cost[k] * (4 if bulk else 1)
 					j.amount = min(j.amount, a.inv.count(k) + a.free_space())
 					break
 			j.node = null
 			j.arrived = false
+			# Group chest first.
+			var ch := Stock.group_chest_with(a, j.item) if j.item != "" and a.free_space() > 0 else null
+			if ch:
+				j.chest = ch
+				j.transfer = {j.item: -(j.amount - a.inv.count(j.item))}
+				return
 		if a.free_space() <= 0:
 			GoalLadder.drop_junk(a, cost)
 		if _gather_step(a, j, dt) and not a.inv.has_cost(cost) and a.inv.count(j.item) < j.amount:
@@ -471,6 +513,36 @@ static func _perform_task(a: Agent, j: Job, t: Task, cost: Dictionary, dt: float
 	var board := a.faction.board
 	var fid := a.faction.id
 	match t.type:
+		Task.Type.BUILD_FLOOR:
+			if World.floors.has(t.cell):
+				board.complete(t)
+				_done(a)
+				return
+			if not World.can_floor(t.cell, fid):
+				if World.is_solid(t.cell) or World.privilege_owner(t.cell) not in [0, fid]:
+					board.complete(t)
+					_done(a)
+					return
+				j.timer += dt
+				if j.timer > 20.0:
+					_done(a)
+				return
+			a.inv.pay(cost)
+			World.place_floor(t.cell, fid)
+			board.complete(t)
+			_done(a)
+		Task.Type.PLACE_CHEST:
+			if World.furniture.has(t.cell) or t.house == null or t.house.live_chest() != null:
+				board.complete(t)
+				_done(a)
+				return
+			if not World.floors.has(t.cell):
+				_done(a) # floor first; housekeeping re-posts it
+				return
+			a.inv.pay(cost)
+			t.house.chest = World.place_furniture(t.cell, Furniture.Kind.CHEST, fid, t.house)
+			board.complete(t)
+			_done(a)
 		Task.Type.REFUEL:
 			var fire: Campfire = World.fires.get(t.cell)
 			if fire:

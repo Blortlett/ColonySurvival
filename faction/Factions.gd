@@ -189,6 +189,10 @@ static func _site_ok(interior: Rect2i, f: Faction) -> bool:
 	var fire_cell := interior.position + Vector2i(interior.size.x / 2, interior.size.y / 2)
 	if not World.house_fire_spacing_ok(fire_cell):
 		return false
+	# The cell outside the door must stay open, or the house is sealed (diagonals past walls are blocked).
+	var outside := Vector2i(fire_cell.x + 1, outer.end.y)
+	if not World.is_walkable(outside):
+		return false
 	for x in range(outer.position.x, outer.end.x):
 		for y in range(outer.position.y, outer.end.y):
 			var c := Vector2i(x, y)
@@ -205,11 +209,28 @@ static func on_house_fire_placed(h: House, fire: Campfire) -> void:
 	fire.house = h
 	h.state = House.State.BUILDING
 	var f: Faction = World.factions.get(h.faction_id)
-	if f == null:
-		return
+	if f:
+		_ensure_piece_tasks(f, h)
+
+
+## Post a task for every missing wall, floor, door (and the chest once complete). Also repairs.
+static func _ensure_piece_tasks(f: Faction, h: House) -> void:
+	var have := {}
+	for t in f.board.tasks:
+		if t.house == h:
+			have[Vector3i(t.cell.x, t.cell.y, t.type)] = true
 	for c in h.wall_cells:
-		f.board.post(Task.new(Task.Type.BUILD_WALL, c, h))
-	f.board.post(Task.new(Task.Type.BUILD_DOOR, h.door_cell, h))
+		if not World.walls.has(c) and not have.has(Vector3i(c.x, c.y, Task.Type.BUILD_WALL)):
+			f.board.post(Task.new(Task.Type.BUILD_WALL, c, h))
+	for c in h.floor_cells:
+		if not World.floors.has(c) and not have.has(Vector3i(c.x, c.y, Task.Type.BUILD_FLOOR)):
+			f.board.post(Task.new(Task.Type.BUILD_FLOOR, c, h))
+	var d := h.door_cell
+	if not World.walls.has(d) and not have.has(Vector3i(d.x, d.y, Task.Type.BUILD_DOOR)):
+		f.board.post(Task.new(Task.Type.BUILD_DOOR, d, h))
+	var cc := h.chest_cell
+	if h.state == House.State.COMPLETE and h.live_chest() == null and not have.has(Vector3i(cc.x, cc.y, Task.Type.PLACE_CHEST)):
+		f.board.post(Task.new(Task.Type.PLACE_CHEST, cc, h))
 
 
 ## Fire burnt out or house cancelled: the house is gone, its walls stay and decay.
@@ -228,6 +249,10 @@ static func destroy_house(h: House) -> void:
 ## Leaving a house behind: nobody refuels it, doors stay locked, it decays.
 static func abandon_house(h: House) -> void:
 	h.occupants.clear()
+	var ch := h.live_chest()
+	if ch:
+		ch.owner_id = 0
+	h.chest = null
 	if h.fire:
 		h.fire.house = null
 		h.fire.owner_id = 0
@@ -264,6 +289,7 @@ static func housekeeping(f: Faction) -> void:
 				h.state = House.State.COMPLETE
 				if not f.solo:
 					EventBus.log_event("%s finished a house for %d." % [f.name, h.capacity])
+			_ensure_piece_tasks(f, h)
 	# Fill free slots with homeless members.
 	var homeless: Array[int] = []
 	for mid in f.members:
@@ -284,6 +310,9 @@ static func housekeeping(f: Faction) -> void:
 static func _house_built(h: House) -> bool:
 	for c in h.wall_cells + [h.door_cell]:
 		if not World.walls.has(c):
+			return false
+	for c in h.floor_cells:
+		if not World.floors.has(c):
 			return false
 	return true
 

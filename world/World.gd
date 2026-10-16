@@ -12,6 +12,8 @@ var nodes := {} # Vector2i -> ResourceNode
 var node_buckets: Array = [{}, {}, {}, {}] # per ResourceNode.Type: bucket -> Array
 var bushes: Array[ResourceNode] = []
 var walls := {} # Vector2i -> Wall (walls and doors)
+var floors := {} # Vector2i -> Floor
+var furniture := {} # Vector2i -> Furniture (chests, machines, boards)
 var fires := {} # Vector2i -> Campfire
 var house_fires: Array[Campfire] = []
 var loot := {} # Vector2i -> LootBag
@@ -122,6 +124,16 @@ func _per_second(s: float) -> void:
 			w.hp -= w.max_hp / Cfg.WALL_DECAY_SECS * s
 			if w.hp <= 0.0:
 				remove_wall(w)
+	for fl in floors.values().duplicate():
+		if privilege_owner(fl.cell) == 0:
+			fl.hp -= fl.max_hp / Cfg.WALL_DECAY_SECS * s
+			if fl.hp <= 0.0:
+				floors.erase(fl.cell)
+	for fu in furniture.values().duplicate():
+		if privilege_owner(fu.cell) == 0:
+			fu.hp -= fu.max_hp / Cfg.WALL_DECAY_SECS * s
+			if fu.hp <= 0.0:
+				remove_furniture(fu)
 	# Loot bags despawn.
 	for bag in loot.values().duplicate():
 		bag.timer -= s
@@ -405,6 +417,37 @@ func remove_wall(w: Wall) -> void:
 		return
 	walls.erase(w.cell)
 	astar.set_point_solid(w.cell, false)
+
+
+func place_floor(c: Vector2i, fid: int) -> Floor:
+	var fl := Floor.new(c, fid)
+	floors[c] = fl
+	return fl
+
+
+## Floors are walkable, so they can go under a standing agent.
+func can_floor(c: Vector2i, fid: int) -> bool:
+	if not in_bounds(c) or is_solid(c) or floors.has(c):
+		return false
+	var po := privilege_owner(c)
+	return po == 0 or po == fid
+
+
+func place_furniture(c: Vector2i, kind: int, fid: int, house, tier: int = 0) -> Furniture:
+	var fu := Furniture.new(c, kind, fid, tier)
+	fu.house = house
+	furniture[c] = fu
+	return fu
+
+
+## Chest decayed or smashed: its contents spill as a loot bag.
+func remove_furniture(fu: Furniture, reason: String = "chest destroyed") -> void:
+	if furniture.get(fu.cell) != fu:
+		return
+	furniture.erase(fu.cell)
+	if fu.kind == Furniture.Kind.CHEST and fu.store.total() > 0:
+		drop_loot(fu.cell, fu.store.stacks.duplicate(), fu.store.tools.duplicate(), -1, reason)
+		fu.store = Inventory.new()
 
 
 func place_fire(c: Vector2i, house_fire: bool, fid: int) -> Campfire:

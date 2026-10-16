@@ -44,8 +44,8 @@ func claim(agent_id: int, from: Vector2i, allowed: Callable = Callable()) -> Tas
 				t.claimed_by = -1
 			else:
 				continue
-		if t.type == Task.Type.BUILD_DOOR and not _walls_done(t.house):
-			continue # door goes in last (agreed build order)
+		if t.type == Task.Type.BUILD_DOOR and not _shell_done(t.house):
+			continue # door goes in last: fire -> walls -> floors -> door (agreed build order)
 		if allowed.is_valid() and not allowed.call(t.cell):
 			continue
 		var score := t.priority() * 10.0 - from.distance_to(t.cell)
@@ -58,8 +58,17 @@ func claim(agent_id: int, from: Vector2i, allowed: Callable = Callable()) -> Tas
 	return best
 
 
-func _walls_done(h: House) -> bool:
+func _shell_done(h: House) -> bool:
 	for t in tasks:
-		if t.house == h and t.type == Task.Type.BUILD_WALL:
+		if t.house == h and (t.type == Task.Type.BUILD_WALL or t.type == Task.Type.BUILD_FLOOR):
 			return false
 	return true
+
+
+## Cells that already have a task of this type (to avoid posting duplicates).
+func cells_of(type: int) -> Dictionary:
+	var out := {}
+	for t in tasks:
+		if t.type == type:
+			out[t.cell] = true
+	return out

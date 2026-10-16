@@ -6,6 +6,10 @@ const BERRY := Color(0.85, 0.12, 0.25)
 const WALL := Color(0.45, 0.29, 0.14)
 const DOOR := Color(0.70, 0.50, 0.28)
 const LOOT := Color(0.85, 0.75, 0.45)
+const FLOOR := Color(0.50, 0.36, 0.22)
+const FLOOR_LINE := Color(0.40, 0.28, 0.16)
+const CHEST := Color(0.55, 0.33, 0.12)
+const CHEST_BAND := Color(0.25, 0.15, 0.06)
 
 var show_zones := true
 
@@ -31,6 +35,12 @@ func _draw() -> void:
 			if h.state == House.State.PLANNED or h.state == House.State.BUILDING:
 				var outer := h.footprint()
 				draw_rect(Rect2(Vector2(outer.position) * s, Vector2(outer.size) * s), Color(1, 1, 1, 0.25), false, 1.0)
+	for fl in World.floors.values():
+		var p := Vector2(fl.cell) * s
+		draw_rect(Rect2(p, Vector2(s, s)), FLOOR.darkened(0.4 * (1.0 - fl.hp / fl.max_hp)))
+		draw_line(p + Vector2(0, s * 0.5), p + Vector2(s, s * 0.5), FLOOR_LINE, 1.0)
+	for fu in World.furniture.values():
+		_draw_furniture(fu, Vector2(fu.cell) * s, s)
 	for b in World.bushes:
 		var p := Vector2(b.cell) * s
 		draw_circle(p + half, s * 0.42, BUSH)
@@ -57,3 +67,13 @@ func _draw() -> void:
 	for bag in World.loot.values():
 		var p := Vector2(bag.cell) * s
 		draw_rect(Rect2(p + Vector2(s * 0.3, s * 0.3), Vector2(s * 0.4, s * 0.4)), LOOT)
+
+
+func _draw_furniture(fu: Furniture, p: Vector2, s: float) -> void:
+	match fu.kind:
+		Furniture.Kind.CHEST:
+			var r := Rect2(p + Vector2(s * 0.15, s * 0.25), Vector2(s * 0.7, s * 0.55))
+			draw_rect(r, CHEST)
+			draw_rect(Rect2(r.position + Vector2(0, r.size.y * 0.35), Vector2(r.size.x, s * 0.1)), CHEST_BAND)
+			if fu.tier > 0:
+				draw_rect(r, Color(0.7, 0.7, 0.75), false, 1.5)

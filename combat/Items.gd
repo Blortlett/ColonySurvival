@@ -20,9 +20,14 @@ const BUILD_COSTS := {
 	"door": {"wood": 3, "hemp": 1},
 	"wild_fire": {"wood": 2},
 	"house_fire": {"wood": 5, "stone": 3},
+	"floor": {"wood": 1}, # per tile (agreed)
+	"chest": {"wood": 5}, # (agreed)
 }
 const WALL_HP := 100.0
 const DOOR_HP := 80.0
+const FLOOR_HP := 50.0
+const FURNITURE_HP := 60.0
+const CHEST_SLOTS := [30, 60] # basic, reinforced (agreed)
 
 const DURABILITY := {"axe": 100, "pickaxe": 100, "spear": 60, "club": 60, "bow": 80}
 

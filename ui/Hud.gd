@@ -5,6 +5,7 @@ var agent_layer: Node2D
 var dynamic_layer: Node2D
 var selected_fire: Campfire = null
 var selected_loot: LootBag = null
+var selected_furniture: Furniture = null
 
 var _top: Label
 var _log: Label
@@ -91,12 +92,16 @@ func _update_inspector() -> void:
 		selected_fire = null # burned out / destroyed
 	if selected_loot and World.loot.get(selected_loot.cell) != selected_loot:
 		selected_loot = null # picked up / despawned
-	_inspector.visible = a != null or selected_fire != null or selected_loot != null
+	if selected_furniture and World.furniture.get(selected_furniture.cell) != selected_furniture:
+		selected_furniture = null
+	_inspector.visible = a != null or selected_fire != null or selected_loot != null or selected_furniture != null
 	if a == null:
 		if selected_fire:
 			_insp_label.text = _fire_text(selected_fire)
 		elif selected_loot:
 			_insp_label.text = _loot_text(selected_loot)
+		elif selected_furniture:
+			_insp_label.text = _furniture_text(selected_furniture)
 		return
 	var f := a.faction
 	var lines: Array[String] = []
@@ -158,7 +163,9 @@ func _fire_text(f: Campfire) -> String:
 	lines.append("Houses:")
 	for h in g.houses:
 		var fuel := "no fire" if h.fire == null else "%d/%d wood%s" % [h.fire.wood_left(), h.fire.max_wood(), "" if h.fire.burning() else " (out)"]
-		lines.append("  house %d%s  %s  %d/%d  %s  chest —" % [h.id, " *" if h.fire == f else "", House.State.keys()[h.state], h.occupants.size(), h.capacity, fuel])
+		lines.append("  house %d%s  %s  %d/%d  %s" % [h.id, " *" if h.fire == f else "", House.State.keys()[h.state], h.occupants.size(), h.capacity, fuel])
+		var ch := h.live_chest()
+		lines.append("    chest: %s" % ("none" if ch == null else "%s %d/%d — %s" % [ch.label(), ch.store.total(), ch.slots(), ch.store.summary()]))
 	var counts := {}
 	var claimed := 0
 	for t in g.board.tasks:
@@ -188,5 +195,17 @@ func _loot_text(b: LootBag) -> String:
 		for t in b.tools:
 			tp.append("%s (%d/%d)" % [t.type, t.dur, Items.DURABILITY[t.type]])
 		lines.append("Tools: %s" % ", ".join(tp))
+	return "
+".join(lines)
+
+
+func _furniture_text(fu: Furniture) -> String:
+	var lines: Array[String] = []
+	var g: Faction = World.factions.get(fu.owner_id)
+	lines.append("%s   (HP %d/%d)" % [fu.label().capitalize(), fu.hp, fu.max_hp])
+	lines.append("Owner: %s" % (g.display_name() if g else "abandoned"))
+	if fu.kind == Furniture.Kind.CHEST:
+		lines.append("Slots: %d/%d" % [fu.store.total(), fu.slots()])
+		lines.append("Contents: %s" % fu.store.summary())
 	return "
 ".join(lines)

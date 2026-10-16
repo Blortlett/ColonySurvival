@@ -89,9 +89,15 @@ func _bench_line(minute: int, ms: int) -> String:
 	for h in World.all_houses():
 		houses[House.State.keys()[h.state]] += 1
 	var servants := World.agent_list.filter(func(a): return a.is_servant()).size()
-	return "min %3d | %4d ms | deaths %d | moods %s | factions %d servants %d | houses %s | fires %d walls %d | tools %d | warm %.2f hunger %.2f | jobs %s" % [
+	var chests := 0
+	var stored := 0
+	for fu in World.furniture.values():
+		if fu.kind == Furniture.Kind.CHEST:
+			chests += 1
+			stored += fu.store.total()
+	return "min %3d | %4d ms | deaths %d | moods %s | factions %d servants %d | houses %s | fires %d walls %d floors %d | chests %d (%d items) | tools %d | warm %.2f hunger %.2f | jobs %s" % [
 		minute, ms, World.deaths, moods, Factions.real_count(), servants, houses,
-		World.fires.size(), World.walls.size(), tools, warmth / n, hunger / n, jobs]
+		World.fires.size(), World.walls.size(), World.floors.size(), chests, stored, tools, warmth / n, hunger / n, jobs]
 
 
 func _process(delta: float) -> void:
@@ -116,11 +122,12 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_L: _agents.show_labels = not _agents.show_labels
 	elif event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 		var p := get_global_mouse_position() / Cfg.CELL
-		# Priority: agent -> fire -> loot bag.
+		# Priority: agent -> fire -> loot bag -> furniture.
 		var a := World.agent_at_point(p, 1.5)
 		_agents.selected_id = a.id if a else -1
 		_hud.selected_fire = null if a else _fire_at(p)
 		_hud.selected_loot = null if a or _hud.selected_fire else _loot_at(p)
+		_hud.selected_furniture = null if a or _hud.selected_fire or _hud.selected_loot else World.furniture.get(Vector2i(p.floor()))
 
 
 ## A fire on/next to the clicked cell, or the fire of the house whose interior was clicked.
@@ -133,7 +140,7 @@ func _fire_at(p: Vector2) -> Campfire:
 		if d < best_d:
 			best_d = d
 			best = f
-	if best == null:
+	if best == null and not World.furniture.has(c):
 		var h := World.house_at(c)
 		if h and h.fire:
 			best = h.fire

@@ -67,6 +67,13 @@ const WALL_DECAY_SECS := 600.0
 const CELLS_PER_OCCUPANT := 4 # (agreed concept, starting value)
 const HOUSE_SITE_SEARCH := 30
 const HOUSE_MAX_TREE_DIST := 25
+const FURNITURE_PER_HOUSE := 1 # the chest (agreed)
+
+# --- Chests (Phase B) ---
+const STOCK_BERRIES_PER_MEMBER := 5 # (agreed)
+const HOME_RANGE := 40.0 # how far from home an agent still uses the chest
+const KEEP_BERRIES := 4 # berries an agent keeps on itself; the rest is surplus
+const KEEP_STACKS := {"wood": 15, "stone": 10, "hemp": 5, "arrow": 15}
 
 # --- Social ---
 const SOCIAL_RANGE := 5.0
