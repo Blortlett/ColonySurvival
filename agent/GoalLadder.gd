@@ -39,6 +39,12 @@ static func next(a: Agent) -> Job:
 	var sj := _stock_job(a, ch)
 	if sj:
 		return sj
+	# Group step 7 (gangs only): raiding axes, crafted at a workshop (agreed).
+	if a.faction.is_gang() and not a.inv.has_tool("raiding_axe") and Factions.nearest_machine(a, Furniture.Kind.SAWMILL):
+		if raid_axes(a.faction) < min(Cfg.RAID_AXES_PER_GANG, a.faction.members.size()):
+			var cj := Job.new(Job.Kind.CRAFT, Job.PRIO_LADDER)
+			cj.then_craft = "raiding_axe"
+			return cj
 	# 6. Stockpile fuel.
 	if a.inv.count("wood") < 10:
 		return Brain._gather_job("wood", 10)
@@ -64,6 +70,17 @@ static func _stock_job(a: Agent, ch: Furniture) -> Job:
 	if need.has("weapon"):
 		return craft_or_gather(a, "spear")
 	return null
+
+
+static func raid_axes(f: Faction) -> int:
+	var n := 0
+	for mid in f.members:
+		var m: Agent = World.agents.get(mid)
+		if m:
+			for t in m.inv.tools:
+				if t.type == "raiding_axe":
+					n += 1
+	return n
 
 
 ## Craft if we can afford it, otherwise gather the first missing material.

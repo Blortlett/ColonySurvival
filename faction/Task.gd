@@ -2,7 +2,7 @@ class_name Task
 extends RefCounted
 ## One claimable job on a faction task board.
 
-enum Type { PLACE_HOUSE_FIRE, BUILD_WALL, BUILD_DOOR, REFUEL, BUILD_FLOOR, PLACE_CHEST }
+enum Type { PLACE_HOUSE_FIRE, BUILD_WALL, BUILD_DOOR, REFUEL, BUILD_FLOOR, PLACE_CHEST, PLACE_SAWMILL, PLACE_CUTTER, UPGRADE_WALL, UPGRADE_DOOR, UPGRADE_CHEST }
 
 const PRIORITY := {
 	Type.PLACE_HOUSE_FIRE: 60,
@@ -11,6 +11,11 @@ const PRIORITY := {
 	Type.REFUEL: 100,
 	Type.BUILD_FLOOR: 45,
 	Type.PLACE_CHEST: 40,
+	Type.PLACE_SAWMILL: 40,
+	Type.PLACE_CUTTER: 40,
+	Type.UPGRADE_WALL: 30,
+	Type.UPGRADE_DOOR: 31, # door before walls
+	Type.UPGRADE_CHEST: 32,
 }
 const CLAIM_TIMEOUT := 90.0
 
@@ -43,6 +48,11 @@ func cost() -> Dictionary:
 		Type.BUILD_DOOR: return Items.BUILD_COSTS["door"]
 		Type.BUILD_FLOOR: return Items.BUILD_COSTS["floor"]
 		Type.PLACE_CHEST: return Items.BUILD_COSTS["chest"]
+		Type.PLACE_SAWMILL: return Items.BUILD_COSTS["sawmill"]
+		Type.PLACE_CUTTER: return Items.BUILD_COSTS["cutter"]
+		Type.UPGRADE_WALL: return Items.BUILD_COSTS["wall_r"]
+		Type.UPGRADE_DOOR: return Items.BUILD_COSTS["door_r"]
+		Type.UPGRADE_CHEST: return Items.BUILD_COSTS["chest_r"]
 	return {"wood": 1}
 
 

@@ -2,6 +2,7 @@ class_name Brain
 ## Agent decision making (priority layers) and job execution.
 
 enum Move { ARRIVED, MOVING, FAILED }
+enum Obtain { WORKING, DONE, FAILED }
 
 const BLACKLIST_SECS := 60.0
 const NODE_SEARCH := 70.0
@@ -303,6 +304,7 @@ static func _run(a: Agent, dt: float) -> void:
 		Job.Kind.CHEST:
 			if _chest_step(a, j, dt):
 				_done(a)
+		Job.Kind.CRAFT: _run_craft(a, j, dt)
 
 
 static func _done(a: Agent) -> void:
@@ -374,6 +376,143 @@ static func _gather_step(a: Agent, j: Job, dt: float) -> bool:
 			World.remove_node(j.node)
 			j.node = null
 	return false
+
+
+## Get everything in `cost` into the inventory: group chest first, then gather raw
+## materials, processing them at a workshop machine for planks / handles / cut stone.
+static func _obtain_step(a: Agent, j: Job, cost: Dictionary, dt: float, bulk: int = 1) -> int:
+	if a.inv.has_cost(cost):
+		return Obtain.DONE
+	if j.chest:
+		if _chest_step(a, j, dt):
+			j.chest = null
+			j.item = ""
+		return Obtain.WORKING
+	if j.machine:
+		var r := _process_step(a, j, dt)
+		if r != Obtain.WORKING:
+			j.machine = null
+			j.item = ""
+			j.timer = 0.0
+		return Obtain.FAILED if r == Obtain.FAILED else Obtain.WORKING
+	if j.item == "" or a.inv.count(j.item) >= j.amount:
+		if not _pick_material(a, j, cost, bulk):
+			return Obtain.FAILED
+		if j.chest or j.machine or j.item == "":
+			return Obtain.WORKING
+	if a.free_space() <= 0:
+		GoalLadder.drop_junk(a, _keep_for(cost))
+	if _gather_step(a, j, dt) and a.inv.count(j.item) < j.amount and not a.inv.has_cost(cost):
+		return Obtain.FAILED
+	return Obtain.WORKING
+
+
+## Decide the next material step for the first missing item. False if it can't be had.
+static func _pick_material(a: Agent, j: Job, cost: Dictionary, bulk: int) -> bool:
+	j.item = ""
+	j.node = null
+	j.arrived = false
+	for k in cost:
+		var have := a.inv.count(k)
+		if have >= cost[k]:
+			continue
+		var want: int = max(min(cost[k] * bulk, have + a.free_space()), cost[k])
+		if a.free_space() > 0:
+			var ch := Stock.group_chest_with(a, k)
+			if ch:
+				j.chest = ch
+				j.transfer = {k: -(want - have)}
+				return true
+		if not Items.PROCESS.has(k):
+			if ResourceNode.type_for_item(k) < 0:
+				return false
+			j.item = k
+			j.amount = want
+			return true
+		var p: Dictionary = Items.PROCESS[k]
+		var raw_missing := ""
+		for rk in p["in"]:
+			if a.inv.count(rk) < p["in"][rk]:
+				raw_missing = rk
+		if raw_missing == "":
+			var m := Factions.nearest_machine(a, p.machine)
+			if m == null:
+				return false
+			j.machine = m
+			j.item = k
+			j.amount = want
+			j.timer = 0.0
+			return true
+		var batches := int(ceil(float(want - have) / p.out))
+		var raw_want: int = max(min(p["in"][raw_missing] * batches, a.inv.count(raw_missing) + a.free_space()), p["in"][raw_missing])
+		if a.free_space() > 0:
+			var ch := Stock.group_chest_with(a, raw_missing)
+			if ch:
+				j.chest = ch
+				j.transfer = {raw_missing: -(raw_want - a.inv.count(raw_missing))}
+				return true
+		j.item = raw_missing
+		j.amount = raw_want
+		return true
+	return true
+
+
+## Items not to throw away while collecting `cost` (including raw inputs of processed items).
+static func _keep_for(cost: Dictionary) -> Dictionary:
+	var keep := cost.duplicate()
+	for k in cost:
+		if Items.PROCESS.has(k):
+			for rk in Items.PROCESS[k]["in"]:
+				keep[rk] = 1
+	return keep
+
+
+## Stand at the machine and run batches until we have j.amount of j.item or run out of input.
+static func _process_step(a: Agent, j: Job, dt: float) -> int:
+	var m := j.machine
+	if m == null or World.furniture.get(m.cell) != m or m.house == null or not m.house.operational():
+		return Obtain.FAILED
+	var mv := move_to(a, m.cell, dt)
+	if mv == Move.FAILED:
+		_blacklist_cell(a, m.cell)
+		return Obtain.FAILED
+	if mv == Move.MOVING:
+		return Obtain.WORKING
+	var p: Dictionary = Items.PROCESS[j.item]
+	if a.inv.count(j.item) >= j.amount or not a.inv.has_cost(p["in"]):
+		return Obtain.DONE
+	j.timer += dt
+	if j.timer >= p.secs:
+		j.timer = 0.0
+		a.inv.pay(p["in"])
+		a.inv.add(j.item, p.out)
+		if j.task:
+			j.task.claim_time = SimClock.time
+	return Obtain.WORKING
+
+
+## Workshop-only recipes (raiding axe): collect materials, then craft at a workshop.
+static func _run_craft(a: Agent, j: Job, dt: float) -> void:
+	var cost: Dictionary = Items.RECIPES[j.then_craft]
+	var r := _obtain_step(a, j, cost, dt)
+	if r == Obtain.FAILED:
+		_done(a)
+		return
+	if r == Obtain.WORKING:
+		return
+	var m := Factions.nearest_machine(a, Furniture.Kind.SAWMILL)
+	if m == null:
+		_done(a)
+		return
+	var mv := move_to(a, m.cell, dt)
+	if mv == Move.FAILED:
+		_blacklist_cell(a, m.cell)
+		_done(a)
+	elif mv == Move.ARRIVED:
+		a.inv.pay(cost)
+		a.inv.add_tool(j.then_craft)
+		EventBus.log_event("%s crafts a %s." % [a.short(), j.then_craft.replace("_", " ")])
+		_done(a)
 
 
 ## Walk to j.chest and apply j.transfer. Returns true when finished (or impossible).
@@ -459,33 +598,11 @@ static func _run_task(a: Agent, j: Job, dt: float) -> void:
 			return
 		cost = {"wood": max(1, min(fire.wood_space(), a.capacity() / 2))}
 	if not a.inv.has_cost(cost):
-		if j.chest:
-			if _chest_step(a, j, dt):
-				j.chest = null
-				j.item = ""
-			return
-		if j.item == "" or a.inv.count(j.item) >= j.amount:
-			j.item = ""
-			for k in cost:
-				if a.inv.count(k) < cost[k]:
-					j.item = k
-					# Gather a bit extra for walls/floors so one trip covers several tasks.
-					var bulk := t.type == Task.Type.BUILD_WALL or t.type == Task.Type.BUILD_FLOOR
-					j.amount = cost[k] * (4 if bulk else 1)
-					j.amount = min(j.amount, a.inv.count(k) + a.free_space())
-					break
-			j.node = null
-			j.arrived = false
-			# Group chest first.
-			var ch := Stock.group_chest_with(a, j.item) if j.item != "" and a.free_space() > 0 else null
-			if ch:
-				j.chest = ch
-				j.transfer = {j.item: -(j.amount - a.inv.count(j.item))}
-				return
-		if a.free_space() <= 0:
-			GoalLadder.drop_junk(a, cost)
-		if _gather_step(a, j, dt) and not a.inv.has_cost(cost) and a.inv.count(j.item) < j.amount:
-			_done(a) # couldn't find materials
+		# Gather a bit extra for walls/floors so one trip covers several tasks.
+		var bulk := 4 if t.type in [Task.Type.BUILD_WALL, Task.Type.BUILD_FLOOR, Task.Type.UPGRADE_WALL] else 1
+		if _obtain_step(a, j, cost, dt, bulk) == Obtain.FAILED:
+			_blacklist_cell(a, t.cell)
+			_done(a) # couldn't get materials
 		return
 	j.item = ""
 	# Go to the site.
@@ -543,6 +660,46 @@ static func _perform_task(a: Agent, j: Job, t: Task, cost: Dictionary, dt: float
 			t.house.chest = World.place_furniture(t.cell, Furniture.Kind.CHEST, fid, t.house)
 			board.complete(t)
 			_done(a)
+		Task.Type.PLACE_SAWMILL, Task.Type.PLACE_CUTTER:
+			if World.furniture.has(t.cell) or t.house == null:
+				board.complete(t)
+				_done(a)
+				return
+			if not World.floors.has(t.cell):
+				_done(a)
+				return
+			a.inv.pay(cost)
+			var kind := Furniture.Kind.SAWMILL if t.type == Task.Type.PLACE_SAWMILL else Furniture.Kind.CUTTER
+			World.place_furniture(t.cell, kind, fid, t.house)
+			board.complete(t)
+			_done(a)
+		Task.Type.UPGRADE_WALL, Task.Type.UPGRADE_DOOR:
+			var w: Wall = World.walls.get(t.cell)
+			if (w and (w.tier >= 1 or w.owner_id != fid)) or (w == null and not World.can_build(t.cell, fid)):
+				board.complete(t)
+				_done(a)
+				return
+			# Break the old piece (no refund), then place the reinforced one (agreed).
+			if w:
+				World.remove_wall(w)
+			a.inv.pay(cost)
+			var door := t.type == Task.Type.UPGRADE_DOOR
+			World.place_wall(t.cell, door, fid, 1, door and t.house != null and t.house.is_workshop())
+			board.complete(t)
+			_done(a)
+		Task.Type.UPGRADE_CHEST:
+			var old: Furniture = t.house.live_chest() if t.house else null
+			if old == null or old.tier >= 1:
+				board.complete(t)
+				_done(a)
+				return
+			a.inv.pay(cost)
+			World.furniture.erase(old.cell)
+			var nc := World.place_furniture(old.cell, Furniture.Kind.CHEST, fid, t.house, 1)
+			nc.store = old.store # contents carry over
+			t.house.chest = nc
+			board.complete(t)
+			_done(a)
 		Task.Type.REFUEL:
 			var fire: Campfire = World.fires.get(t.cell)
 			if fire:
@@ -570,7 +727,7 @@ static func _perform_task(a: Agent, j: Job, t: Task, cost: Dictionary, dt: float
 				if j.timer > 20.0:
 					_done(a)
 				return
-			if t.type == Task.Type.PLACE_HOUSE_FIRE and not World.house_fire_spacing_ok(t.cell, t.house):
+			if t.type == Task.Type.PLACE_HOUSE_FIRE and not World.house_fire_spacing_ok(t.cell, t.house, fid, t.house.is_workshop()):
 				Factions.destroy_house(t.house)
 				_done(a)
 				return
@@ -582,7 +739,8 @@ static func _perform_task(a: Agent, j: Job, t: Task, cost: Dictionary, dt: float
 				if not a.faction.solo:
 					EventBus.log_event("%s claims land for %s." % [a.short(), a.faction.name])
 			else:
-				World.place_wall(t.cell, t.type == Task.Type.BUILD_DOOR, fid)
+				var door := t.type == Task.Type.BUILD_DOOR
+				World.place_wall(t.cell, door, fid, 0, door and t.house != null and t.house.is_workshop())
 				board.complete(t)
 			_done(a)
 

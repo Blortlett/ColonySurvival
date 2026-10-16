@@ -177,7 +177,7 @@ func passable(a: Agent, c: Vector2i) -> bool:
 		return true
 	if not w.is_door:
 		return false
-	if w.owner_id == a.faction.id:
+	if w.owner_id == a.faction.id or (w.shared and same_side(w.owner_id, a.faction.id)):
 		return true
 	var trap := house_at(a.cell())
 	return trap != null and trap.door_cell == c
@@ -194,6 +194,11 @@ func agents_near(p: Vector2, radius: float) -> Array:
 	return spatial.query(p, radius)
 
 
+## Same group (Phase D extends this to the same kingdom).
+func same_side(fa: int, fb: int) -> bool:
+	return fa == fb
+
+
 ## Faction id whose burning house fire claims this cell, or 0.
 func privilege_owner(c: Vector2i) -> int:
 	if zones_dirty:
@@ -208,19 +213,27 @@ func _rebuild_zones() -> void:
 	zone_map.resize(Cfg.MAP_W * Cfg.MAP_H)
 	zone_map.fill(0)
 	var r := Cfg.PRIVILEGE_RADIUS
-	for f in house_fires:
-		if not f.burning():
-			continue
-		for y in range(max(0, f.cell.y - r), min(Cfg.MAP_H, f.cell.y + r + 1)):
-			for x in range(max(0, f.cell.x - r), min(Cfg.MAP_W, f.cell.x + r + 1)):
-				zone_map[y * Cfg.MAP_W + x] = f.owner_id
+	# House fires first; workshop fires only claim cells no house fire claims.
+	for pass_workshops in [false, true]:
+		for f in house_fires:
+			if not f.burning() or _is_workshop_fire(f) != pass_workshops:
+				continue
+			for y in range(max(0, f.cell.y - r), min(Cfg.MAP_H, f.cell.y + r + 1)):
+				for x in range(max(0, f.cell.x - r), min(Cfg.MAP_W, f.cell.x + r + 1)):
+					var i := y * Cfg.MAP_W + x
+					if not pass_workshops or zone_map[i] == 0:
+						zone_map[i] = f.owner_id
+
+
+static func _is_workshop_fire(f: Campfire) -> bool:
+	return f.house != null and f.house.is_workshop()
 
 
 func can_build(c: Vector2i, fid: int) -> bool:
 	if not in_bounds(c) or is_solid(c) or loot.has(c):
 		return false
 	var po := privilege_owner(c)
-	if po != 0 and po != fid:
+	if po != 0 and not same_side(po, fid):
 		return false
 	return not agent_on(c)
 
@@ -274,8 +287,8 @@ func find_path(a: Agent, dest: Vector2i) -> Array[Vector2i]:
 	if SimClock.time < _path_fail.get(fail_key, -1.0):
 		return []
 	var opened: Array[Vector2i] = []
-	for h in a.faction.houses:
-		if walls.has(h.door_cell) and astar.is_point_solid(h.door_cell):
+	for h in a.faction.houses + Factions.shared_workshops(a.faction):
+		if walls.has(h.door_cell) and astar.is_point_solid(h.door_cell) and passable(a, h.door_cell):
 			opened.append(h.door_cell)
 	var trap := house_at(start)
 	if trap and trap.faction_id != a.faction.id and walls.has(trap.door_cell):
@@ -405,8 +418,9 @@ func _respawn_node(type: int) -> void:
 
 # --- Buildings ---
 
-func place_wall(c: Vector2i, door: bool, fid: int) -> Wall:
-	var w := Wall.new(c, door, fid)
+func place_wall(c: Vector2i, door: bool, fid: int, tier: int = 0, shared: bool = false) -> Wall:
+	var w := Wall.new(c, door, fid, tier)
+	w.shared = shared
 	walls[c] = w
 	astar.set_point_solid(c, true)
 	return w
@@ -430,7 +444,7 @@ func can_floor(c: Vector2i, fid: int) -> bool:
 	if not in_bounds(c) or is_solid(c) or floors.has(c):
 		return false
 	var po := privilege_owner(c)
-	return po == 0 or po == fid
+	return po == 0 or same_side(po, fid)
 
 
 func place_furniture(c: Vector2i, kind: int, fid: int, house, tier: int = 0) -> Furniture:
@@ -472,15 +486,27 @@ func remove_fire(f: Campfire) -> void:
 			Factions.destroy_house(f.house)
 
 
-## Valid spot for a house fire: no other house (planned or built) within 2R+1.
-func house_fire_spacing_ok(c: Vector2i, ignore: House = null) -> bool:
+## Valid spot for a house fire: no other side's house (planned or built) within 2R+1 (agreed).
+## A group's own buildings (and in Phase D its kingdom's) may sit closer together.
+## A workshop fire only has to stay outside other sides' zones (R+1); its zone yields to houses.
+func house_fire_spacing_ok(c: Vector2i, ignore: House = null, fid: int = -1, workshop: bool = false) -> bool:
+	var gap := Cfg.PRIVILEGE_RADIUS + 1 if workshop else Cfg.PRIVILEGE_RADIUS * 2 + 1
 	for h in all_houses():
-		if h != ignore and cheb(h.fire_cell, c) < Cfg.PRIVILEGE_RADIUS * 2 + 1:
+		if h != ignore and not same_side(h.faction_id, fid) and cheb(h.fire_cell, c) < gap:
 			return false
 	for f in house_fires:
-		if (ignore == null or f.house != ignore) and cheb(f.cell, c) < Cfg.PRIVILEGE_RADIUS * 2 + 1:
+		if (ignore == null or f.house != ignore) and not same_side(f.owner_id, fid) and cheb(f.cell, c) < gap:
 			return false
 	return true
+
+
+## True if the rect (grown by a 1-cell margin) overlaps any building footprint.
+func footprint_clash(outer: Rect2i, ignore: House = null) -> bool:
+	var r := outer.grow(1)
+	for h in all_houses():
+		if h != ignore and h.footprint().intersects(r):
+			return true
+	return false
 
 
 # --- Loot ---

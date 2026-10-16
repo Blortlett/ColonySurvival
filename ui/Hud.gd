@@ -163,7 +163,16 @@ func _fire_text(f: Campfire) -> String:
 	lines.append("Houses:")
 	for h in g.houses:
 		var fuel := "no fire" if h.fire == null else "%d/%d wood%s" % [h.fire.wood_left(), h.fire.max_wood(), "" if h.fire.burning() else " (out)"]
-		lines.append("  house %d%s  %s  %d/%d  %s" % [h.id, " *" if h.fire == f else "", House.State.keys()[h.state], h.occupants.size(), h.capacity, fuel])
+		var reinforced := 0
+		for c in h.wall_cells + [h.door_cell]:
+			var w: Wall = World.walls.get(c)
+			if w and w.tier > 0:
+				reinforced += 1
+		var tiers := "" if reinforced == 0 else "  reinforced %d/%d" % [reinforced, h.wall_cells.size() + 1]
+		if h.is_workshop():
+			lines.append("  workshop %d%s  %s  %s%s%s" % [h.id, " *" if h.fire == f else "", House.State.keys()[h.state], fuel, tiers, "  [working]" if h.operational() else ""])
+			continue
+		lines.append("  house %d%s  %s  %d/%d  %s%s" % [h.id, " *" if h.fire == f else "", House.State.keys()[h.state], h.occupants.size(), h.capacity, fuel, tiers])
 		var ch := h.live_chest()
 		lines.append("    chest: %s" % ("none" if ch == null else "%s %d/%d — %s" % [ch.label(), ch.store.total(), ch.slots(), ch.store.summary()]))
 	var counts := {}
@@ -207,5 +216,15 @@ func _furniture_text(fu: Furniture) -> String:
 	if fu.kind == Furniture.Kind.CHEST:
 		lines.append("Slots: %d/%d" % [fu.store.total(), fu.slots()])
 		lines.append("Contents: %s" % fu.store.summary())
+	else:
+		for item in Items.PROCESS:
+			var p: Dictionary = Items.PROCESS[item]
+			if p.machine == fu.kind:
+				var ins: Array[String] = []
+				for k in p["in"]:
+					ins.append("%d %s" % [p["in"][k], k])
+				lines.append("Recipe: %s -> %d %s  (%.0f s)" % [", ".join(ins), p.out, item, p.secs])
+		if fu.kind == Furniture.Kind.SAWMILL:
+			lines.append("Also: raiding axes are crafted here")
 	return "
 ".join(lines)

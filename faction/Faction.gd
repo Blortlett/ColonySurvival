@@ -41,5 +41,25 @@ func house_of(agent_id: int) -> House:
 	return null
 
 
+## A gang: a real group whose leader is angry (agreed).
+func is_gang() -> bool:
+	if solo:
+		return false
+	var l: Agent = World.agents.get(leader_id)
+	return l != null and l.is_angry()
+
+
+func homes() -> Array[House]:
+	var out: Array[House] = []
+	out.assign(houses.filter(func(h): return not h.is_workshop()))
+	return out
+
+
+func workshops() -> Array[House]:
+	var out: Array[House] = []
+	out.assign(houses.filter(func(h): return h.is_workshop()))
+	return out
+
+
 func display_name() -> String:
 	return "solo" if solo else name

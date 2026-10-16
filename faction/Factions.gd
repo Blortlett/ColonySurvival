@@ -143,18 +143,18 @@ static func make_servant(v: Agent, master: Agent) -> void:
 
 # --- Houses ---
 
-static func plan_house(f: Faction, cap: int) -> House:
+static func plan_house(f: Faction, cap: int, kind: int = House.Kind.HOUSE) -> House:
 	if SimClock.time < f.plan_retry_at:
 		return null
 	var t0 := Time.get_ticks_usec()
-	var h := _plan_house(f, cap)
+	var h := _plan_house(f, cap, kind)
 	World.prof_add("plan_house_ok" if h else "plan_house_fail", t0)
 	if h == null:
 		f.plan_retry_at = SimClock.time + 20.0 # crowded map: don't search every think
 	return h
 
 
-static func _plan_house(f: Faction, cap: int) -> House:
+static func _plan_house(f: Faction, cap: int, kind: int) -> House:
 	var leader: Agent = World.agents.get(f.leader_id)
 	if leader == null:
 		return null
@@ -163,31 +163,32 @@ static func _plan_house(f: Faction, cap: int) -> House:
 		if h.state != House.State.PLANNED:
 			anchor = h.fire_cell
 			break
-	var size := House.interior_size(cap)
+	var workshop := kind == House.Kind.WORKSHOP
+	var size := Cfg.WORKSHOP_SIZE if workshop else House.interior_size(cap)
 	var best: Rect2i
 	var best_d := INF
-	for i in 80:
+	for i in 120 if workshop else 80:
 		var r := Cfg.HOUSE_SITE_SEARCH
 		var c := anchor + Vector2i(World.rng.randi_range(-r, r), World.rng.randi_range(-r, r))
 		var interior := Rect2i(c - size / 2, size)
 		var d := Vector2(anchor).distance_to(Vector2(c))
-		if d < best_d and _site_ok(interior, f):
+		if d < best_d and _site_ok(interior, f, workshop):
 			best_d = d
 			best = interior
 	if best_d == INF:
 		return null
-	var h := House.new(f.id, best, cap)
+	var h := House.new(f.id, best, cap, kind)
 	f.houses.append(h)
 	f.board.post(Task.new(Task.Type.PLACE_HOUSE_FIRE, h.fire_cell, h))
 	return h
 
 
-static func _site_ok(interior: Rect2i, f: Faction) -> bool:
+static func _site_ok(interior: Rect2i, f: Faction, workshop: bool = false) -> bool:
 	var outer := interior.grow(1)
 	if outer.position.x < 1 or outer.position.y < 1 or outer.end.x > Cfg.MAP_W - 1 or outer.end.y > Cfg.MAP_H - 1:
 		return false
 	var fire_cell := interior.position + Vector2i(interior.size.x / 2, interior.size.y / 2)
-	if not World.house_fire_spacing_ok(fire_cell):
+	if not World.house_fire_spacing_ok(fire_cell, null, f.id, workshop) or World.footprint_clash(outer):
 		return false
 	# The cell outside the door must stay open, or the house is sealed (diagonals past walls are blocked).
 	var outside := Vector2i(fire_cell.x + 1, outer.end.y)
@@ -199,7 +200,7 @@ static func _site_ok(interior: Rect2i, f: Faction) -> bool:
 			if World.is_solid(c) or World.loot.has(c):
 				return false
 			var po := World.privilege_owner(c)
-			if po != 0 and po != f.id:
+			if po != 0 and not World.same_side(po, f.id):
 				return false
 	return World.nearest_node(ResourceNode.Type.TREE, fire_cell, Cfg.HOUSE_MAX_TREE_DIST) != null
 
@@ -228,9 +229,30 @@ static func _ensure_piece_tasks(f: Faction, h: House) -> void:
 	var d := h.door_cell
 	if not World.walls.has(d) and not have.has(Vector3i(d.x, d.y, Task.Type.BUILD_DOOR)):
 		f.board.post(Task.new(Task.Type.BUILD_DOOR, d, h))
-	var cc := h.chest_cell
-	if h.state == House.State.COMPLETE and h.live_chest() == null and not have.has(Vector3i(cc.x, cc.y, Task.Type.PLACE_CHEST)):
-		f.board.post(Task.new(Task.Type.PLACE_CHEST, cc, h))
+	if h.state != House.State.COMPLETE:
+		return
+	if h.is_workshop():
+		for m in [[h.saw_cell, Furniture.Kind.SAWMILL, Task.Type.PLACE_SAWMILL], [h.cutter_cell, Furniture.Kind.CUTTER, Task.Type.PLACE_CUTTER]]:
+			var mc: Vector2i = m[0]
+			if h.machine(m[1]) == null and not have.has(Vector3i(mc.x, mc.y, m[2])):
+				f.board.post(Task.new(m[2], mc, h))
+	else:
+		var cc := h.chest_cell
+		if h.live_chest() == null and not have.has(Vector3i(cc.x, cc.y, Task.Type.PLACE_CHEST)):
+			f.board.post(Task.new(Task.Type.PLACE_CHEST, cc, h))
+	if not h.reinforce:
+		return
+	# Upgrades, one task per basic piece (break, then replace; agreed).
+	for c in h.wall_cells:
+		var w: Wall = World.walls.get(c)
+		if w and w.tier == 0 and w.owner_id == f.id and not have.has(Vector3i(c.x, c.y, Task.Type.UPGRADE_WALL)):
+			f.board.post(Task.new(Task.Type.UPGRADE_WALL, c, h))
+	var dw: Wall = World.walls.get(d)
+	if dw and dw.tier == 0 and dw.owner_id == f.id and not have.has(Vector3i(d.x, d.y, Task.Type.UPGRADE_DOOR)):
+		f.board.post(Task.new(Task.Type.UPGRADE_DOOR, d, h))
+	var ch := h.live_chest()
+	if ch and ch.tier == 0 and not have.has(Vector3i(ch.cell.x, ch.cell.y, Task.Type.UPGRADE_CHEST)):
+		f.board.post(Task.new(Task.Type.UPGRADE_CHEST, ch.cell, h))
 
 
 ## Fire burnt out or house cancelled: the house is gone, its walls stay and decay.
@@ -278,7 +300,7 @@ static func housekeeping(f: Faction) -> void:
 				h.occupants.erase(oid) # removed straight away (agreed)
 		if h.state == House.State.PLANNED:
 			planned = true
-			if not World.house_fire_spacing_ok(h.fire_cell, h) or World.is_solid(h.fire_cell):
+			if not World.house_fire_spacing_ok(h.fire_cell, h, f.id, h.is_workshop()) or World.is_solid(h.fire_cell):
 				destroy_house(h)
 				planned = false
 				continue
@@ -287,7 +309,9 @@ static func housekeeping(f: Faction) -> void:
 				f.board.post(Task.new(Task.Type.REFUEL, h.fire_cell, h))
 			if h.state == House.State.BUILDING and _house_built(h):
 				h.state = House.State.COMPLETE
-				if not f.solo:
+				if h.is_workshop():
+					EventBus.log_event("%s finished a workshop." % f.name)
+				elif not f.solo:
 					EventBus.log_event("%s finished a house for %d." % [f.name, h.capacity])
 			_ensure_piece_tasks(f, h)
 	# Fill free slots with homeless members.
@@ -305,6 +329,58 @@ static func housekeeping(f: Faction) -> void:
 		if h:
 			while h.has_room() and homeless.size() > 0:
 				h.occupants.append(homeless.pop_front())
+	if not f.solo and not planned:
+		_workshop_goals(f)
+
+
+## Group ladder steps 4-6 (agreed): build a workshop (or use the kingdom's), then reinforce
+## the house, then the workshop.
+static func _workshop_goals(f: Faction) -> void:
+	var homes := f.homes()
+	if homes.is_empty():
+		return
+	var main: House = homes[0]
+	var ch := main.live_chest()
+	if main.state != House.State.COMPLETE or ch == null:
+		return
+	if ch.store.total() < min(ch.slots(), Cfg.STOCK_BERRIES_PER_MEMBER * f.members.size()) / 2:
+		return # stock the chest first
+	var shops := shared_workshops(f)
+	if shops.is_empty():
+		plan_house(f, 0, House.Kind.WORKSHOP)
+		return
+	if not shops.any(func(w): return w.operational()):
+		return
+	var houses_done := true
+	for h in homes:
+		if h.state == House.State.COMPLETE:
+			h.reinforce = true
+			if not h.fully_reinforced():
+				houses_done = false
+	if houses_done:
+		for w in f.workshops():
+			if w.state == House.State.COMPLETE:
+				w.reinforce = true
+
+
+## Workshops this group may use: its own (Phase D adds the kingdom's).
+static func shared_workshops(f: Faction) -> Array[House]:
+	return f.workshops()
+
+
+## Nearest usable machine of this kind for the agent, within range.
+static func nearest_machine(a: Agent, kind: int) -> Furniture:
+	var best: Furniture = null
+	var best_d := Cfg.WORKSHOP_RANGE
+	for w in shared_workshops(a.faction):
+		if not w.operational():
+			continue
+		var m := w.machine(kind)
+		var d := a.pos.distance_to(World.center(m.cell))
+		if d < best_d and not Brain._blacklisted(a, m.cell):
+			best_d = d
+			best = m
+	return best
 
 
 static func _house_built(h: House) -> bool:

@@ -10,6 +10,11 @@ const FLOOR := Color(0.50, 0.36, 0.22)
 const FLOOR_LINE := Color(0.40, 0.28, 0.16)
 const CHEST := Color(0.55, 0.33, 0.12)
 const CHEST_BAND := Color(0.25, 0.15, 0.06)
+const WALL_R := Color(0.33, 0.22, 0.12)
+const DOOR_R := Color(0.52, 0.36, 0.20)
+const METAL := Color(0.62, 0.62, 0.66)
+const SAWMILL := Color(0.62, 0.48, 0.30)
+const CUTTER := Color(0.45, 0.45, 0.50)
 
 var show_zones := true
 
@@ -49,9 +54,17 @@ func _draw() -> void:
 			draw_circle(p + half + Vector2(cos(ang), sin(ang)) * s * 0.22, s * 0.09, BERRY)
 	for w in World.walls.values():
 		var p := Vector2(w.cell) * s
-		var col := DOOR if w.is_door else WALL
+		var col: Color
+		if w.tier > 0:
+			col = DOOR_R if w.is_door else WALL_R
+		else:
+			col = DOOR if w.is_door else WALL
 		col = col.darkened(0.5 * (1.0 - w.hp / w.max_hp))
 		draw_rect(Rect2(p, Vector2(s, s)), col)
+		if w.tier > 0:
+			# Plank seams, and iron bands on doors.
+			draw_line(p + Vector2(s * 0.5, 0), p + Vector2(s * 0.5, s), col.darkened(0.35), 1.0)
+			draw_rect(Rect2(p, Vector2(s, s)), METAL if w.is_door else col.darkened(0.3), false, 1.0)
 		if w.is_door:
 			var fac: Faction = World.factions.get(w.owner_id)
 			if fac:
@@ -76,4 +89,11 @@ func _draw_furniture(fu: Furniture, p: Vector2, s: float) -> void:
 			draw_rect(r, CHEST)
 			draw_rect(Rect2(r.position + Vector2(0, r.size.y * 0.35), Vector2(r.size.x, s * 0.1)), CHEST_BAND)
 			if fu.tier > 0:
-				draw_rect(r, Color(0.7, 0.7, 0.75), false, 1.5)
+				draw_rect(r, METAL, false, 1.5)
+		Furniture.Kind.SAWMILL:
+			draw_rect(Rect2(p + Vector2(s * 0.1, s * 0.3), Vector2(s * 0.8, s * 0.4)), SAWMILL)
+			draw_circle(p + Vector2(s * 0.5, s * 0.5), s * 0.28, METAL)
+			draw_circle(p + Vector2(s * 0.5, s * 0.5), s * 0.08, SAWMILL.darkened(0.4))
+		Furniture.Kind.CUTTER:
+			draw_rect(Rect2(p + Vector2(s * 0.12, s * 0.12), Vector2(s * 0.76, s * 0.76)), CUTTER)
+			draw_rect(Rect2(p + Vector2(s * 0.12, s * 0.45), Vector2(s * 0.76, s * 0.1)), CUTTER.darkened(0.5))

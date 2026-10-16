@@ -69,6 +69,11 @@ const HOUSE_SITE_SEARCH := 30
 const HOUSE_MAX_TREE_DIST := 25
 const FURNITURE_PER_HOUSE := 1 # the chest (agreed)
 
+# --- Workshops (Phase C) ---
+const WORKSHOP_SIZE := Vector2i(5, 4) # fixed interior: fire + sawmill + stone cutter (agreed, starting value)
+const WORKSHOP_RANGE := 90.0 # how far agents walk to a workshop to process or craft
+const RAID_AXES_PER_GANG := 3 # gangs craft up to this many raiding axes (or one per member)
+
 # --- Chests (Phase B) ---
 const STOCK_BERRIES_PER_MEMBER := 5 # (agreed)
 const HOME_RANGE := 40.0 # how far from home an agent still uses the chest

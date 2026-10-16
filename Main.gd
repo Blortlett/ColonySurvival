@@ -48,6 +48,15 @@ func _shot(minutes: int) -> void:
 	for frame in 3:
 		await get_tree().process_frame
 	get_viewport().get_texture().get_image().save_png("user://shot_zoom.png")
+	# A working workshop, if any, with its group panel.
+	for h in World.all_houses():
+		if h.operational():
+			_camera.position = World.center(h.fire_cell) * Cfg.CELL
+			_hud.selected_fire = h.fire
+			for frame in 3:
+				await get_tree().process_frame
+			get_viewport().get_texture().get_image().save_png("user://shot_workshop.png")
+			break
 	print("shots saved to ", ProjectSettings.globalize_path("user://"))
 	get_tree().quit()
 
@@ -95,9 +104,28 @@ func _bench_line(minute: int, ms: int) -> String:
 		if fu.kind == Furniture.Kind.CHEST:
 			chests += 1
 			stored += fu.store.total()
-	return "min %3d | %4d ms | deaths %d | moods %s | factions %d servants %d | houses %s | fires %d walls %d floors %d | chests %d (%d items) | tools %d | warm %.2f hunger %.2f | jobs %s" % [
+	var shops := 0
+	var working := 0
+	for h in World.all_houses():
+		if h.is_workshop():
+			shops += 1
+			if h.operational():
+				working += 1
+	var reinforced := 0
+	for w in World.walls.values():
+		if w.tier > 0:
+			reinforced += 1
+	var raid_axes := 0
+	var processed := 0
+	for a in World.agent_list:
+		processed += a.inv.count("plank") + a.inv.count("handle") + a.inv.count("cut_stone")
+		for t in a.inv.tools:
+			if t.type == "raiding_axe":
+				raid_axes += 1
+	return "min %3d | %4d ms | deaths %d | moods %s | factions %d servants %d | houses %s | fires %d walls %d (reinf %d) floors %d | chests %d (%d items) | workshops %d (working %d) | processed %d raid_axes %d | tools %d | warm %.2f hunger %.2f | jobs %s" % [
 		minute, ms, World.deaths, moods, Factions.real_count(), servants, houses,
-		World.fires.size(), World.walls.size(), World.floors.size(), chests, stored, tools, warmth / n, hunger / n, jobs]
+		World.fires.size(), World.walls.size(), reinforced, World.floors.size(), chests, stored, shops, working,
+		processed, raid_axes, tools, warmth / n, hunger / n, jobs]
 
 
 func _process(delta: float) -> void:

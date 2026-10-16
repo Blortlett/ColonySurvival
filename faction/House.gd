@@ -1,12 +1,15 @@
 class_name House
 extends RefCounted
-## A rectangle of walls with one door, a house fire in the middle, wood floors and furniture.
+## A rectangle of walls with one door, a fire in the middle, wood floors and furniture.
+## A WORKSHOP is the same building with a sawmill and stone cutter instead of a chest and occupants.
 
 enum State { PLANNED, BUILDING, COMPLETE }
+enum Kind { HOUSE, WORKSHOP }
 
 static var _next_id := 1
 
 var id: int
+var kind := Kind.HOUSE
 var faction_id: int
 var state := State.PLANNED
 var interior: Rect2i
@@ -19,11 +22,15 @@ var capacity: int
 var occupants: Array[int] = []
 var fire: Campfire = null
 var chest: Furniture = null
+var saw_cell := Vector2i(-1, -1) # workshops
+var cutter_cell := Vector2i(-1, -1)
+var reinforce := false # upgrade walls, door and chest to reinforced
 
 
-func _init(fid: int, interior_rect: Rect2i, cap: int) -> void:
+func _init(fid: int, interior_rect: Rect2i, cap: int, k: Kind = Kind.HOUSE) -> void:
 	id = _next_id
 	_next_id += 1
+	kind = k
 	faction_id = fid
 	interior = interior_rect
 	capacity = cap
@@ -43,7 +50,12 @@ func _init(fid: int, interior_rect: Rect2i, cap: int) -> void:
 			var c := Vector2i(x, y)
 			if c != fire_cell:
 				floor_cells.append(c)
-	chest_cell = interior.position # top-left corner, away from the door
+	if kind == Kind.WORKSHOP:
+		chest_cell = Vector2i(-1, -1)
+		saw_cell = interior.position
+		cutter_cell = interior.position + Vector2i(interior.size.x - 1, 0)
+	else:
+		chest_cell = interior.position # top-left corner, away from the door
 
 
 ## Interior size needed: CELLS_PER_OCCUPANT per occupant + 1 for the fire + 1 per furniture piece.
@@ -60,6 +72,36 @@ func footprint() -> Rect2i:
 
 func has_room() -> bool:
 	return occupants.size() < capacity
+
+
+func is_workshop() -> bool:
+	return kind == Kind.WORKSHOP
+
+
+func label() -> String:
+	return "workshop" if kind == Kind.WORKSHOP else "house"
+
+
+## A workshop machine, if it's still standing.
+func machine(k: int) -> Furniture:
+	var c := saw_cell if k == Furniture.Kind.SAWMILL else cutter_cell
+	var fu: Furniture = World.furniture.get(c)
+	return fu if fu and fu.kind == k and fu.house == self else null
+
+
+## Workshop ready for processing: built, fire burning, both machines in place.
+func operational() -> bool:
+	return kind == Kind.WORKSHOP and state == State.COMPLETE and fire != null and fire.burning() 		and machine(Furniture.Kind.SAWMILL) != null and machine(Furniture.Kind.CUTTER) != null
+
+
+## Every wall, the door and the chest are reinforced.
+func fully_reinforced() -> bool:
+	for c in wall_cells + [door_cell]:
+		var w: Wall = World.walls.get(c)
+		if w == null or w.tier < 1:
+			return false
+	var ch := live_chest()
+	return kind == Kind.WORKSHOP or (ch != null and ch.tier >= 1)
 
 
 ## The chest, if it's still standing.
