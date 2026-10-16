@@ -424,6 +424,35 @@ Each phase ends with something runnable that you can watch.
 
 ---
 
+## 11b. Implementation Notes (v1 build)
+
+Where the code differs from the plan above, or adds to it:
+
+- **Agents are data objects, not nodes.** `Agent` extends `RefCounted`, and one `AgentLayer` draws all of them each frame. This is cheaper than 120 `Node2D`s and keeps the sim logic separate from rendering.
+- **Every agent is always in a `Faction`.** An unfactioned agent has a *solo* faction (one member, its own board and house). Forming or joining a faction just changes membership, and the leader's solo faction becomes the shared one. That way the house, fire, door and task board code is the same for solo agents and teams.
+- **Door placement.** The door sits one column right of the fire. With the door directly below the fire, the interior of a 1-person house could only be reached diagonally past a corner, so it was effectively sealed.
+- **Privilege zones are cached** in a per-cell map that is rebuilt only when a house fire starts or stops burning.
+- **Failed pathfinding is cached for 10 s per agent and destination.** Unreachable fires and tasks are blacklisted for 60 s. A failed A* search floods the whole map, so failures must not be retried.
+- **Idle behaviour.** Once the goal ladder is done, angry agents prowl toward nearby strangers (up to 40 cells). Happy agents sometimes seek company. Settled agents idle near their home fire.
+- **Actual layout:** `core/Cfg.gd` (all tunables), `autoload/` (SimClock, EventBus), `world/` (World autoload, WorldGen, SpatialHash), `entities/`, `agent/` (Agent, Inventory, Job, Brain, GoalLadder), `social/Social.gd`, `combat/` (Combat, Items), `faction/` (Faction, Factions, House, Task, TaskBoard), `render/`, `ui/`.
+
+### Test and tuning commands
+```
+# headless fast-forward, prints per-minute stats, death causes and a profile
+Godot_v4.7.2-stable_win64.exe --headless --path . -- --bench=30
+# windowed: fast-forward N minutes, save full-map + zoomed screenshots to user://
+Godot_v4.7.2-stable_win64.exe --path . -- --shot=5
+```
+
+### First playtest observations (seed 12345)
+- Performance: about 1.5 s of real time per sim minute in bench mode (about 2.5 ms per 0.1 s step), so 16× runs in real time comfortably.
+- Around 30 factions and 30 complete houses form within 5 minutes. Most deaths happen in the first 15 minutes, and almost all are combat.
+- **The anarchy settles.** Angry agents fall from 20% to about 6–10% by minute 30, through faction mood drift and combat deaths. Things to try first if it's too peaceful:
+  - Remove the +10 mood for joining a gang.
+  - Make berries scarcer.
+  - Let mood drift only pull toward the *leader's* mood.
+- Cold and hunger almost never kill anyone; needs are easy to meet. Try tightening `BUSH_REGROW_SECS` or the wood economy.
+
 ## 12. Out of Scope for v1 (Next Sprints)
 - **Raids:** agents deliberately attacking walls and doors.
 - Births and reproduction.
