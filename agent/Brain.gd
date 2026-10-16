@@ -403,6 +403,7 @@ static func _run_place_wild_fire(a: Agent) -> void:
 		if World.can_build(c, a.faction.id):
 			a.inv.pay(cost)
 			var f := World.place_fire(c, false, a.faction.id)
+			f.placed_by = a.id
 			var j := Job.new(Job.Kind.WARM, Job.PRIO_NEEDS)
 			j.fire = f
 			set_job(a, j)

@@ -1,8 +1,10 @@
 extends CanvasLayer
-## Top bar (time, speed, counts), event log, and the agent inspector.
+## Top bar (time, speed, counts), event log, and the inspector (agent, fire/group or loot bag).
 
 var agent_layer: Node2D
 var dynamic_layer: Node2D
+var selected_fire: Campfire = null
+var selected_loot: LootBag = null
 
 var _top: Label
 var _log: Label
@@ -85,8 +87,16 @@ func _process(dt: float) -> void:
 
 func _update_inspector() -> void:
 	var a: Agent = World.agents.get(agent_layer.selected_id)
-	_inspector.visible = a != null
+	if selected_fire and World.fires.get(selected_fire.cell) != selected_fire:
+		selected_fire = null # burned out / destroyed
+	if selected_loot and World.loot.get(selected_loot.cell) != selected_loot:
+		selected_loot = null # picked up / despawned
+	_inspector.visible = a != null or selected_fire != null or selected_loot != null
 	if a == null:
+		if selected_fire:
+			_insp_label.text = _fire_text(selected_fire)
+		elif selected_loot:
+			_insp_label.text = _loot_text(selected_loot)
 		return
 	var f := a.faction
 	var lines: Array[String] = []
@@ -116,3 +126,67 @@ func _update_inspector() -> void:
 			parts.append("#%d:%+d" % [k, a.opinions[k]])
 		lines.append("Opinions: %s" % " ".join(parts))
 	_insp_label.text = "\n".join(lines)
+
+
+func _fire_text(f: Campfire) -> String:
+	var lines: Array[String] = []
+	if not f.is_house:
+		lines.append("Wild fire   (%s)" % ("burning" if f.burning() else "out"))
+		var by: Agent = World.agents.get(f.placed_by)
+		lines.append("Placed by: %s" % ("#%d" % f.placed_by if by else ("#%d (dead)" % f.placed_by if f.placed_by != -1 else "unknown")))
+		lines.append("Fuel: %d/%d wood" % [f.wood_left(), f.max_wood()])
+		return "
+".join(lines)
+	var g: Faction = World.factions.get(f.house.faction_id if f.house else f.owner_id)
+	if g == null:
+		return "House fire (no group)"
+	var leader: Agent = World.agents.get(g.leader_id)
+	var gang := not g.solo and leader != null and leader.is_angry()
+	lines.append("Group %s%s" % [g.display_name(), "   [GANG]" if gang else ""])
+	lines.append("Leader: %s   Members %d/%d" % [leader.short() if leader else "—", g.members.size(), Cfg.FACTION_MAX])
+	lines.append("Kingdom: —   Relations: —")
+	for id in g.members:
+		var m: Agent = World.agents.get(id)
+		if m == null:
+			continue
+		var role := "leader" if id == g.leader_id and not g.solo else "member"
+		if m.is_servant():
+			role = "servant of #%d" % m.master_id
+		elif m.servants.size() > 0:
+			role += ", master of %s" % ", ".join(m.servants.map(func(i): return "#%d" % i))
+		lines.append("  %s  %s  (%s %d)" % [m.short(), role, m.mood_label(), m.mood])
+	lines.append("Houses:")
+	for h in g.houses:
+		var fuel := "no fire" if h.fire == null else "%d/%d wood%s" % [h.fire.wood_left(), h.fire.max_wood(), "" if h.fire.burning() else " (out)"]
+		lines.append("  house %d%s  %s  %d/%d  %s  chest —" % [h.id, " *" if h.fire == f else "", House.State.keys()[h.state], h.occupants.size(), h.capacity, fuel])
+	var counts := {}
+	var claimed := 0
+	for t in g.board.tasks:
+		counts[t.label()] = counts.get(t.label(), 0) + 1
+		if t.claimed_by != -1:
+			claimed += 1
+	var parts: Array[String] = []
+	for k in counts:
+		parts.append("%s x%d" % [k, counts[k]])
+	lines.append("Board: %d tasks (%d claimed)%s" % [g.board.tasks.size(), claimed, "" if parts.is_empty() else "
+  " + ", ".join(parts)])
+	return "
+".join(lines)
+
+
+func _loot_text(b: LootBag) -> String:
+	var lines: Array[String] = []
+	lines.append("Loot bag   (despawns in %ds)" % int(ceil(b.timer)))
+	lines.append("Dropped by: %s" % ("unknown" if b.dropper_id == -1 else "#%d" % b.dropper_id))
+	lines.append("Why: %s" % (b.reason if b.reason != "" else "unknown"))
+	var parts: Array[String] = []
+	for k in b.stacks:
+		parts.append("%s x%d" % [k, b.stacks[k]])
+	lines.append("Items: %s" % ("none" if parts.is_empty() else ", ".join(parts)))
+	if b.tools.size() > 0:
+		var tp: Array[String] = []
+		for t in b.tools:
+			tp.append("%s (%d/%d)" % [t.type, t.dur, Items.DURABILITY[t.type]])
+		lines.append("Tools: %s" % ", ".join(tp))
+	return "
+".join(lines)

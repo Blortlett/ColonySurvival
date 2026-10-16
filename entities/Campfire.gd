@@ -8,6 +8,7 @@ var owner_id: int # faction id of whoever placed it
 var fuel_secs: float
 var unlit_secs := 0.0
 var house = null # House, for house fires
+var placed_by := -1 # agent id, for wild fires
 
 
 func _init(c: Vector2i, house_fire: bool, owner: int) -> void:

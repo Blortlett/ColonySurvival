@@ -6,6 +6,8 @@ var cell: Vector2i
 var stacks := {} # item -> count
 var tools: Array = [] # [{type, dur}]
 var timer := Cfg.LOOT_DESPAWN
+var dropper_id := -1 # agent whose stuff this was
+var reason := "" # "killed by #X" / "died of cold" / "died of hunger" / "dumped junk"
 
 
 func _init(c: Vector2i) -> void:

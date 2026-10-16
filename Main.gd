@@ -43,8 +43,8 @@ func _shot(minutes: int) -> void:
 	if busiest:
 		_camera.position = World.center(busiest.fire_cell) * Cfg.CELL
 		_camera.zoom = Vector2.ONE * 2.5
-		var a: Agent = World.agents.get(busiest.occupants[0]) if busiest.occupants.size() > 0 else null
-		_agents.selected_id = a.id if a else -1
+		_agents.selected_id = -1
+		_hud.selected_fire = busiest.fire # show the group panel
 	for frame in 3:
 		await get_tree().process_frame
 	get_viewport().get_texture().get_image().save_png("user://shot_zoom.png")
@@ -116,5 +116,36 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_L: _agents.show_labels = not _agents.show_labels
 	elif event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 		var p := get_global_mouse_position() / Cfg.CELL
+		# Priority: agent -> fire -> loot bag.
 		var a := World.agent_at_point(p, 1.5)
 		_agents.selected_id = a.id if a else -1
+		_hud.selected_fire = null if a else _fire_at(p)
+		_hud.selected_loot = null if a or _hud.selected_fire else _loot_at(p)
+
+
+## A fire on/next to the clicked cell, or the fire of the house whose interior was clicked.
+func _fire_at(p: Vector2) -> Campfire:
+	var c := Vector2i(p.floor())
+	var best: Campfire = null
+	var best_d := 1.5
+	for f in World.fires.values():
+		var d := World.center(f.cell).distance_to(p)
+		if d < best_d:
+			best_d = d
+			best = f
+	if best == null:
+		var h := World.house_at(c)
+		if h and h.fire:
+			best = h.fire
+	return best
+
+
+func _loot_at(p: Vector2) -> LootBag:
+	var best: LootBag = null
+	var best_d := 1.5
+	for b in World.loot.values():
+		var d := World.center(b.cell).distance_to(p)
+		if d < best_d:
+			best_d = d
+			best = b
+	return best

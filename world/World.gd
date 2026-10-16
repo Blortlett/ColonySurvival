@@ -442,7 +442,7 @@ func house_fire_spacing_ok(c: Vector2i, ignore: House = null) -> bool:
 
 # --- Loot ---
 
-func drop_loot(c: Vector2i, stacks: Dictionary, tools: Array) -> void:
+func drop_loot(c: Vector2i, stacks: Dictionary, tools: Array, dropper_id: int = -1, reason: String = "") -> void:
 	if stacks.is_empty() and tools.is_empty():
 		return
 	if is_solid(c):
@@ -458,6 +458,8 @@ func drop_loot(c: Vector2i, stacks: Dictionary, tools: Array) -> void:
 		bag.stacks[k] = bag.stacks.get(k, 0) + stacks[k]
 	bag.tools.append_array(tools)
 	bag.timer = Cfg.LOOT_DESPAWN
+	bag.dropper_id = dropper_id
+	bag.reason = reason
 
 
 func take_loot(a: Agent, bag: LootBag) -> void:
@@ -522,7 +524,8 @@ func kill_agent(a: Agent, killer: Agent) -> void:
 		return
 	a.alive = false
 	deaths += 1
-	drop_loot(a.cell(), a.inv.stacks.duplicate(), a.inv.tools.duplicate())
+	var why := ("killed by %s" % killer.short()) if killer else ("died of %s" % ("cold" if a.warmth <= 0.0 else "hunger"))
+	drop_loot(a.cell(), a.inv.stacks.duplicate(), a.inv.tools.duplicate(), a.id, why)
 	if killer:
 		death_causes.killed += 1
 	else:

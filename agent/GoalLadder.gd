@@ -70,5 +70,5 @@ static func drop_junk(a: Agent, keep: Dictionary) -> void:
 		return
 	var n := int(ceil(worst_n / 2.0))
 	a.inv.remove(worst, n)
-	World.drop_loot(a.cell(), {worst: n}, [])
+	World.drop_loot(a.cell(), {worst: n}, [], a.id, "dumped junk")
 	Brain._blacklist_cell(a, a.cell()) # don't immediately pick it back up
