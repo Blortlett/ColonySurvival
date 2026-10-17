@@ -28,6 +28,10 @@ const BUILD_COSTS := {
 	"wall_r": {"plank": 2},
 	"door_r": {"plank": 2, "handle": 1},
 	"chest_r": {"plank": 4, "handle": 1},
+	# City (Phase E).
+	"road": {"stone": 1}, # 1.3x speed (agreed)
+	"road_r": {"cut_stone": 1}, # paved, 1.5x speed (agreed)
+	"board": {"wood": 4}, # kingdom board (agreed)
 	# Workshop machines (starting values).
 	"sawmill": {"wood": 6, "stone": 2},
 	"cutter": {"wood": 4, "stone": 4},
@@ -50,6 +54,8 @@ const PROCESS := {
 # Walls and doors take damage from melee weapons; the raiding axe does x5 (agreed).
 const RAID_AXE_DAMAGE := 12.5 # x5 = 62.5: about 4 hits on a reinforced wall
 const RAID_AXE_WALL_MULT := 5.0
+
+const ROAD_SPEED := [1.0, 1.3, 1.5] # none, stone, paved (agreed)
 
 # Weapons: damage, reach in cells (center distance), cooldown seconds.
 const WEAPONS := {

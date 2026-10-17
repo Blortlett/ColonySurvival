@@ -1,10 +1,13 @@
 extends Node2D
 ## Ground, trees, rocks and hemp. Only redrawn when nodes change.
 
-const GRASS := Color(0.30, 0.42, 0.22)
-const TREE := Color(0.08, 0.26, 0.10)
-const ROCK := Color(0.52, 0.52, 0.55)
-const HEMP := Color(0.72, 0.80, 0.35)
+# Darker, Songs of Syx-leaning palette (Phase E visual pass).
+const GRASS := Color(0.23, 0.31, 0.17)
+const TREE := Color(0.06, 0.18, 0.08)
+const TREE_HI := Color(0.10, 0.25, 0.11)
+const ROCK := Color(0.40, 0.40, 0.42)
+const ROCK_HI := Color(0.50, 0.50, 0.52)
+const HEMP := Color(0.58, 0.63, 0.30)
 
 
 func _process(_dt: float) -> void:
@@ -21,7 +24,9 @@ func _draw() -> void:
 		match n.type:
 			ResourceNode.Type.TREE:
 				draw_circle(p + Vector2(s, s) * 0.5, s * 0.48, TREE)
+				draw_circle(p + Vector2(s * 0.42, s * 0.42), s * 0.22, TREE_HI)
 			ResourceNode.Type.ROCK:
 				draw_rect(Rect2(p + Vector2(1, 1), Vector2(s - 2, s - 2)), ROCK)
+				draw_rect(Rect2(p + Vector2(2, 2), Vector2(s * 0.45, s * 0.35)), ROCK_HI)
 			ResourceNode.Type.HEMP:
 				draw_circle(p + Vector2(s, s) * 0.5, s * 0.25, HEMP)

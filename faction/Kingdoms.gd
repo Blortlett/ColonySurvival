@@ -116,6 +116,7 @@ static func update_all() -> void:
 			dissolve(k)
 		else:
 			recompute(k)
+			Cities.update(k)
 
 
 ## Workshops the kingdom aims for: 1, plus 1 more per 4 groups (agreed).

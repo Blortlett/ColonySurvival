@@ -155,6 +155,14 @@ func _fire_text(f: Campfire) -> String:
 		var lead: Faction = World.factions.get(k.leading_fid)
 		lines.append("Kingdom: %s   King: %s   Leading group: %s" % [k.name, king.short() if king else "—", lead.name if lead else "—"])
 		lines.append("  Groups (%d/%d): %s" % [k.groups.size(), Cfg.KINGDOM_MAX_GROUPS, ", ".join(k.members().map(func(x): return "%s (AUTH %d)" % [x.name, x.total_auth()]))])
+		if k.has_city:
+			var road_cells := Cities.city_road_cells(k)
+			var built := 0
+			var paved := 0
+			for c in road_cells:
+				built += 1 if World.roads.has(c) else 0
+				paved += 1 if World.roads.get(c, 0) >= 2 else 0
+			lines.append("  City: %d plots   roads %d/%d (paved %d)" % [k.plots.size(), built, road_cells.size(), paved])
 	else:
 		lines.append("Kingdom: none%s" % ("  (gangs never ally)" if gang else ""))
 	var wars := Wars.enemies_of(g)
@@ -185,7 +193,7 @@ func _fire_text(f: Campfire) -> String:
 		if h.is_workshop():
 			lines.append("  workshop %d%s  %s  %s%s%s" % [h.id, " *" if h.fire == f else "", House.State.keys()[h.state], fuel, tiers, "  [working]" if h.operational() else ""])
 			continue
-		lines.append("  house %d%s  %s  %d/%d  %s%s" % [h.id, " *" if h.fire == f else "", House.State.keys()[h.state], h.occupants.size(), h.capacity, fuel, tiers])
+		lines.append("  house %d%s%s  %s  %d/%d  %s%s" % [h.id, " *" if h.fire == f else "", " [plot %d,%d]" % [h.plot.x, h.plot.y] if h.plot_kid != -1 else "", House.State.keys()[h.state], h.occupants.size(), h.capacity, fuel, tiers])
 		var ch := h.live_chest()
 		lines.append("    chest: %s" % ("none" if ch == null else "%s %d/%d — %s" % [ch.label(), ch.store.total(), ch.slots(), ch.store.summary()]))
 	var counts := {}
@@ -238,6 +246,10 @@ func _furniture_text(fu: Furniture) -> String:
 	if fu.kind == Furniture.Kind.CHEST:
 		lines.append("Slots: %d/%d" % [fu.store.total(), fu.slots()])
 		lines.append("Contents: %s" % fu.store.summary())
+	elif fu.kind == Furniture.Kind.BOARD:
+		if g and g.kingdom:
+			lines.append("Kingdom: %s" % g.kingdom.name)
+			lines.append("Tasks: %s" % _board_summary(g.kingdom.board))
 	else:
 		for item in Items.PROCESS:
 			var p: Dictionary = Items.PROCESS[item]

@@ -75,8 +75,9 @@ static func _trade(a: Agent, b: Agent) -> void:
 		if give_b != "":
 			b.inv.remove(give_b, 2)
 			a.inv.add(give_b, 2)
-		a.change_mood(5.0)
-		b.change_mood(5.0)
+		if give_a != "" and give_b != "":
+			a.change_mood(5.0) # a real swap cheers both up (v1); a one-way hand-over doesn't
+			b.change_mood(5.0)
 		a.change_opinion(b.id, 10.0)
 		b.change_opinion(a.id, 10.0)
 		Relations.change(a.faction, b.faction, Cfg.REL_TRADE)

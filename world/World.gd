@@ -13,6 +13,7 @@ var node_buckets: Array = [{}, {}, {}, {}] # per ResourceNode.Type: bucket -> Ar
 var bushes: Array[ResourceNode] = []
 var walls := {} # Vector2i -> Wall (walls and doors)
 var floors := {} # Vector2i -> Floor
+var roads := {} # Vector2i -> tier (1 stone, 2 paved)
 var furniture := {} # Vector2i -> Furniture (chests, machines, boards)
 var fires := {} # Vector2i -> Campfire
 var house_fires: Array[Campfire] = []
@@ -125,19 +126,20 @@ func _per_second(s: float) -> void:
 			if b.regrow_timer >= Cfg.BUSH_REGROW_SECS:
 				b.regrow_timer = 0.0
 				b.amount += 1
-	# Walls outside any burning house fire's zone decay (agreed: 10 min to 0).
+	# Walls outside any burning house fire's zone decay (agreed: 10 min to 0); so do abandoned
+	# pieces and pieces standing in another side's zone. Floors and furniture too.
 	for w in walls.values().duplicate():
-		if privilege_owner(w.cell) == 0:
+		if _unprotected(w.cell, w.owner_id):
 			w.hp -= w.max_hp / Cfg.WALL_DECAY_SECS * s
 			if w.hp <= 0.0:
 				remove_wall(w)
 	for fl in floors.values().duplicate():
-		if privilege_owner(fl.cell) == 0:
+		if _unprotected(fl.cell, fl.owner_id):
 			fl.hp -= fl.max_hp / Cfg.WALL_DECAY_SECS * s
 			if fl.hp <= 0.0:
 				floors.erase(fl.cell)
 	for fu in furniture.values().duplicate():
-		if privilege_owner(fu.cell) == 0:
+		if fu.kind != Furniture.Kind.BOARD and _unprotected(fu.cell, fu.owner_id):
 			fu.hp -= fu.max_hp / Cfg.WALL_DECAY_SECS * s
 			if fu.hp <= 0.0:
 				remove_furniture(fu)
@@ -200,6 +202,13 @@ func agent_on(c: Vector2i) -> bool:
 
 func agents_near(p: Vector2, radius: float) -> Array:
 	return spatial.query(p, radius)
+
+
+func _unprotected(c: Vector2i, owner: int) -> bool:
+	var po := privilege_owner(c)
+	if po == owner:
+		return po == 0
+	return po == 0 or owner == 0 or not same_side(po, owner)
 
 
 ## Same group, or groups of the same kingdom (shared territory, workshops, no fire spacing).
@@ -425,7 +434,7 @@ func _respawn_node(type: int) -> void:
 			c = anchor + Vector2i(rng.randi_range(-4, 4), rng.randi_range(-4, 4))
 		else:
 			c = Vector2i(rng.randi_range(0, Cfg.MAP_W - 1), rng.randi_range(0, Cfg.MAP_H - 1))
-		if is_walkable(c) and not loot.has(c) and privilege_owner(c) == 0 and house_at(c) == null and not agent_on(c):
+		if is_walkable(c) and not loot.has(c) and privilege_owner(c) == 0 and house_at(c) == null and not agent_on(c) and not Cities.in_city(c):
 			add_node(type, c)
 			return
 	respawn_queue.append({"type": type, "at": SimClock.time + 30.0})
@@ -446,6 +455,12 @@ func remove_wall(w: Wall) -> void:
 		return
 	walls.erase(w.cell)
 	astar.set_point_solid(w.cell, false)
+
+
+## Roads: walkable, faster, and cheaper for A* so agents prefer them (agreed).
+func place_road(c: Vector2i, tier: int) -> void:
+	roads[c] = tier
+	astar.set_point_weight_scale(c, 1.0 / Items.ROAD_SPEED[tier])
 
 
 func place_floor(c: Vector2i, fid: int) -> Floor:

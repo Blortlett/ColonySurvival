@@ -45,6 +45,8 @@ func claim(agent_id: int, from: Vector2i, allowed: Callable = Callable()) -> Tas
 				t.claimed_by = -1
 			else:
 				continue
+		if t.blocked():
+			continue # a CLEAR_NODE task clears the cell first
 		if t.type == Task.Type.BUILD_DOOR and not _shell_done(t.house):
 			continue # door goes in last: fire -> walls -> floors -> door (agreed build order)
 		if allowed.is_valid() and not allowed.call(t.cell):

@@ -160,6 +160,8 @@ static func plan_house(f: Faction, cap: int, kind: int = House.Kind.HOUSE) -> Ho
 
 
 static func _plan_house(f: Faction, cap: int, kind: int) -> House:
+	if f.kingdom and f.kingdom.has_city:
+		return Cities.plan_on_plot(f, cap, kind)
 	var leader: Agent = World.agents.get(f.leader_id)
 	if leader == null:
 		return null
@@ -223,8 +225,12 @@ static func on_house_fire_placed(h: House, fire: Campfire) -> void:
 static func _ensure_piece_tasks(f: Faction, h: House) -> void:
 	var have := {}
 	for t in f.board.tasks:
-		if t.house == h:
+		if t.house == h or t.type == Task.Type.CLEAR_NODE:
 			have[Vector3i(t.cell.x, t.cell.y, t.type)] = true
+	# Anything grown on a building cell is cleared first.
+	for c in h.wall_cells + h.floor_cells + [h.door_cell]:
+		if World.nodes.has(c) and not have.has(Vector3i(c.x, c.y, Task.Type.CLEAR_NODE)):
+			f.board.post(Task.new(Task.Type.CLEAR_NODE, c, null))
 	for c in h.wall_cells:
 		if not World.walls.has(c) and not have.has(Vector3i(c.x, c.y, Task.Type.BUILD_WALL)):
 			f.board.post(Task.new(Task.Type.BUILD_WALL, c, h))
@@ -265,6 +271,7 @@ static func destroy_house(h: House) -> void:
 	var f: Faction = World.factions.get(h.faction_id)
 	if h.fire:
 		h.fire.house = null
+	Cities.on_house_gone(h)
 	if f == null:
 		return
 	f.board.remove_for_house(h)
@@ -305,7 +312,8 @@ static func housekeeping(f: Faction) -> void:
 				h.occupants.erase(oid) # removed straight away (agreed)
 		if h.state == House.State.PLANNED:
 			planned = true
-			if not World.house_fire_spacing_ok(h.fire_cell, h, f.id, h.is_workshop()) or World.is_solid(h.fire_cell):
+			var blocked: bool = World.walls.has(h.fire_cell) or World.fires.has(h.fire_cell) or (h.plot_kid == -1 and World.nodes.has(h.fire_cell))
+			if not World.house_fire_spacing_ok(h.fire_cell, h, f.id, h.is_workshop()) or blocked:
 				destroy_house(h)
 				planned = false
 				continue
@@ -336,6 +344,8 @@ static func housekeeping(f: Faction) -> void:
 				h.occupants.append(homeless.pop_front())
 	if not f.solo and not planned:
 		_workshop_goals(f)
+	if f.kingdom:
+		Cities.relocate(f)
 
 
 ## Group ladder steps 4-6 (agreed): build a workshop (or use the kingdom's), then reinforce

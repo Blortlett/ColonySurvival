@@ -351,22 +351,9 @@ static func _gather_step(a: Agent, j: Job, dt: float) -> bool:
 			return false
 		j.arrived = true
 	# Gathering at the node.
-	var secs: float
-	var tool := ""
-	match j.node.type:
-		ResourceNode.Type.TREE:
-			secs = Cfg.GATHER_WOOD
-			tool = "axe"
-		ResourceNode.Type.ROCK:
-			secs = Cfg.GATHER_STONE
-			tool = "pickaxe"
-		ResourceNode.Type.HEMP:
-			secs = Cfg.GATHER_HEMP
-		_:
-			secs = Cfg.GATHER_BERRY
-	secs /= a.gather_mult()
-	if tool != "" and a.inv.has_tool(tool):
-		secs /= Cfg.TOOL_GATHER_MULT
+	var g := _gather_secs(a, j.node)
+	var secs: float = g[0]
+	var tool: String = g[1]
 	j.timer += dt
 	if j.timer >= secs:
 		j.timer -= secs
@@ -540,6 +527,27 @@ static func _chest_step(a: Agent, j: Job, dt: float) -> bool:
 	return true
 
 
+## [seconds per unit, tool used] for harvesting this node.
+static func _gather_secs(a: Agent, n: ResourceNode) -> Array:
+	var secs: float
+	var tool := ""
+	match n.type:
+		ResourceNode.Type.TREE:
+			secs = Cfg.GATHER_WOOD
+			tool = "axe"
+		ResourceNode.Type.ROCK:
+			secs = Cfg.GATHER_STONE
+			tool = "pickaxe"
+		ResourceNode.Type.HEMP:
+			secs = Cfg.GATHER_HEMP
+		_:
+			secs = Cfg.GATHER_BERRY
+	secs /= a.gather_mult()
+	if tool != "" and a.inv.has_tool(tool):
+		secs /= Cfg.TOOL_GATHER_MULT
+	return [secs, tool]
+
+
 static func _run_warm(a: Agent, j: Job, dt: float) -> void:
 	var f := j.fire
 	if f == null or not f.burning() or World.fires.get(f.cell) != f:
@@ -671,6 +679,54 @@ static func _perform_task(a: Agent, j: Job, t: Task, cost: Dictionary, dt: float
 				return
 			a.inv.pay(cost)
 			t.house.chest = World.place_furniture(t.cell, Furniture.Kind.CHEST, fid, t.house)
+			board.complete(t)
+			_done(a)
+		Task.Type.CLEAR_NODE:
+			var n: ResourceNode = World.nodes.get(t.cell)
+			if n == null or n.amount <= 0:
+				if n:
+					World.remove_node(n)
+				board.complete(t)
+				_done(a)
+				return
+			# Chop or mine it down to nothing; keep what fits.
+			var g := _gather_secs(a, n)
+			j.timer += dt
+			if j.timer >= g[0]:
+				j.timer = 0.0
+				n.amount -= 1
+				if a.free_space() > 0:
+					a.inv.add(n.item(), 1)
+				a.add_xp("str", Cfg.XP_GATHER)
+				if g[1] != "" and a.inv.has_tool(g[1]) and a.inv.wear(g[1]):
+					EventBus.log_event("%s's %s broke." % [a.short(), g[1]])
+				t.claim_time = SimClock.time
+				if n.amount <= 0:
+					World.remove_node(n)
+					board.complete(t)
+					_done(a)
+		Task.Type.BUILD_ROAD, Task.Type.UPGRADE_ROAD:
+			var tier := 1 if t.type == Task.Type.BUILD_ROAD else 2
+			if World.roads.get(t.cell, 0) >= tier or World.walls.has(t.cell) or World.fires.has(t.cell):
+				board.complete(t)
+				_done(a)
+				return
+			if World.nodes.has(t.cell):
+				_done(a) # being cleared
+				return
+			# Paving breaks the stone road first (agreed upgrade rule).
+			a.inv.pay(cost)
+			World.place_road(t.cell, tier)
+			board.complete(t)
+			_done(a)
+		Task.Type.PLACE_BOARD:
+			var fu: Furniture = World.furniture.get(t.cell)
+			if fu or World.is_solid(t.cell):
+				board.complete(t)
+				_done(a)
+				return
+			a.inv.pay(cost)
+			World.place_furniture(t.cell, Furniture.Kind.BOARD, fid, null)
 			board.complete(t)
 			_done(a)
 		Task.Type.PLACE_SAWMILL, Task.Type.PLACE_CUTTER:

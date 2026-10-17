@@ -25,6 +25,8 @@ var chest: Furniture = null
 var saw_cell := Vector2i(-1, -1) # workshops
 var cutter_cell := Vector2i(-1, -1)
 var reinforce := false # upgrade walls, door and chest to reinforced
+var plot_kid := -1 # kingdom id whose city plot this building stands on
+var plot := Vector2i.ZERO # plot index in that city
 
 
 func _init(fid: int, interior_rect: Rect2i, cap: int, k: Kind = Kind.HOUSE) -> void:

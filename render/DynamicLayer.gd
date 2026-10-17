@@ -6,6 +6,12 @@ const BERRY := Color(0.85, 0.12, 0.25)
 const WALL := Color(0.45, 0.29, 0.14)
 const DOOR := Color(0.70, 0.50, 0.28)
 const LOOT := Color(0.85, 0.75, 0.45)
+const ROAD := Color(0.38, 0.35, 0.29)
+const ROAD_DOT := Color(0.30, 0.27, 0.22)
+const PAVED := Color(0.47, 0.46, 0.44)
+const PAVED_LINE := Color(0.33, 0.32, 0.31)
+const BOARD_POST := Color(0.35, 0.22, 0.10)
+const BOARD_SIGN := Color(0.80, 0.70, 0.45)
 const FLOOR := Color(0.50, 0.36, 0.22)
 const FLOOR_LINE := Color(0.40, 0.28, 0.16)
 const CHEST := Color(0.55, 0.33, 0.12)
@@ -39,10 +45,28 @@ func _draw() -> void:
 			draw_rect(rect, Color(col, 0.08))
 			draw_rect(rect, Color(col, 0.35), false, 1.0)
 		_draw_kingdom_outlines()
+		for k in World.kingdoms.values():
+			if k.has_city:
+				for idx in k.plots:
+					var r := Cities.plot_rect(k, idx)
+					draw_rect(Rect2(Vector2(r.position) * s, Vector2(r.size) * s), Color(k.color, 0.18), false, 1.0)
 		for h in World.all_houses():
 			if h.state == House.State.PLANNED or h.state == House.State.BUILDING:
 				var outer := h.footprint()
 				draw_rect(Rect2(Vector2(outer.position) * s, Vector2(outer.size) * s), Color(1, 1, 1, 0.25), false, 1.0)
+	for c in World.roads:
+		var p := Vector2(c) * s
+		if World.roads[c] >= 2:
+			draw_rect(Rect2(p, Vector2(s, s)), PAVED)
+			draw_line(p + Vector2(0, s * 0.5), p + Vector2(s, s * 0.5), PAVED_LINE, 1.0)
+			var off: float = s * (0.25 if (c.y % 2) == 0 else 0.75)
+			draw_line(p + Vector2(off, 0), p + Vector2(off, s * 0.5), PAVED_LINE, 1.0)
+			draw_line(p + Vector2(s - off, s * 0.5), p + Vector2(s - off, s), PAVED_LINE, 1.0)
+		else:
+			draw_rect(Rect2(p, Vector2(s, s)), ROAD)
+			var h: int = (c.x * 7 + c.y * 13) % 5
+			draw_rect(Rect2(p + Vector2(s * (0.15 + h * 0.12), s * 0.3), Vector2(2, 2)), ROAD_DOT)
+			draw_rect(Rect2(p + Vector2(s * (0.7 - h * 0.1), s * 0.7), Vector2(2, 2)), ROAD_DOT)
 	for fl in World.floors.values():
 		var p := Vector2(fl.cell) * s
 		draw_rect(Rect2(p, Vector2(s, s)), FLOOR.darkened(0.4 * (1.0 - fl.hp / fl.max_hp)))
@@ -83,6 +107,11 @@ func _draw() -> void:
 	for bag in World.loot.values():
 		var p := Vector2(bag.cell) * s
 		draw_rect(Rect2(p + Vector2(s * 0.3, s * 0.3), Vector2(s * 0.4, s * 0.4)), LOOT)
+
+
+func _kingdom_of(fid: int) -> Kingdom:
+	var f: Faction = World.factions.get(fid)
+	return f.kingdom if f else null
 
 
 ## Outline of each kingdom's merged territory, rebuilt only when the zones change.
@@ -139,6 +168,12 @@ func _draw_furniture(fu: Furniture, p: Vector2, s: float) -> void:
 			draw_rect(Rect2(r.position + Vector2(0, r.size.y * 0.35), Vector2(r.size.x, s * 0.1)), CHEST_BAND)
 			if fu.tier > 0:
 				draw_rect(r, METAL, false, 1.5)
+		Furniture.Kind.BOARD:
+			draw_rect(Rect2(p + Vector2(s * 0.45, s * 0.35), Vector2(s * 0.1, s * 0.6)), BOARD_POST)
+			draw_rect(Rect2(p + Vector2(s * 0.1, s * 0.05), Vector2(s * 0.8, s * 0.45)), BOARD_SIGN)
+			var k := _kingdom_of(fu.owner_id)
+			if k:
+				draw_rect(Rect2(p + Vector2(s * 0.1, s * 0.05), Vector2(s * 0.8, s * 0.45)), k.color, false, 1.5)
 		Furniture.Kind.SAWMILL:
 			draw_rect(Rect2(p + Vector2(s * 0.1, s * 0.3), Vector2(s * 0.8, s * 0.4)), SAWMILL)
 			draw_circle(p + Vector2(s * 0.5, s * 0.5), s * 0.28, METAL)

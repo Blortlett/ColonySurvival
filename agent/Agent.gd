@@ -85,7 +85,7 @@ func free_space() -> int:
 
 
 func speed() -> float:
-	return 3.0 * (1.0 + (stats.agi - 5) * 0.04)
+	return 3.0 * (1.0 + (stats.agi - 5) * 0.04) * Items.ROAD_SPEED[World.roads.get(cell(), 0)]
 
 
 func bow_mult() -> float:

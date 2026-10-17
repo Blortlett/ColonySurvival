@@ -13,6 +13,11 @@ var king_id := -1 # highest AUTH agent in the leading group (agreed)
 var color: Color
 var board := TaskBoard.new()
 var founded := 0.0
+# City grid (Phase E).
+var has_city := false
+var city_origin := Vector2i.ZERO # top-left cell of the centre plot
+var plots := {} # Vector2i plot index -> {kind: "house"/"plaza"/"workshop", fid: int, house: House}
+var plot_retry_at := 0.0 # after a failed plot search, wait before searching again
 
 
 func _init(rng: RandomNumberGenerator) -> void:
