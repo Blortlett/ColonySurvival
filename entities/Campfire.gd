@@ -7,7 +7,12 @@ var is_house: bool
 var owner_id: int # faction id of whoever placed it
 var fuel_secs: float
 var unlit_secs := 0.0
-var house = null # House, for house fires
+var _house: WeakRef = null
+## House, for house fires. Weak: the house owns its fire, so a strong back-reference
+## would be a RefCounted loop that never frees.
+var house = null:
+	get: return _house.get_ref() if _house else null
+	set(v): _house = weakref(v) if v else null
 var placed_by := -1 # agent id, for wild fires
 
 

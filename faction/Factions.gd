@@ -84,7 +84,7 @@ static func disband(f: Faction) -> void:
 	for h in f.houses.duplicate():
 		abandon_house(h)
 	f.houses.clear()
-	f.board.tasks.clear()
+	f.board.clear()
 	World.factions.erase(f.id)
 	if not f.solo:
 		EventBus.log_event("Faction %s is gone." % f.name)

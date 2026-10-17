@@ -70,7 +70,7 @@ static func dissolve(k: Kingdom) -> void:
 	for f in k.members():
 		f.kingdom = null
 	k.groups.clear()
-	k.board.tasks.clear()
+	k.board.clear()
 	Wars.drop_side(Wars.kingdom_side(k))
 	World.kingdoms.erase(k.id)
 	World.zones_dirty = true

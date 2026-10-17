@@ -614,7 +614,7 @@ static func _run_place_wild_fire(a: Agent) -> void:
 
 static func _run_task(a: Agent, j: Job, dt: float) -> void:
 	var t := j.task
-	if t == null or t.done or t.claimed_by != a.id:
+	if t == null or t.done or t.claimed_by != a.id or t.board == null:
 		_done(a)
 		return
 	# Gather materials first.

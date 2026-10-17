@@ -23,7 +23,11 @@ const PRIORITY := {
 }
 const CLAIM_TIMEOUT := 90.0
 
-var board: TaskBoard # the board it was posted on (group or kingdom)
+var _board: WeakRef = null
+## The board it was posted on (group or kingdom). Weak: the board holds its tasks.
+var board: TaskBoard:
+	get: return _board.get_ref() if _board else null
+	set(v): _board = weakref(v) if v else null
 var type: Type
 var cell: Vector2i
 var house: House

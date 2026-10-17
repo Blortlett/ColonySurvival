@@ -9,7 +9,11 @@ var cell: Vector2i
 var kind: Kind
 var tier := 0 # 0 basic, 1 reinforced
 var owner_id: int # faction id
-var house = null # House (or workshop) it belongs to
+var _house: WeakRef = null
+## House (or workshop) it belongs to. Weak, to avoid a House <-> chest reference loop.
+var house = null:
+	get: return _house.get_ref() if _house else null
+	set(v): _house = weakref(v) if v else null
 var store := Inventory.new() # chest contents
 var hp: float
 var max_hp: float

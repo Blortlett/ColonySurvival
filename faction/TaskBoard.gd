@@ -10,6 +10,13 @@ func post(t: Task) -> void:
 	tasks.append(t)
 
 
+## Drop every task (the board's group or kingdom is gone); agents working on them stop.
+func clear() -> void:
+	for t in tasks:
+		t.done = true
+	tasks.clear()
+
+
 func find(type: int, cell: Vector2i) -> Task:
 	for t in tasks:
 		if t.type == type and t.cell == cell:
