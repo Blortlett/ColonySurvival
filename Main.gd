@@ -167,7 +167,7 @@ func _bench_line(minute: int, ms: int) -> String:
 	for a in World.agent_list:
 		processed += a.inv.count("plank") + a.inv.count("handle") + a.inv.count("cut_stone")
 		for t in a.inv.tools:
-			if t.type == "raiding_axe":
+			if t.type in Items.RAID_AXES:
 				raid_axes += 1
 	var in_kingdoms := 0
 	var plots := 0
@@ -201,14 +201,17 @@ func _metal_line() -> String:
 	for fu in World.furniture.values():
 		if fu.store.total() > 0:
 			invs.append(fu.store)
-	for inv in invs:
-		for k in ["raw_iron"]:
-			items[k] = items.get(k, 0) + inv.count(k)
-		for t in inv.tools:
-			if t.type in ["pickaxe_t2"]:
-				tools[t.type] = tools.get(t.type, 0) + 1
+	var in_crates := 0
+	for fu in World.furniture.values():
+		if fu.kind == Furniture.Kind.CRATE:
+			in_crates += fu.store.total()
 	for bag in World.loot.values():
-		items["raw_iron"] = items.get("raw_iron", 0) + bag.stacks.get("raw_iron", 0)
+		invs.append(bag)
+	for inv in invs:
+		for k in ["raw_iron", "iron_bar", "metal_door"]:
+			items[k] = items.get(k, 0) + (inv.count(k) if inv is Inventory else inv.stacks.get(k, 0))
+		for t in inv.tools:
+			tools[t.type] = tools.get(t.type, 0) + 1
 	var smelts := 0
 	var working := 0
 	var gang_smelts := 0
@@ -230,8 +233,12 @@ func _metal_line() -> String:
 	for fu in World.furniture.values():
 		if fu.kind == Furniture.Kind.CHEST and fu.tier >= 2:
 			iron_chests += 1
-	return "metal nodes %d raw_iron %d t2_picks %d smelteries %d (working %d, gangs %d) stone_walls %d metal_doors %d iron_chests %d | " % [
-		nodes, items.get("raw_iron", 0), tools.get("pickaxe_t2", 0), smelts, working, gang_smelts, stone, metal_doors, iron_chests]
+	var armor := 0
+	for k in Items.ARMOR:
+		armor += tools.get(k, 0)
+	return ("metal nodes %d raw_iron %d bars %d (crates hold %d items) t2_picks %d swords %d armour %d iron_axes %d | " % [
+		nodes, items.get("raw_iron", 0), items.get("iron_bar", 0), in_crates, tools.get("pickaxe_t2", 0), tools.get("sword", 0), armor, tools.get("iron_raiding_axe", 0)]) + (
+		"smelteries %d (working %d, gangs %d) stone_walls %d metal_doors %d iron_chests %d | " % [smelts, working, gang_smelts, stone, metal_doors, iron_chests])
 
 
 func _process(delta: float) -> void:

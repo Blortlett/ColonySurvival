@@ -41,15 +41,21 @@ static func next(a: Agent) -> Job:
 		return sj
 	# Group step 7: gangs (and groups at war) craft raiding axes at a workshop (agreed).
 	var raiders := a.faction.is_gang() or (not a.faction.solo and not Wars.enemies_of(a.faction).is_empty())
-	if raiders and not a.inv.has_tool("raiding_axe") and Factions.nearest_machine(a, Furniture.Kind.SAWMILL):
+	if raiders and not a.inv.has_tool("raiding_axe") and not a.inv.has_tool("iron_raiding_axe") and Factions.nearest_machine(a, Furniture.Kind.SAWMILL):
 		if raid_axes(a.faction) < min(Cfg.RAID_AXES_PER_GANG, a.faction.members.size()):
 			var cj := Job.new(Job.Kind.CRAFT, Job.PRIO_LADDER)
 			cj.then_craft = "raiding_axe"
+			# Iron raiding axes once there is an anvil and the iron for one (v3).
+			if Factions.nearest_machine(a, Furniture.Kind.ANVIL) and _iron_on_hand(a) >= 2:
+				cj.then_craft = "iron_raiding_axe"
 			return cj
 	# v3: a group with a workshop gets a tier-2 pickaxe and mines raw iron (Phase 2).
 	var mj := _metal_job(a, ch)
 	if mj:
 		return mj
+	var sj2 := _smith_job(a)
+	if sj2:
+		return sj2
 	var crate := Stock.metal_crate(a) if not Stock.metal_plan(a).is_empty() else null
 	if crate:
 		return Brain.chest_job(crate, Stock.metal_plan(a))
@@ -100,6 +106,47 @@ static func _metal_job(a: Agent, ch: Furniture) -> Job:
 	return Brain._gather_job("raw_iron", a.inv.count("raw_iron") + min(10, a.free_space()))
 
 
+## Smeltery work (v3 Phase 4): keep the side's crates stocked with iron bars, then one
+## spare set of gear. One agent per machine at a time; understaffing is fine (agreed).
+static func _smith_job(a: Agent) -> Job:
+	if a.faction.solo or a.is_servant():
+		return null
+	var furnace := Factions.nearest_machine(a, Furniture.Kind.FURNACE)
+	if furnace == null:
+		return null
+	var f := a.faction
+	var bars := group_stock(f, "iron_bar")
+	var raw := group_stock(f, "raw_iron")
+	if bars < Cfg.BAR_STOCK_GOAL and raw > 0 and furnace.house.claim_worker(Furniture.Kind.FURNACE, a.id):
+		var j := Job.new(Job.Kind.CRAFT, Job.PRIO_LADDER)
+		j.then_craft = "iron_bar"
+		j.batch = min(min(raw, Cfg.BAR_STOCK_GOAL - bars), Cfg.SMELT_BATCH)
+		j.to_crate = true
+		return j
+	var anvil := Factions.nearest_machine(a, Furniture.Kind.ANVIL)
+	if anvil == null:
+		return null
+	var have := {}
+	for c in Stock.side_crates(f):
+		for t in c.store.tools:
+			have[t.type] = true
+	for item in Items.GEAR_SET:
+		if have.has(item):
+			continue
+		if bars >= Items.RECIPES[item]["iron_bar"] and anvil.house.claim_worker(Furniture.Kind.ANVIL, a.id):
+			var j := Job.new(Job.Kind.CRAFT, Job.PRIO_LADDER)
+			j.then_craft = item
+			j.to_crate = true
+			return j
+		break
+	return null
+
+
+## Iron the agent could use: bars and raw iron on itself and in its side's storage.
+static func _iron_on_hand(a: Agent) -> int:
+	return group_stock(a.faction, "iron_bar") + group_stock(a.faction, "raw_iron")
+
+
 ## Tools of a type held by members or stored in the group's chests.
 static func group_tools(f: Faction, t: String) -> int:
 	var n := 0
@@ -134,7 +181,7 @@ static func raid_axes(f: Faction) -> int:
 		var m: Agent = World.agents.get(mid)
 		if m:
 			for t in m.inv.tools:
-				if t.type == "raiding_axe":
+				if t.type in Items.RAID_AXES:
 					n += 1
 	return n
 

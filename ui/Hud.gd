@@ -264,7 +264,7 @@ func smeltery_text(h: House) -> String:
 	lines.append("Fire: %s%s" % [fuel, _tier_text(h)])
 	var fu := h.machine(Furniture.Kind.FURNACE)
 	var an := h.machine(Furniture.Kind.ANVIL)
-	lines.append("Furnace: %s   Anvil: %s" % ["placed" if fu else "missing", "placed" if an else "missing"])
+	lines.append("Machines: furnace %s, anvil %s" % ["placed" if fu else "missing", "placed" if an else "missing"])
 	var i := 1
 	for c in h.crates():
 		lines.append("Crate %d: %d/%d — %s" % [i, c.store.total(), c.slots(), c.store.summary()])

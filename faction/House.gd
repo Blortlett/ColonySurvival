@@ -26,6 +26,7 @@ var fire: Campfire = null
 var chest: Furniture = null
 var machine_cells := {} # Furniture.Kind -> cell (workshop and smeltery machines)
 var crate_cells: Array[Vector2i] = [] # smeltery storage crates
+var workers := {} # smeltery: Furniture.Kind -> [agent id, until] (one worker per machine)
 var upgrade_to := 0 # target tier for walls, door and chest: 1 reinforced, 2 stone / metal (v3)
 var plot_kid := -1 # kingdom id whose city plot this building stands on
 var plot := Vector2i.ZERO # plot index in that city
@@ -151,6 +152,15 @@ func operational() -> bool:
 	for k in machine_cells:
 		if machine(k) == null:
 			return false
+	return true
+
+
+## Claim a machine for smeltery work; false if someone else is working it.
+func claim_worker(k: int, agent_id: int) -> bool:
+	var w: Array = workers.get(k, [-1, 0.0])
+	if w[0] != agent_id and w[0] != -1 and SimClock.time < w[1] and World.agents.has(w[0]):
+		return false
+	workers[k] = [agent_id, SimClock.time + Cfg.SMITH_CLAIM_SECS]
 	return true
 
 

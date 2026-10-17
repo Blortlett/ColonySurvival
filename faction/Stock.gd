@@ -4,7 +4,7 @@ class_name Stock
 
 const SPARE_TOOLS := ["axe", "pickaxe"]
 const WEAPONS := ["spear", "club", "bow"]
-const METAL_ITEMS := ["raw_iron", "iron_bar"]
+const METAL_ITEMS := ["raw_iron", "iron_bar", "metal_door"]
 
 
 ## The agent's home chest, if it has one and is close enough to use it.
@@ -39,6 +39,14 @@ static func storages(f: Faction) -> Array[Furniture]:
 		var ch := h.live_chest()
 		if ch:
 			out.append(ch)
+	for s in Factions.shared_smelteries(f):
+		out.append_array(s.crates())
+	return out
+
+
+## Crates of every smeltery this group's side may use.
+static func side_crates(f: Faction) -> Array[Furniture]:
+	var out: Array[Furniture] = []
 	for s in Factions.shared_smelteries(f):
 		out.append_array(s.crates())
 	return out

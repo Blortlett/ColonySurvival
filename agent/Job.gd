@@ -32,6 +32,9 @@ var chest: Furniture = null # CHEST job, or a task fetching materials from a che
 var transfer := {} # Stock transfer plan
 var machine: Furniture = null # workshop machine we're processing at
 var raid: Raid = null # RAID / DEFEND
+var batch := 1 # CRAFT of a processed item (iron bars): how many to make
+var no_chest_for := "" # don't take this item from storage (we're making it for storage)
+var to_crate := false # CRAFT for the smeltery crates (v3 stocking)
 
 
 func _init(k: Kind, p: int = PRIO_LADDER) -> void:

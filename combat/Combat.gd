@@ -86,10 +86,14 @@ static func attack(a: Agent, t: Agent, weapon: String) -> bool:
 static func attack_wall(a: Agent, w: Wall) -> void:
 	if a.attack_cd > 0.0:
 		return
-	var weapon := "raiding_axe" if a.inv.has_tool("raiding_axe") else a.melee_weapon()
+	var weapon := a.melee_weapon()
+	for t in ["iron_raiding_axe", "raiding_axe"]:
+		if a.inv.has_tool(t):
+			weapon = t
+			break
 	var dmg: float
-	if weapon == "raiding_axe":
-		dmg = Items.RAID_AXE_DAMAGE * Items.RAID_AXE_WALL_MULT
+	if weapon in Items.RAID_AXES:
+		dmg = (Items.IRON_RAID_AXE_DAMAGE if weapon == "iron_raiding_axe" else Items.RAID_AXE_DAMAGE) * Items.RAID_AXE_WALL_MULT
 		a.attack_cd = 1.2
 	else:
 		dmg = Items.WEAPONS[weapon].damage

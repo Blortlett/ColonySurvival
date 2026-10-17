@@ -81,6 +81,9 @@ const WORKSHOP_RANGE := 90.0 # how far agents walk to a workshop to process or c
 const RAID_AXES_PER_GANG := 3 # gangs craft up to this many raiding axes (or one per member)
 const MINERS_PER_GROUP := 1 # members with a tier-2 pickaxe a group aims for (v3, start)
 const IRON_STOCK_GOAL := 20 # raw iron a group keeps mining towards (v3, start)
+const BAR_STOCK_GOAL := 6 # iron bars a side keeps in its smeltery crates (v3, start)
+const SMELT_BATCH := 4 # iron bars one furnace trip makes at most
+const SMITH_CLAIM_SECS := 120.0 # one agent per smeltery machine for this long
 
 # --- Relations and kingdoms (Phase D) ---
 const REL_TRADE := 5.0 # (agreed)

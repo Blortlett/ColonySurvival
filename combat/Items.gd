@@ -1,7 +1,7 @@
 class_name Items
 ## Item, recipe and weapon definitions.
 
-const STACKABLES := ["wood", "stone", "hemp", "berry", "arrow", "plank", "handle", "cut_stone", "raw_iron"]
+const STACKABLES := ["wood", "stone", "hemp", "berry", "arrow", "plank", "handle", "cut_stone", "raw_iron", "iron_bar", "metal_door"]
 
 # Recipes for crafted tools/weapons/ammo (agreed costs).
 const RECIPES := {
@@ -13,9 +13,18 @@ const RECIPES := {
 	"arrow": {"wood": 1, "stone": 1}, # yields ARROWS_PER_CRAFT
 	"raiding_axe": {"plank": 2, "cut_stone": 2, "handle": 1}, # (agreed)
 	"pickaxe_t2": {"plank": 1, "cut_stone": 2, "handle": 1}, # tier-2 pickaxe (v3, start)
+	# Anvil (v3, agreed recipes): crafted only at a smeltery.
+	"sword": {"iron_bar": 1, "handle": 1},
+	"helmet": {"iron_bar": 1},
+	"chest_armor": {"iron_bar": 1},
+	"leg_armor": {"iron_bar": 1},
+	"iron_raiding_axe": {"iron_bar": 2, "handle": 1},
 }
 const WORKSHOP_RECIPES := ["raiding_axe", "pickaxe_t2"] # must be crafted at a workshop (agreed)
-const ANVIL_RECIPES := [] # gear crafted at a smeltery's anvil (Phase 4)
+const ANVIL_RECIPES := ["sword", "helmet", "chest_armor", "leg_armor", "iron_raiding_axe"] # (agreed)
+const ARMOR := ["helmet", "chest_armor", "leg_armor"]
+const GEAR_SET := ["sword", "helmet", "chest_armor", "leg_armor"] # one spare set per smeltery's crates
+const RAID_AXES := ["raiding_axe", "iron_raiding_axe"]
 const ARROWS_PER_CRAFT := 5
 
 # Build costs (agreed).
@@ -58,18 +67,22 @@ const UPGRADE_COSTS := {
 	"chest": ["chest", "chest_r", "chest_i"],
 }
 
-const DURABILITY := {"axe": 100, "pickaxe": 100, "spear": 60, "club": 60, "bow": 80, "raiding_axe": 60, "pickaxe_t2": 150}
+const DURABILITY := {"axe": 100, "pickaxe": 100, "spear": 60, "club": 60, "bow": 80, "raiding_axe": 60, "pickaxe_t2": 150,
+	"sword": 150, "helmet": 100, "chest_armor": 100, "leg_armor": 100, "iron_raiding_axe": 80} # v3 (start)
 
 # Workshop processing: machine, input per batch, output per batch, seconds per batch.
 const PROCESS := {
 	"plank": {"machine": Furniture.Kind.SAWMILL, "in": {"wood": 2}, "out": 1, "secs": 4.0},
 	"handle": {"machine": Furniture.Kind.SAWMILL, "in": {"wood": 1}, "out": 2, "secs": 4.0},
 	"cut_stone": {"machine": Furniture.Kind.CUTTER, "in": {"stone": 2}, "out": 1, "secs": 5.0}, # (agreed)
+	"iron_bar": {"machine": Furniture.Kind.FURNACE, "in": {"raw_iron": 1, "wood": 1}, "out": 1, "secs": 8.0}, # (agreed, time start)
+	"metal_door": {"machine": Furniture.Kind.ANVIL, "in": {"iron_bar": 2}, "out": 1, "secs": 6.0}, # (agreed, time start)
 }
 
 # Walls and doors take damage from melee weapons; the raiding axe does x5 (agreed).
 const RAID_AXE_DAMAGE := 12.5 # x5 = 62.5: about 4 hits on a reinforced wall
 const RAID_AXE_WALL_MULT := 5.0
+const IRON_RAID_AXE_DAMAGE := 25.0 # x5 = 125: about 4 hits on a metal door (v3, start)
 
 const ROAD_SPEED := [1.0, 1.3, 1.5] # none, stone, paved (agreed)
 
@@ -94,5 +107,8 @@ static func max_chest_tier() -> int:
 	return 2 if PROCESS.has("iron_bar") else 1
 
 
+const LABELS := {"pickaxe_t2": "tier-2 pickaxe", "chest_armor": "chest piece", "leg_armor": "leg armour"}
+
+
 static func label(item: String) -> String:
-	return "tier-2 pickaxe" if item == "pickaxe_t2" else item.replace("_", " ")
+	return LABELS.get(item, item.replace("_", " "))

@@ -422,53 +422,56 @@ static func _pick_material(a: Agent, j: Job, cost: Dictionary, bulk: int) -> boo
 		if have >= cost[k]:
 			continue
 		var want: int = max(min(cost[k] * bulk, have + a.free_space()), cost[k])
-		if a.free_space() > 0:
-			var ch := Stock.group_chest_with(a, k)
-			if ch:
-				j.chest = ch
-				j.transfer = {k: -(want - have)}
-				return true
-		if not Items.PROCESS.has(k):
-			if ResourceNode.type_for_item(k) < 0 or (k == "raw_iron" and not a.inv.has_tool("pickaxe_t2")):
-				return false
-			j.item = k
-			j.amount = want
-			return true
-		var p: Dictionary = Items.PROCESS[k]
-		var raw_missing := ""
-		for rk in p["in"]:
-			if a.inv.count(rk) < p["in"][rk]:
-				raw_missing = rk
-		if raw_missing == "":
-			var m := Factions.nearest_machine(a, p.machine)
-			if m == null:
-				return false
-			j.machine = m
-			j.item = k
-			j.amount = want
-			j.timer = 0.0
-			return true
-		var batches := int(ceil(float(want - have) / p.out))
-		var raw_want: int = max(min(p["in"][raw_missing] * batches, a.inv.count(raw_missing) + a.free_space()), p["in"][raw_missing])
-		if a.free_space() > 0:
-			var ch := Stock.group_chest_with(a, raw_missing)
-			if ch:
-				j.chest = ch
-				j.transfer = {raw_missing: -(raw_want - a.inv.count(raw_missing))}
-				return true
-		j.item = raw_missing
-		j.amount = raw_want
-		return true
+		return _pick_for(a, j, k, want)
 	return true
 
 
-## Items not to throw away while collecting `cost` (including raw inputs of processed items).
+## The next step towards `want` of item k: a chest or crate, gathering, or a machine run.
+## Processed inputs (iron bars for a metal door) recurse down the chain (v3).
+static func _pick_for(a: Agent, j: Job, k: String, want: int) -> bool:
+	var have := a.inv.count(k)
+	if a.free_space() > 0 and k != j.no_chest_for:
+		var ch := Stock.group_chest_with(a, k)
+		if ch:
+			j.chest = ch
+			j.transfer = {k: -(want - have)}
+			return true
+	if not Items.PROCESS.has(k):
+		if ResourceNode.type_for_item(k) < 0 or (k == "raw_iron" and not a.inv.has_tool("pickaxe_t2")):
+			return false
+		j.item = k
+		j.amount = want
+		return true
+	var p: Dictionary = Items.PROCESS[k]
+	var raw_missing := ""
+	for rk in p["in"]:
+		if a.inv.count(rk) < p["in"][rk]:
+			raw_missing = rk
+	if raw_missing == "":
+		var m := Factions.nearest_machine(a, p.machine)
+		if m == null:
+			return false
+		j.machine = m
+		j.item = k
+		j.amount = want
+		j.timer = 0.0
+		return true
+	var batches := int(ceil(float(want - have) / p.out))
+	var raw_want: int = max(min(p["in"][raw_missing] * batches, a.inv.count(raw_missing) + a.free_space()), p["in"][raw_missing])
+	return _pick_for(a, j, raw_missing, raw_want)
+
+
+## Items not to throw away while collecting `cost` (including the inputs of processed items, all the way down).
 static func _keep_for(cost: Dictionary) -> Dictionary:
 	var keep := cost.duplicate()
-	for k in cost:
+	var todo: Array = cost.keys()
+	while not todo.is_empty():
+		var k: String = todo.pop_back()
 		if Items.PROCESS.has(k):
 			for rk in Items.PROCESS[k]["in"]:
-				keep[rk] = 1
+				if not keep.has(rk):
+					keep[rk] = 1
+					todo.append(rk)
 	return keep
 
 
@@ -499,15 +502,24 @@ static func _process_step(a: Agent, j: Job, dt: float) -> int:
 
 
 ## Workshop-only recipes (raiding axe): collect materials, then craft at a workshop.
+## Workshop and anvil recipes (raiding axes, tier-2 pickaxes, gear): collect materials,
+## then craft at the machine. A processed item (iron bars) is made in a batch at its machine
+## instead. With `to_crate`, the result goes into a smeltery crate (v3 stocking).
 static func _run_craft(a: Agent, j: Job, dt: float) -> void:
-	var cost: Dictionary = Items.RECIPES[j.then_craft]
+	var processed := Items.PROCESS.has(j.then_craft)
+	var cost: Dictionary = {j.then_craft: j.batch} if processed else Items.RECIPES[j.then_craft]
+	if processed:
+		j.no_chest_for = j.then_craft # don't just take bars out of the crate
 	var r := _obtain_step(a, j, cost, dt)
 	if r == Obtain.FAILED:
 		_done(a)
 		return
 	if r == Obtain.WORKING:
 		return
-	var m := Factions.nearest_machine(a, Furniture.Kind.SAWMILL)
+	if processed:
+		_to_crate(a, j)
+		return
+	var m := Factions.nearest_machine(a, Furniture.Kind.ANVIL if j.then_craft in Items.ANVIL_RECIPES else Furniture.Kind.SAWMILL)
 	if m == null:
 		_done(a)
 		return
@@ -518,8 +530,20 @@ static func _run_craft(a: Agent, j: Job, dt: float) -> void:
 	elif mv == Move.ARRIVED:
 		a.inv.pay(cost)
 		a.inv.add_tool(j.then_craft)
-		EventBus.log_event("%s crafts a %s." % [a.short(), Items.label(j.then_craft)])
+		EventBus.log_event("%s crafts a %s%s." % [a.short(), Items.label(j.then_craft), " at the anvil" if j.then_craft in Items.ANVIL_RECIPES else ""])
+		_to_crate(a, j)
+
+
+## After stock crafting, carry the metal goods (or the new item) to a smeltery crate.
+static func _to_crate(a: Agent, j: Job) -> void:
+	var crate := Stock.metal_crate(a) if j.to_crate else null
+	if crate == null:
 		_done(a)
+		return
+	var plan := Stock.metal_plan(a)
+	if j.then_craft in Items.ANVIL_RECIPES:
+		plan["tool:" + j.then_craft] = 1
+	set_job(a, chest_job(crate, plan))
 
 
 ## Walk to j.chest and apply j.transfer. Returns true when finished (or impossible).
