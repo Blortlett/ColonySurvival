@@ -18,6 +18,8 @@ var kingdom: Kingdom = null
 var raid_check_at := 0.0
 var relations := {} # faction id -> -100..100 (agreed events)
 var evicted_by := -1 # kingdom id that told this group to leave its land (v3 §1.3)
+var taxed_at: Array = [] # sim times this group was taxed, for the anger factor (Kingdom Wars Plan §3.3)
+var last_tax := ""
 
 
 func _init(rng: RandomNumberGenerator) -> void:

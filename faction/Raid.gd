@@ -20,6 +20,11 @@ var rally := Vector2i.ZERO
 var size0 := 0
 var alerted := false
 var breach := Vector2i(-1, -1)
+# Kingdom-wide raids (Kingdom Wars Plan §1.6): the whole kingdom's party, moving from target
+# to target; what each raider took, to carry home to the capital's chest.
+var kingdom: Kingdom = null
+var loot := {} # agent id -> {item: count}
+var sacked := 0
 
 
 func _init(f: Faction, h: House) -> void:
@@ -34,6 +39,10 @@ func _init(f: Faction, h: House) -> void:
 
 func target_faction() -> Faction:
 	return World.factions.get(target_fid)
+
+
+func label() -> String:
+	return kingdom.name if kingdom else attacker.name
 
 
 func phase_name() -> String:

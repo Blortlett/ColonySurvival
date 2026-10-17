@@ -31,7 +31,13 @@ func _init(c: Vector2i, k: Kind, owner: int, t: int = 0) -> void:
 
 func slots() -> int:
 	match kind:
-		Kind.CHEST: return Items.CHEST_SLOTS[tier]
+		Kind.CHEST:
+			var h: House = house
+			if h and h.plot_kid != -1:
+				var k: Kingdom = World.kingdoms.get(h.plot_kid)
+				if k and k.capital == h:
+					return 1 << 30 # the capital's chest has no limit (Kingdom Wars Plan §3.2)
+			return Items.CHEST_SLOTS[tier]
 		Kind.CRATE: return Items.CRATE_SLOTS
 	return 0
 

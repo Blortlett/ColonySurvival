@@ -66,12 +66,17 @@ static func encounter(fa: Faction, fb: Faction) -> bool:
 	var s := score(fa, fb)
 	if s >= Cfg.ALLY_AT and World.rng.randf() < Cfg.ALLY_CHANCE:
 		Kingdoms.try_ally(fa, fb)
-	elif s <= Cfg.WAR_AT and World.rng.randf() < Cfg.WAR_CHANCE and not Wars.at_war(fa, fb):
+	elif s <= Cfg.WAR_AT and World.rng.randf() < Cfg.WAR_CHANCE and not Wars.at_war(fa, fb) and not _rival_kingdoms(fa, fb):
 		if not fa.is_gang():
 			Wars.declare(fa, fb)
 		elif not fb.is_gang():
 			Wars.declare(fb, fa)
 	return true
+
+
+## Two groups of different kingdoms: their wars come from KingdomWars only, never a roll.
+static func _rival_kingdoms(fa: Faction, fb: Faction) -> bool:
+	return fa.kingdom != null and fb.kingdom != null and fa.kingdom != fb.kingdom
 
 
 ## The strongest relations of a group: up to n best (positive) and n worst (negative).

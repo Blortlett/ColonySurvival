@@ -18,8 +18,8 @@ static func update(k: Kingdom) -> void:
 	var centre := Cities.centre_cell(k)
 	var targets := {} # fid -> nearest House in the way
 	for f in World.factions.values():
-		if World.same_side(f.id, lead.id):
-			continue
+		if World.same_side(f.id, lead.id) or f.kingdom != null:
+			continue # other kingdoms are fought through KingdomWars only (Kingdom Wars Plan §1.2)
 		for h in f.houses:
 			if h.state == House.State.PLANNED:
 				continue
@@ -31,7 +31,7 @@ static func update(k: Kingdom) -> void:
 	for fid in k.pushouts:
 		var e: Dictionary = k.pushouts[fid]
 		var g: Faction = World.factions.get(fid)
-		if e.get("wanted", false) and g and not targets.has(fid):
+		if e.get("wanted", false) and g and g.kingdom == null and not targets.has(fid):
 			var h := _house_by_id(g, e.house)
 			if h:
 				targets[fid] = h
@@ -88,9 +88,7 @@ static func _step(k: Kingdom, lead: Faction, g: Faction, e: Dictionary) -> void:
 		return
 	match e.stage:
 		"":
-			if g.kingdom != null and _on_own_plot(g):
-				_war(k, lead, g, e, "%s's city stands too close to %s: war!" % [g.kingdom.name, k.name])
-			elif g.kingdom == null and not g.solo and k.has_room():
+			if g.kingdom == null and not g.solo and k.has_room():
 				_stage(e, "inviting")
 				invited += 1
 				EventBus.log_event("%s invites %s to join the kingdom." % [k.name, g.name])
@@ -146,13 +144,6 @@ static func _war(k: Kingdom, lead: Faction, g: Faction, e: Dictionary, msg: Stri
 		EventBus.log_event(msg)
 		Wars.declare(lead, g)
 		wars += 1
-
-
-static func _on_own_plot(g: Faction) -> bool:
-	for h in g.homes():
-		if h.plot_kid == g.kingdom.id:
-			return true
-	return false
 
 
 ## Combined fighting strength of every member (v3 §1.3 strength check).

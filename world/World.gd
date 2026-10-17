@@ -175,6 +175,7 @@ func _per_second(s: float) -> void:
 	prof_add("decay", t)
 	t = Time.get_ticks_usec()
 	Wars.update()
+	KingdomWars.per_second(s)
 	prof_add("wars", t)
 	# Loot bags despawn.
 	for bag in loot.values().duplicate():
@@ -730,6 +731,8 @@ func kill_agent(a: Agent, killer: Agent) -> void:
 			gear_fights.armoured_won += 1
 		elif a.is_armoured() and not killer.is_armoured():
 			gear_fights.armoured_lost += 1
+	if killer and KingdomWars.enemies(a, killer):
+		KingdomWars.deaths += 1
 	if killer:
 		Relations.change(a.faction, killer.faction, Cfg.REL_KILL)
 	if killer:

@@ -172,6 +172,12 @@ func _shot(minutes: int) -> void:
 
 func _bench(minutes: int) -> void:
 	World.profiling = true
+	var war_log: Array[String] = [] # kingdom war and tax lines (Kingdom Wars Plan §7)
+	EventBus.logged.connect(func(l: String):
+		for key in ["No prisoners", "musters", "move on to", "head home", "sack", "scatter", "Peace between", "taxes", "refuses to pay"]:
+			if key in l:
+				war_log.append(l)
+				return)
 	var t0 := Time.get_ticks_msec()
 	for m in minutes:
 		var s0 := Time.get_ticks_msec()
@@ -187,6 +193,9 @@ func _bench(minutes: int) -> void:
 	for k in keys:
 		print("  %-24s %10.1f ms" % [k, World.prof[k] / 1000.0])
 	for line in EventBus.lines.slice(max(0, EventBus.lines.size() - 40)):
+		print(line)
+	print("--- kingdom war log (%d lines) ---" % war_log.size())
+	for line in war_log.slice(max(0, war_log.size() - 150)):
 		print(line)
 	get_tree().quit()
 
@@ -243,8 +252,9 @@ func _bench_line(minute: int, ms: int) -> String:
 		if World.roads[c] >= 2:
 			paved += 1
 	var metal := _metal_line()
+	var kw := "kwar decl %d peace %d scatter %d (agents %d) deaths %d kraids %d (retreat %d) capitals %d | tax paid %d (empty %d, %d items) resisted %d | " % [KingdomWars.declared, KingdomWars.ended_peace, KingdomWars.scattered, KingdomWars.scattered_agents, KingdomWars.deaths, Raids.kingdom_started, Raids.kingdom_retreated, Raids.capitals_sacked, Tax.paid, Tax.nothing, Tax.items, Tax.resisted]
 	var push := "push invited %d joined %d left %d wars %d demolished %d | " % [PushOut.invited, PushOut.joined, PushOut.left, PushOut.wars, Cities.demolished]
-	return metal + push + ("kingdoms %d (%d groups) plots %d roads %d (paved %d) wars %d raids %d/%d won/%d lost | " % [World.kingdoms.size(), in_kingdoms, plots, World.roads.size(), paved, Wars.wars.size(), Raids.active.size(), Raids.won_count, Raids.lost_count]) + "min %3d | %4d ms | deaths %d | moods %s | factions %d servants %d | houses %s | fires %d walls %d (reinf %d) floors %d | chests %d (%d items) | workshops %d (working %d) | processed %d raid_axes %d | tools %d | warm %.2f hunger %.2f | jobs %s" % [
+	return kw + metal + push + ("kingdoms %d (%d groups) plots %d roads %d (paved %d) wars %d raids %d/%d won/%d lost | " % [World.kingdoms.size(), in_kingdoms, plots, World.roads.size(), paved, Wars.wars.size(), Raids.active.size(), Raids.won_count, Raids.lost_count]) + "min %3d | %4d ms | deaths %d | moods %s | factions %d servants %d | houses %s | fires %d walls %d (reinf %d) floors %d | chests %d (%d items) | workshops %d (working %d) | processed %d raid_axes %d | tools %d | warm %.2f hunger %.2f | jobs %s" % [
 		minute, ms, World.deaths, moods, Factions.real_count(), servants, houses,
 		World.fires.size(), World.walls.size(), reinforced, World.floors.size(), chests, stored, shops, working,
 		processed, raid_axes, tools, warmth / n, hunger / n, jobs]

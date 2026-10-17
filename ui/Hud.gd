@@ -179,8 +179,18 @@ func _fire_text(f: Campfire) -> String:
 			var push := PushOut.describe(k)
 			if not push.is_empty():
 				lines.append("  Land: %s" % ", ".join(push))
+		var ek := KingdomWars.enemy(k)
+		if ek:
+			var w := Wars.kingdom_war(k)
+			var start: Dictionary = w.get("start", {})
+			lines.append("  AT WAR with %s: %d/%d alive vs %d/%d" % [ek.name, KingdomWars.living_members(k), start.get(Wars.kingdom_side(k), 0), KingdomWars.living_members(ek), start.get(Wars.kingdom_side(ek), 0)])
+		elif KingdomWars.in_grace(k):
+			lines.append("  Grace: %ds left (no kingdom wars)" % KingdomWars.grace_left(k))
 	else:
 		lines.append("Kingdom: none%s" % ("  (gangs never ally)" if gang else ""))
+		if g.last_tax != "":
+			var recent := g.taxed_at.filter(func(t): return SimClock.time - t < Cfg.TAX_REPEAT_WINDOW).size()
+			lines.append("  Tax: last %s, taxed %d times in 30 min" % [g.last_tax, recent])
 	var ek: Kingdom = World.kingdoms.get(g.evicted_by)
 	if ek:
 		lines.append("Told to leave the land of %s" % ek.name)

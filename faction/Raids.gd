@@ -7,6 +7,9 @@ static var won_count := 0
 static var lost_count := 0
 static var smeltery_raids := 0 # raids on smelteries started / won (v3)
 static var smeltery_won := 0
+static var kingdom_started := 0 # kingdom-wide raids (Kingdom Wars Plan §1.6)
+static var kingdom_retreated := 0
+static var capitals_sacked := 0
 static var _acc := 0.0
 
 
@@ -20,6 +23,13 @@ static func find(id: int) -> Raid:
 static func of_attacker(f: Faction) -> Raid:
 	for r in active:
 		if r.attacker == f:
+			return r
+	return null
+
+
+static func of_kingdom(k: Kingdom) -> Raid:
+	for r in active:
+		if r.kingdom == k:
 			return r
 	return null
 
@@ -38,6 +48,8 @@ static func against(f: Faction) -> Raid:
 static func consider(f: Faction) -> void:
 	if f.solo or SimClock.time < f.raid_check_at or of_attacker(f) or against(f):
 		return
+	if f.kingdom and KingdomWars.at_war(f.kingdom):
+		return # every hand goes to the kingdom-wide raid (Kingdom Wars Plan §1.6)
 	f.raid_check_at = SimClock.time + Cfg.RAID_CHECK_SECS
 	var axes := GoalLadder.raid_axes(f)
 	if axes < 1:
@@ -144,7 +156,7 @@ static func _party(f: Faction) -> Array[int]:
 	var healthy: Array[Agent] = []
 	for mid in f.members:
 		var m: Agent = World.agents.get(mid)
-		if m and m.hp > Cfg.MAX_HP * 0.5:
+		if m and m.hp > Cfg.MAX_HP * 0.5 and m.raid_id == -1 and m.defend_raid == -1:
 			healthy.append(m)
 	var out: Array[int] = []
 	if healthy.is_empty():
@@ -182,6 +194,103 @@ static func start(f: Faction, h: House, party: Array[int]) -> void:
 	EventBus.log_event("%s %s sets out to raid %s's %s (%d raiders)!" % ["Gang" if f.is_gang() else "Group", f.name, tf.name if tf else "?", h.label(), party.size()])
 
 
+## A kingdom in a kingdom war: one party from all its groups, rallying at its own capital
+## (Kingdom Wars Plan §1.6). One raiding axe in the party is enough to breach.
+static func start_kingdom(k: Kingdom, ek: Kingdom) -> void:
+	var lead: Faction = World.factions.get(k.leading_fid)
+	if lead == null:
+		return
+	var party: Array[int] = []
+	var axes := 0
+	for f in k.members():
+		party.append_array(_party(f))
+		axes += GoalLadder.raid_axes(f)
+	if party.size() < 2 or axes < 1:
+		return
+	var cap := KingdomWars.capital(k)
+	var rally := cap.fire_cell if cap else World.NO_CELL
+	if rally == World.NO_CELL:
+		var king: Agent = World.agents.get(k.king_id)
+		rally = king.cell() if king else World.agents[party[0]].cell()
+	var h := _kingdom_target(ek, rally)
+	if h == null:
+		return
+	var r := Raid.new(lead, h)
+	r.kingdom = k
+	r.party = party
+	r.size0 = party.size()
+	r.rally = rally
+	active.append(r)
+	started_count += 1
+	kingdom_started += 1
+	for mid in party:
+		var m: Agent = World.agents.get(mid)
+		m.raid_id = r.id
+		if not m.in_combat():
+			Brain.set_job(m, raider_job(r))
+	var tf: Faction = World.factions.get(h.faction_id)
+	Wars.note_raid(lead, tf)
+	EventBus.log_event("The kingdom of %s musters %d raiders to march on %s's %s!" % [k.name, party.size(), ek.name, "capital" if h == KingdomWars.capital(ek) else h.label()])
+
+
+## Kingdom raid targets (agreed order): the capital, then a smeltery, then a workshop, then
+## the nearest other building.
+static func _kingdom_target(ek: Kingdom, from: Vector2i) -> House:
+	var cap := KingdomWars.capital(ek)
+	if cap and _targetable(cap):
+		return cap
+	for kind in [House.Kind.SMELTERY, House.Kind.WORKSHOP, House.Kind.HOUSE]:
+		var best: House = null
+		var best_d := INF
+		for f in ek.members():
+			for h in f.houses:
+				if h.kind != kind or not _targetable(h):
+					continue
+				var d := Vector2(from).distance_squared_to(Vector2(h.fire_cell))
+				if d < best_d:
+					best_d = d
+					best = h
+		if best:
+			return best
+	return null
+
+
+static func _targetable(h: House) -> bool:
+	return h.state == House.State.COMPLETE and h.fire != null and h.fire.burning()
+
+
+## A kingdom raid moves on to the next target; false if there is none left.
+static func _next_target(r: Raid) -> bool:
+	var ek := KingdomWars.enemy(r.kingdom)
+	if ek == null:
+		return false
+	var from := r.rally
+	for m in _raiders(r):
+		from = m.cell()
+		break
+	var h := _kingdom_target(ek, from)
+	if h == null:
+		return false
+	r.target = h
+	r.target_fid = h.faction_id
+	r.alerted = false
+	r.breach = Vector2i(-1, -1)
+	if r.phase != Raid.Phase.RALLY:
+		_set_phase(r, Raid.Phase.MARCH)
+	EventBus.log_event("%s's raiders move on to %s's %s." % [r.kingdom.name, ek.name, "capital" if h == KingdomWars.capital(ek) else h.label()])
+	return true
+
+
+## Retreat (agreed): a quarter or less of the party left alive, and the live defenders in
+## the zone outnumber the live raiders two to one.
+static func _kingdom_retreat(r: Raid) -> bool:
+	if r.party.is_empty():
+		return true
+	if r.party.size() > r.size0 * Cfg.KWAR_LOSS_SHARE:
+		return false
+	return _defenders_standing(r) >= r.party.size() * Cfg.KWAR_OUTNUMBER
+
+
 static func raider_job(r: Raid) -> Job:
 	var j := Job.new(Job.Kind.RAID, Job.PRIO_ORDER)
 	j.raid = r
@@ -209,25 +318,37 @@ static func update(dt: float) -> void:
 static func _update_raid(r: Raid) -> void:
 	for mid in r.party.duplicate():
 		var m: Agent = World.agents.get(mid)
-		if m == null or m.faction != r.attacker:
+		var gone := m == null or (m.faction != r.attacker if r.kingdom == null else m.faction.kingdom != r.kingdom)
+		if gone:
 			r.party.erase(mid)
 			if m:
 				m.raid_id = -1
 	var tf := r.target_faction()
-	if not World.factions.has(r.attacker.id):
+	if r.kingdom:
+		if not World.kingdoms.has(r.kingdom.id) or KingdomWars.enemy(r.kingdom) == null:
+			end_raid(r, r.sacked > 0, "the war is over")
+			return
+	elif not World.factions.has(r.attacker.id):
 		end_raid(r, false, "the raiders' group is gone")
 		return
 	if tf == null and r.alerted and r.target.fire != null:
 		_win(r) # every defender is dead or taken as a servant: the house is theirs
 		return
-	if tf == null or not tf.houses.has(r.target) or r.target.fire == null:
-		end_raid(r, false, "the target is gone")
+	if tf == null or not tf.houses.has(r.target) or r.target.fire == null or (r.kingdom and not r.target.fire.burning()):
+		if r.kingdom and _next_target(r):
+			return
+		end_raid(r, r.sacked > 0, "the target is gone")
 		return
-	if r.party.size() * 2 <= r.size0 and r.size0 > 1 or r.party.is_empty():
+	if r.kingdom:
+		if _kingdom_retreat(r):
+			kingdom_retreated += 1
+			end_raid(r, false, "only %d of %d raiders left, outnumbered" % [r.party.size(), r.size0])
+			return
+	elif r.party.size() * 2 <= r.size0 and r.size0 > 1 or r.party.is_empty():
 		end_raid(r, false, "half the raiders are down")
 		return
-	if SimClock.time - r.started > Cfg.RAID_MAX_SECS:
-		end_raid(r, false, "time ran out")
+	if SimClock.time - r.started > (Cfg.KWAR_RAID_MAX_SECS if r.kingdom else Cfg.RAID_MAX_SECS):
+		end_raid(r, r.sacked > 0, "time ran out")
 		return
 	var raiders := _raiders(r)
 	match r.phase:
@@ -308,7 +429,7 @@ static func _breach_ok(r: Raid) -> bool:
 static func _defenders_standing(r: Raid) -> int:
 	var n := 0
 	for a in World.agent_list:
-		var defending := a.faction.id == r.target_fid or a.defend_raid == r.id
+		var defending := a.faction.id == r.target_fid or a.defend_raid == r.id or (r.kingdom != null and World.same_side(a.faction.id, r.target_fid))
 		if not defending or World.cheb(a.cell(), r.target.fire_cell) > Cfg.PRIVILEGE_RADIUS:
 			continue
 		if a.job and a.job.kind == Job.Kind.FLEE:
@@ -328,6 +449,9 @@ static func _alert(r: Raid) -> void:
 	if tf.kingdom:
 		for g in tf.kingdom.members():
 			if g == tf:
+				continue
+			if r.kingdom:
+				helpers.append(g) # a kingdom raid calls the whole kingdom home (Kingdom Wars Plan §1.6)
 				continue
 			for h in g.homes():
 				if h.fire and World.cheb(h.fire_cell, r.target.fire_cell) <= Cfg.KINGDOM_DEFEND_RANGE:
@@ -361,13 +485,34 @@ static func _win(r: Raid) -> void:
 				plan[k] = -ch.store.stacks[k]
 			for t in ch.store.tools:
 				plan["tool:" + t.type] = plan.get("tool:" + t.type, 0) - 1
+			var before: Dictionary = m.inv.stacks.duplicate()
 			taken += Stock.transfer(m, ch, plan)
+			if r.kingdom:
+				var got: Dictionary = r.loot.get(m.id, {})
+				for k in m.inv.stacks:
+					var n: int = m.inv.stacks[k] - before.get(k, 0)
+					if n > 0:
+						got[k] = got.get(k, 0) + n
+				r.loot[m.id] = got
 	if tf:
 		Relations.change(r.attacker, tf, Cfg.REL_ROB)
 		Wars.note_raid(r.attacker, tf)
 	won_count += 1
 	if h.is_smeltery():
 		smeltery_won += 1
+	if r.kingdom:
+		var ek := KingdomWars.enemy(r.kingdom)
+		var was_capital := ek != null and ek.capital == h
+		if was_capital:
+			capitals_sacked += 1
+		r.sacked += 1
+		var w := Wars.kingdom_war(r.kingdom)
+		if not w.is_empty():
+			w.last_raid = SimClock.time # a sack keeps the war going, whoever leads now
+		EventBus.log_event("%s sack %s's %s (%s): the fire is out and %d items are taken." % [r.kingdom.name, ek.name if ek else "?", "capital" if was_capital else h.label(), tname, taken])
+		if not _next_target(r):
+			end_raid(r, true, "")
+		return
 	EventBus.log_event("%s sack %s's %s: the fire is out and %d items are taken." % [r.attacker.name, tname, h.label(), taken])
 	end_raid(r, true, "")
 
@@ -376,7 +521,9 @@ static func end_raid(r: Raid, won: bool, why: String) -> void:
 	active.erase(r)
 	if not won:
 		lost_count += 1
-		EventBus.log_event("%s's raid on %s fails (%s); they retreat." % [r.attacker.name, World.factions[r.target_fid].name if World.factions.has(r.target_fid) else "?", why])
+		EventBus.log_event("%s's raid on %s fails (%s); they retreat." % [r.label(), World.factions[r.target_fid].name if World.factions.has(r.target_fid) else "?", why])
+	elif r.kingdom:
+		EventBus.log_event("%s's raiders head home with their plunder%s." % [r.kingdom.name, (" (%s)" % why) if why != "" else ""])
 	for a in World.agent_list:
 		if a.raid_id == r.id:
 			a.raid_id = -1
@@ -386,6 +533,27 @@ static func end_raid(r: Raid, won: bool, why: String) -> void:
 			a.defend_raid = -1
 			if a.job and a.job.kind == Job.Kind.DEFEND:
 				Brain.set_job(a, null)
+	if r.kingdom:
+		_carry_home(r)
+
+
+## Kingdom raiders carry what they took to their capital's chest (Kingdom Wars Plan §1.6).
+static func _carry_home(r: Raid) -> void:
+	var cap := KingdomWars.capital(r.kingdom) if World.kingdoms.has(r.kingdom.id) else null
+	var ch := cap.live_chest() if cap else null
+	if ch == null:
+		return
+	for mid in r.loot:
+		var m: Agent = World.agents.get(mid)
+		if m == null or not m.alive or m.faction.kingdom != r.kingdom or m.in_combat():
+			continue
+		var plan := {}
+		for k in r.loot[mid]:
+			var n: int = min(r.loot[mid][k], m.inv.count(k))
+			if n > 0:
+				plan[k] = n
+		if not plan.is_empty():
+			Brain.set_job(m, Brain.chest_job(ch, plan))
 
 
 # --- Agent behaviour ---
@@ -479,7 +647,7 @@ static func _enemy_near(a: Agent, r: Raid, radius: float) -> Agent:
 	for o in World.agents_near(a.pos, radius):
 		if not o.alive or o.raid_id == r.id:
 			continue
-		if o.faction.id != r.target_fid and o.defend_raid != r.id:
+		if o.faction.id != r.target_fid and o.defend_raid != r.id and not (r.kingdom and World.same_side(o.faction.id, r.target_fid)):
 			continue
 		var d := a.pos.distance_to(o.pos)
 		if d < best_d:

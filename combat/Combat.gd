@@ -9,6 +9,7 @@ static func start_fight(att: Agent, vic: Agent, to_death: bool = false) -> void:
 		var st := get_stack()
 		var src: String = st[1]["function"] if st.size() > 1 else "?"
 		World.fight_sources[src] = World.fight_sources.get(src, 0) + 1
+	to_death = to_death or KingdomWars.enemies(att, vic) # no prisoners (Kingdom Wars Plan §1.4)
 	var j := Job.new(Job.Kind.FIGHT, Job.PRIO_CRITICAL)
 	j.target_id = vic.id
 	j.to_death = to_death
@@ -31,7 +32,18 @@ static func on_attacked(vic: Agent, att: Agent) -> void:
 		if vic.job == null or vic.job.kind != Job.Kind.FIGHT or vic.job.prio < Job.PRIO_CRITICAL:
 			vic.change_mood(-15.0)
 			vic.change_opinion(att.id, -30.0)
-			if vic.death_match.has(att.id) or vic.power() >= att.power() * 0.8:
+			if KingdomWars.enemies(vic, att):
+				# Kingdom war: fight to the death, or flee when badly hurt (agreed).
+				if vic.hp < Cfg.KWAR_FLEE_HP * Cfg.MAX_HP:
+					Brain.flee(vic, att.pos, att.id)
+				else:
+					vic.death_match[att.id] = true
+					att.death_match[vic.id] = true
+					var kj := Job.new(Job.Kind.FIGHT, Job.PRIO_CRITICAL)
+					kj.target_id = att.id
+					kj.to_death = true
+					Brain.set_job(vic, kj)
+			elif vic.death_match.has(att.id) or vic.power() >= att.power() * 0.8:
 				var j := Job.new(Job.Kind.FIGHT, Job.PRIO_CRITICAL)
 				j.target_id = att.id
 				j.to_death = vic.death_match.has(att.id)
@@ -55,6 +67,10 @@ static func call_defenders(vic: Agent, att: Agent) -> void:
 			continue
 		var j := Job.new(Job.Kind.FIGHT, Job.PRIO_CRITICAL)
 		j.target_id = att.id
+		if KingdomWars.enemies(m, att):
+			j.to_death = true
+			m.death_match[att.id] = true
+			att.death_match[m.id] = true
 		Brain.set_job(m, j)
 		vic.change_opinion(m.id, 20.0)
 		if m.faction != vic.faction:
@@ -123,7 +139,7 @@ static func apply_damage(t: Agent, dmg: float, a: Agent) -> void:
 		World.kill_agent(t, a)
 		return
 	on_attacked(t, a)
-	if t.hp <= Cfg.PLEAD_HP * Cfg.MAX_HP and not t.pleaded.has(a.id) and not t.death_match.has(a.id):
+	if t.hp <= Cfg.PLEAD_HP * Cfg.MAX_HP and not t.pleaded.has(a.id) and not t.death_match.has(a.id) and not KingdomWars.enemies(t, a):
 		plead(t, a)
 
 

@@ -419,6 +419,7 @@ static func update(k: Kingdom) -> void:
 		k.push_check_at = SimClock.time + Cfg.PUSH_CHECK_SECS
 		_post_demolish(k, have)
 		PushOut.update(k)
+	Tax.update(k)
 
 
 ## DEMOLISH (agreed): every piece in the city area that belongs to no live building

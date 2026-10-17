@@ -70,6 +70,11 @@ static func leave(f: Faction, why: String = "") -> void:
 
 
 static func dissolve(k: Kingdom) -> void:
+	# Falling apart mid-war (a group turned gang, groups died out) counts as losing (§1.8).
+	var ek := KingdomWars.enemy(k)
+	if ek and not KingdomWars.is_scattering(k):
+		KingdomWars.scatter(k, ek, true)
+		return
 	for f in k.members():
 		f.kingdom = null
 	k.groups.clear()
@@ -121,6 +126,7 @@ static func update_all() -> void:
 			dissolve(k)
 		else:
 			recompute(k)
+			k.capital = KingdomWars.capital(k)
 			Cities.update(k)
 
 

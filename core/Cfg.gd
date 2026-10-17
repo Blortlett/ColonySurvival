@@ -122,6 +122,33 @@ const PUSH_TRUCE_SECS := 300.0 # after peace, wait this long before demanding ag
 const INVITE_MIN_RELATION := -10.0 # an invited group joins if relations are at least this
 const DEMOLISH_SECS := 2.0 # time to tear down one piece
 
+# --- Kingdom wars (Kingdom Wars Plan §1) ---
+const KWAR_CHECK_SECS := 60.0 # how often kingdoms look for a war (agreed)
+const KWAR_POWER_RATIO := 0.8 # attacker power >= this x the weakest free rival's (agreed)
+const KWAR_GRACE_SECS := 1200.0 # a new kingdom can't declare or be declared on (agreed)
+const KWAR_TRUCE_SECS := 300.0 # after a kingdom war's peace, between that pair (agreed)
+const KWAR_FLEE_HP := 0.3 # below this share of HP, warring members flee instead of fighting (agreed)
+const KWAR_SIGHT := 8.0 # warring members attack enemy kingdom members this close (start)
+const KWAR_LOSS_SHARE := 0.25 # scatter / retreat at this share alive or less (agreed)
+const KWAR_OUTNUMBER := 2.0 # ...while the enemy has this many times the living members (agreed)
+const KWAR_RAID_MAX_SECS := 360.0 # kingdom raid time limit (start)
+const KWAR_RAID_READY := 0.7 # share of members above 50% HP before the next kingdom raid (start)
+const SCATTER_MIN := 40 # each scattered survivor runs this far, in cells (start)
+const SCATTER_MAX := 80
+
+# --- Tax (Kingdom Wars Plan §3) ---
+const TAX_SECS := 300.0 # (start)
+const TAX_RADIUS := 44 # tax ring around the capital, outside PUSH_RADIUS (start)
+const TAX_BASE := {"wood": 5, "berry": 5, "raw_iron": 1} # per member; also the cap (start)
+const TAX_NEAR_RADIUS := 30.0 # "kingdom power near the group" (agreed)
+const TAX_ANGER_SHARE := 0.5 # anger factor: + this x the share of angry members (agreed)
+const TAX_ANGER_REPEAT := 0.1 # ...+ this per time taxed in the window (agreed)
+const TAX_REPEAT_WINDOW := 1800.0 # (agreed)
+const TAX_COURAGE := 1.0 # (start)
+const TAX_MOOD := -8.0 # per member when paying (start)
+const TAX_REL := -5.0 # (start)
+const TAX_RESIST_REL := -15.0 # (start)
+
 # --- Chests (Phase B) ---
 const STOCK_BERRIES_PER_MEMBER := 5 # (agreed)
 const HOME_RANGE := 40.0 # how far from home an agent still uses the chest

@@ -32,7 +32,7 @@ static func update(a: Agent, dt: float) -> void:
 		# Between slower thinks, still look around at the base rate: encounters with
 		# passers-by (meetings, robberies, fights) need it to keep their rates.
 		a.social_t += Cfg.THINK_INTERVAL
-		if a.job == null or a.job.prio < Job.PRIO_CRITICAL:
+		if (a.job == null or a.job.prio < Job.PRIO_CRITICAL) and not KingdomWars.sight(a):
 			var ts := Time.get_ticks_usec()
 			Relations.meet(a)
 			World.prof_add("social_meet", ts)
@@ -105,6 +105,8 @@ static func flee(a: Agent, from: Vector2, from_id: int, prio: int = Job.PRIO_CRI
 static func think(a: Agent) -> void:
 	if a.job and a.job.prio >= Job.PRIO_CRITICAL:
 		return
+	if KingdomWars.sight(a):
+		return # an enemy kingdom member in sight: everything else waits (agreed)
 	a.auto_equip()
 	# Needs layer.
 	if a.hunger < Cfg.HUNGER_EAT and a.inv.count("berry") > 0:
@@ -931,6 +933,9 @@ static func _run_fight(a: Agent, j: Job, dt: float) -> void:
 	var d := a.pos.distance_to(t.pos)
 	if d > Cfg.CHASE_GIVE_UP:
 		_done(a)
+		return
+	if a.hp < Cfg.KWAR_FLEE_HP * Cfg.MAX_HP and KingdomWars.enemies(a, t):
+		flee(a, t.pos, t.id) # badly hurt in a kingdom war: run (agreed)
 		return
 	if a.attack_cd <= 0.0:
 		if a.has_bow_ready() and d > 1.6 and d <= a.bow_range():

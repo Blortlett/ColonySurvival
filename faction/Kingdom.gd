@@ -23,6 +23,8 @@ var close_retry_at := 0.0 # same, for plots in the leader's and adjacent blocks
 var room_short_until := 0.0 # no close free plot lately: push neighbours off the plots we want
 var push_check_at := 0.0
 var pushouts := {} # faction id -> {stage, since, wanted, house}
+var tax_at := 0.0 # next tax run (Kingdom Wars Plan §3)
+var capital: House = null # cached KingdomWars.capital, refreshed every 2 s (its chest has no limit)
 
 
 func _init(rng: RandomNumberGenerator) -> void:
@@ -31,6 +33,7 @@ func _init(rng: RandomNumberGenerator) -> void:
 	color = Color.from_hsv(rng.randf(), rng.randf_range(0.7, 0.95), 1.0)
 	name = Kingdoms.make_name(rng)
 	founded = SimClock.time
+	tax_at = founded + Cfg.TAX_SECS
 
 
 func has_room() -> bool:
