@@ -21,6 +21,8 @@ func _draw() -> void:
 	for a in World.agent_list:
 		var p := a.pos * s
 		var fill: Color = Color(0.55, 0.55, 0.55) if a.faction.solo else a.faction.color
+		if a.is_armoured():
+			draw_circle(p, s * 0.54, Color(0.62, 0.63, 0.68)) # armoured: grey outer ring (v3)
 		draw_circle(p, s * 0.42, MOOD_COLORS[a.mood_label()])
 		draw_circle(p, s * 0.30, fill)
 		if a.is_servant():

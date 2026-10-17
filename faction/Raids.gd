@@ -5,6 +5,8 @@ static var active: Array[Raid] = []
 static var started_count := 0
 static var won_count := 0
 static var lost_count := 0
+static var smeltery_raids := 0 # raids on smelteries started / won (v3)
+static var smeltery_won := 0
 static var _acc := 0.0
 
 
@@ -71,22 +73,49 @@ static func _gang_target(f: Faction, party_size: int, axes: int) -> House:
 	for g in World.factions.values():
 		if g == f or g.solo or World.same_side(g.id, f.id) or against(g):
 			continue
-		# More axes let a gang take on tougher targets.
-		if g.members.size() > party_size + axes:
+		# More axes let a gang take on tougher targets; smelteries are prime targets (v3) and
+		# are worth a bigger risk.
+		var cap := party_size + axes
+		if g.members.size() > cap + Cfg.RAID_SMELTERY_SIZE_BONUS:
 			continue
-		for h in g.homes():
+		var targets: Array[House] = g.smelteries()
+		if g.members.size() <= cap:
+			targets.append_array(g.homes())
+		for h in targets:
 			if h.state != House.State.COMPLETE or h.fire == null or not h.fire.burning():
 				continue
 			var d := Vector2(home).distance_to(Vector2(h.fire_cell))
 			if d > Cfg.RAID_RANGE:
 				continue
-			var ch: Furniture = h.live_chest()
-			var rich: int = ch.store.total() if ch else 0
+			var rich := 0
+			for st in _stores(h):
+				rich += loot_value(st.store)
 			var score: float = (rich + 5.0) / (1.0 + g.members.size()) - d * 0.05
 			if score > best_score:
 				best_score = score
 				best = h
 	return best
+
+
+## The chest or crates a raid can empty.
+static func _stores(h: House) -> Array[Furniture]:
+	var out: Array[Furniture] = []
+	if h.is_smeltery():
+		out.append_array(h.crates())
+	elif h.live_chest():
+		out.append(h.live_chest())
+	return out
+
+
+## What a gang sees in a store: every item counts, iron and gear count extra (agreed).
+static func loot_value(inv: Inventory) -> float:
+	var v := float(inv.total())
+	for k in ["raw_iron", "iron_bar", "metal_door"]:
+		v += inv.count(k) * (Cfg.RAID_IRON_WEIGHT - 1.0)
+	for t in inv.tools:
+		if t.type in Items.ANVIL_RECIPES:
+			v += Cfg.RAID_IRON_WEIGHT * 2.0 - 1.0
+	return v
 
 
 static func _war_target(f: Faction) -> House:
@@ -141,6 +170,8 @@ static func start(f: Faction, h: House, party: Array[int]) -> void:
 		r.rally = l.cell() if l else World.agents[party[0]].cell()
 	active.append(r)
 	started_count += 1
+	if h.is_smeltery():
+		smeltery_raids += 1
 	for mid in party:
 		var m: Agent = World.agents.get(mid)
 		m.raid_id = r.id
@@ -148,7 +179,7 @@ static func start(f: Faction, h: House, party: Array[int]) -> void:
 			Brain.set_job(m, raider_job(r))
 	var tf: Faction = World.factions.get(h.faction_id)
 	Wars.note_raid(f, tf)
-	EventBus.log_event("%s %s sets out to raid %s (%d raiders)!" % ["Gang" if f.is_gang() else "Group", f.name, tf.name if tf else "?", party.size()])
+	EventBus.log_event("%s %s sets out to raid %s's %s (%d raiders)!" % ["Gang" if f.is_gang() else "Group", f.name, tf.name if tf else "?", h.label(), party.size()])
 
 
 static func raider_job(r: Raid) -> Job:
@@ -321,10 +352,7 @@ static func _win(r: Raid) -> void:
 	h.fire.fuel_secs = 0.0 # the fire is put out: the zone dies and the house decays (agreed)
 	World.zones_dirty = true
 	var taken := 0
-	var ch: Furniture = World.furniture.get(h.chest_cell)
-	if ch and ch.kind != Furniture.Kind.CHEST:
-		ch = null
-	if ch:
+	for ch in _stores(h):
 		for m in _raiders(r):
 			if m.pos.distance_to(World.center(ch.cell)) > 12.0:
 				continue
@@ -338,7 +366,9 @@ static func _win(r: Raid) -> void:
 		Relations.change(r.attacker, tf, Cfg.REL_ROB)
 		Wars.note_raid(r.attacker, tf)
 	won_count += 1
-	EventBus.log_event("%s sack %s's house: the fire is out and %d items are taken." % [r.attacker.name, tname, taken])
+	if h.is_smeltery():
+		smeltery_won += 1
+	EventBus.log_event("%s sack %s's %s: the fire is out and %d items are taken." % [r.attacker.name, tname, h.label(), taken])
 	end_raid(r, true, "")
 
 

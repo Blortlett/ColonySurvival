@@ -25,6 +25,7 @@ var death_match := {} # agent ids we're fighting to the death with
 var pleaded := {} # attacker ids we've already pleaded to
 
 var inv := Inventory.new()
+var worn := {} # armour slot (helmet / chest_armor / leg_armor) -> {type, dur}; takes no inventory slots (v3)
 var job: Job = null
 var path: Array[Vector2i] = []
 var path_i := 0
@@ -123,6 +124,8 @@ func gain_authority() -> void:
 # --- Combat helpers ---
 
 func melee_weapon() -> String:
+	if inv.has_tool("sword"):
+		return "sword" # preferred when owned (v3)
 	if inv.has_tool("club"):
 		return "club"
 	if inv.has_tool("spear"):
@@ -151,8 +154,38 @@ func power() -> float:
 
 
 ## Strength on its own, without nearby allies (group and kingdom strength checks).
+## Includes gear (agreed): the sword's damage and the armour's damage reduction.
 func fight_power() -> float:
-	return (hp / Cfg.MAX_HP) * best_damage()
+	return (hp / Cfg.MAX_HP) * best_damage() / (1.0 - armor_reduction())
+
+
+## Damage taken is cut by this fraction (worn pieces add up).
+func armor_reduction() -> float:
+	var r := 0.0
+	for slot in worn:
+		r += Items.ARMOR_REDUCTION[slot]
+	return r
+
+
+func is_armoured() -> bool:
+	return not worn.is_empty()
+
+
+## Put on any armour carried for an empty slot (agents equip the best they own; agreed).
+func auto_equip() -> void:
+	for t in inv.tools.duplicate():
+		if t.type in Items.ARMOR and not worn.has(t.type):
+			inv.tools.erase(t)
+			worn[t.type] = t
+
+
+## Every hit taken costs each worn piece 1 durability; a piece at 0 breaks (agreed).
+func wear_armor() -> void:
+	for slot in worn.keys():
+		worn[slot].dur -= 1
+		if worn[slot].dur <= 0:
+			worn.erase(slot)
+			EventBus.log_event("%s's %s broke." % [short(), Items.label(slot)])
 
 
 # --- Social memory ---

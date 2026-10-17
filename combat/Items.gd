@@ -25,6 +25,7 @@ const ANVIL_RECIPES := ["sword", "helmet", "chest_armor", "leg_armor", "iron_rai
 const ARMOR := ["helmet", "chest_armor", "leg_armor"]
 const GEAR_SET := ["sword", "helmet", "chest_armor", "leg_armor"] # one spare set per smeltery's crates
 const RAID_AXES := ["raiding_axe", "iron_raiding_axe"]
+const ARMOR_REDUCTION := {"helmet": 0.10, "chest_armor": 0.20, "leg_armor": 0.10} # add up: -40% for a set (v3, start)
 const ARROWS_PER_CRAFT := 5
 
 # Build costs (agreed).
@@ -91,6 +92,7 @@ const WEAPONS := {
 	"unarmed": {"damage": 4.0, "reach": 1.5, "cooldown": 1.0},
 	"spear": {"damage": 9.0, "reach": 2.5, "cooldown": 1.0},
 	"club": {"damage": 14.0, "reach": 1.5, "cooldown": 1.2},
+	"sword": {"damage": 20.0, "reach": 1.5, "cooldown": 1.0}, # v3 (start)
 	"bow": {"damage": 10.0, "reach": 0.0, "cooldown": 1.5}, # reach from AGI
 }
 

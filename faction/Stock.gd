@@ -3,7 +3,7 @@ class_name Stock
 ## Transfer plans map item -> count (positive = deposit, negative = withdraw); tools use "tool:<type>".
 
 const SPARE_TOOLS := ["axe", "pickaxe"]
-const WEAPONS := ["spear", "club", "bow"]
+const WEAPONS := ["spear", "club", "bow", "sword"]
 const METAL_ITEMS := ["raw_iron", "iron_bar", "metal_door"]
 
 

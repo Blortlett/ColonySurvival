@@ -12,6 +12,10 @@ static func next(a: Agent) -> Job:
 			if ch and ch.store.has_tool(t) and a.free_space() > 0:
 				return Brain.chest_job(ch, {"tool:" + t: -1})
 			return craft_or_gather(a, t)
+	# v3: gear in the side's crates or chest goes to the highest-priority member lacking it.
+	var gj := _gear_job(a)
+	if gj:
+		return gj
 	# 4. A weapon. Angry agents prefer clubs/bows, others spears.
 	if not Stock.has_weapon(a.inv):
 		if ch and a.free_space() > 0:
@@ -140,6 +144,42 @@ static func _smith_job(a: Agent) -> Job:
 			return j
 		break
 	return null
+
+
+## Take a sword or armour piece from storage if the agent lacks it and no member of its
+## group with a higher priority (leader, then fighters, then servants; agreed) lacks it too.
+static func _gear_job(a: Agent) -> Job:
+	if a.faction.solo or a.free_space() <= 0:
+		return null
+	for item in Items.GEAR_SET:
+		if lacks(a, item) and _first_in_line(a, item):
+			for st in Stock.storages(a.faction):
+				if st.store.has_tool(item) and a.pos.distance_to(World.center(st.cell)) <= Cfg.WORKSHOP_RANGE and not Brain._blacklisted(a, st.cell):
+					return Brain.chest_job(st, {"tool:" + item: -1})
+	return null
+
+
+static func lacks(a: Agent, item: String) -> bool:
+	return not a.worn.has(item) and not a.inv.has_tool(item)
+
+
+## 0 leader, 1 fighter (any other free member), 2 servant.
+static func gear_rank(a: Agent) -> int:
+	if a.faction.leader_id == a.id:
+		return 0
+	return 2 if a.is_servant() else 1
+
+
+static func _first_in_line(a: Agent, item: String) -> bool:
+	var r := gear_rank(a)
+	for mid in a.faction.members:
+		var m: Agent = World.agents.get(mid)
+		if m == null or m == a or not lacks(m, item):
+			continue
+		var mr := gear_rank(m)
+		if mr < r or (mr == r and m.id < a.id):
+			return false
+	return true
 
 
 ## Iron the agent could use: bars and raw iron on itself and in its side's storage.

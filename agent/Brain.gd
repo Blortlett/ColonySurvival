@@ -72,6 +72,7 @@ static func flee(a: Agent, from: Vector2, from_id: int, prio: int = Job.PRIO_CRI
 static func think(a: Agent) -> void:
 	if a.job and a.job.prio >= Job.PRIO_CRITICAL:
 		return
+	a.auto_equip()
 	# Needs layer.
 	if a.hunger < Cfg.HUNGER_EAT and a.inv.count("berry") > 0:
 		a.inv.remove("berry", 1)

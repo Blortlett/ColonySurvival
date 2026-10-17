@@ -109,6 +109,9 @@ static func attack_wall(a: Agent, w: Wall) -> void:
 
 
 static func apply_damage(t: Agent, dmg: float, a: Agent) -> void:
+	if t.is_armoured():
+		dmg *= 1.0 - t.armor_reduction()
+		t.wear_armor()
 	t.hp -= dmg
 	if t.hp <= 0.0:
 		World.kill_agent(t, a)

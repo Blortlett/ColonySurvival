@@ -108,6 +108,8 @@ const RAID_CHANCE := 0.3 # with 1 raiding axe
 const RAID_CHANCE_PER_AXE := 0.15 # each extra axe raises the chance (agreed concept)
 const RAID_RANGE := 80.0 # gangs look for targets this close to home
 const RAID_MAX_SECS := 180.0 # a raid is lost after 3 minutes (agreed)
+const RAID_SMELTERY_SIZE_BONUS := 4 # gangs take on groups this much bigger for a smeltery (v3, start)
+const RAID_IRON_WEIGHT := 3.0 # in a gang's target score, a unit of iron counts this much (gear double; v3 start)
 const KINGDOM_DEFEND_RANGE := 30 # same-kingdom groups this close send help (agreed)
 
 # --- Territorial kingdoms (v3 Phase 1) ---

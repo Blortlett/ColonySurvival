@@ -28,6 +28,7 @@ var static_dirty := true
 var started := false
 var deaths := 0
 var death_causes := {"killed": 0, "cold": 0, "hunger": 0}
+var gear_fights := {"armoured_won": 0, "armoured_lost": 0} # kills between armoured and unarmoured agents (v3)
 
 # Cached privilege-zone owner per cell, rebuilt when a house fire starts/stops burning.
 var zone_map := PackedInt32Array()
@@ -626,7 +627,13 @@ func kill_agent(a: Agent, killer: Agent) -> void:
 	a.alive = false
 	deaths += 1
 	var why := ("killed by %s" % killer.short()) if killer else ("died of %s" % ("cold" if a.warmth <= 0.0 else "hunger"))
-	drop_loot(a.cell(), a.inv.stacks.duplicate(), a.inv.tools.duplicate(), a.id, why)
+	# Worn gear drops into the loot bag too, so killers can strip armoured victims (agreed).
+	drop_loot(a.cell(), a.inv.stacks.duplicate(), a.inv.tools.duplicate() + a.worn.values(), a.id, why)
+	if killer:
+		if killer.is_armoured() and not a.is_armoured():
+			gear_fights.armoured_won += 1
+		elif a.is_armoured() and not killer.is_armoured():
+			gear_fights.armoured_lost += 1
 	if killer:
 		Relations.change(a.faction, killer.faction, Cfg.REL_KILL)
 	if killer:

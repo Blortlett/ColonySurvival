@@ -97,6 +97,20 @@ func _shot(minutes: int) -> void:
 		for frame in 3:
 			await get_tree().process_frame
 		get_viewport().get_texture().get_image().save_png("user://shot_smeltery.png")
+	# The most armoured agent with its panel (v3: grey ring, gear and durability).
+	var geared: Agent = null
+	for a in World.agent_list:
+		if a.is_armoured() and (geared == null or a.worn.size() > geared.worn.size()):
+			geared = a
+	if geared:
+		_camera.position = geared.pos * Cfg.CELL
+		_camera.zoom = Vector2.ONE * 3.0
+		_hud.selected_fire = null
+		_agents.selected_id = geared.id
+		for frame in 3:
+			await get_tree().process_frame
+		get_viewport().get_texture().get_image().save_png("user://shot_gear.png")
+		_agents.selected_id = -1
 	if raid_seen and Raids.active.has(raid_seen):
 		_camera.position = World.center(raid_seen.target.fire_cell) * Cfg.CELL
 		_camera.zoom = Vector2.ONE * 2.0
@@ -236,9 +250,18 @@ func _metal_line() -> String:
 	var armor := 0
 	for k in Items.ARMOR:
 		armor += tools.get(k, 0)
+	var worn := 0
+	var armoured := 0
+	var gang_geared := 0
+	for a in World.agent_list:
+		worn += a.worn.size()
+		armoured += 1 if a.is_armoured() else 0
+		if a.faction.is_gang() and (a.is_armoured() or a.inv.has_tool("sword")):
+			gang_geared += 1
 	return ("metal nodes %d raw_iron %d bars %d (crates hold %d items) t2_picks %d swords %d armour %d iron_axes %d | " % [
 		nodes, items.get("raw_iron", 0), items.get("iron_bar", 0), in_crates, tools.get("pickaxe_t2", 0), tools.get("sword", 0), armor, tools.get("iron_raiding_axe", 0)]) + (
-		"smelteries %d (working %d, gangs %d) stone_walls %d metal_doors %d iron_chests %d | " % [smelts, working, gang_smelts, stone, metal_doors, iron_chests])
+		"smelteries %d (working %d, gangs %d) stone_walls %d metal_doors %d iron_chests %d | " % [smelts, working, gang_smelts, stone, metal_doors, iron_chests]) + (
+		"worn %d (armoured agents %d, gang members geared %d) armoured kills won/lost %d/%d smeltery raids %d (won %d) | " % [worn, armoured, gang_geared, World.gear_fights.armoured_won, World.gear_fights.armoured_lost, Raids.smeltery_raids, Raids.smeltery_won])
 
 
 func _process(delta: float) -> void:

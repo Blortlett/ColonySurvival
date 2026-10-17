@@ -124,6 +124,7 @@ func _update_inspector() -> void:
 	lines.append("Home: %s" % ("none" if h == null else "house %d (%s, %d/%d)" % [h.id, House.State.keys()[h.state], h.occupants.size(), h.capacity]))
 	if h and h.fire:
 		lines.append("Home fire: %d wood" % h.fire.wood_left())
+	lines.append("Gear: %s" % _gear_text(a))
 	lines.append("Capacity %d/%d" % [a.inv.total(), a.capacity()])
 	lines.append("Inv: %s" % a.inv.summary())
 	lines.append("Doing: %s" % (a.job.label() if a.job else "thinking"))
@@ -231,6 +232,20 @@ func _fire_text(f: Campfire) -> String:
 	if g.kingdom:
 		lines.append("Kingdom board: %s" % _board_summary(g.kingdom.board))
 	return "\n".join(lines)
+
+
+## Equipped weapon and worn armour with durability (v3 agent panel).
+func _gear_text(a: Agent) -> String:
+	var parts: Array[String] = []
+	var w := a.melee_weapon()
+	var tool = a.inv.get_tool(w)
+	parts.append("%s%s" % [w, " (%d/%d)" % [tool.dur, Items.DURABILITY[w]] if tool else ""])
+	for slot in Items.ARMOR:
+		if a.worn.has(slot):
+			parts.append("%s (%d/%d)" % [Items.label(slot), a.worn[slot].dur, Items.DURABILITY[slot]])
+	if a.is_armoured():
+		parts.append("-%d%% damage" % int(round(a.armor_reduction() * 100)))
+	return ", ".join(parts)
 
 
 ## "reinforced 12/20, stone 4/20, metal door" for a building's walls and door.
