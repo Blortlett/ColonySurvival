@@ -296,6 +296,7 @@ static func destroy_house(h: House) -> void:
 	var f: Faction = World.factions.get(h.faction_id)
 	if h.fire:
 		h.fire.house = null
+	World.pieces_version += 1
 	Cities.on_house_gone(h)
 	if f == null:
 		return
@@ -320,6 +321,7 @@ static func abandon_house(h: House) -> void:
 		var w: Wall = World.walls.get(c)
 		if w:
 			w.owner_id = 0
+	World.pieces_version += 1
 
 
 ## Runs every 2 s per faction: occupant lists, new house blueprints, refuel tasks, completion.

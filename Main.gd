@@ -55,6 +55,8 @@ func _frames(minutes: int) -> void:
 				await get_tree().process_frame
 			var times: Array[int] = []
 			_sim_usec = 0
+			World.profiling = true
+			World.prof.clear()
 			var last := Time.get_ticks_usec()
 			for frame in 300:
 				await get_tree().process_frame
@@ -67,6 +69,11 @@ func _frames(minutes: int) -> void:
 			times.sort()
 			print("frames %s %2dx (min %d): avg %.2f ms, p95 %.2f ms, worst %.2f ms, sim %.2f ms/frame" % [
 				v, int(speed), minutes, total / 300000.0, times[284] / 1000.0, times[299] / 1000.0, _sim_usec / 300000.0])
+			var parts := []
+			for k in ["draw_static", "draw_pieces", "draw_dynamic", "draw_agents", "hud"]:
+				parts.append("%s %.2f" % [k, World.prof.get(k, 0) / 300000.0])
+			print("    per frame (ms): ", ", ".join(parts))
+			World.profiling = false
 	get_tree().quit()
 
 

@@ -132,3 +132,21 @@ All steps are **web-safe**: GDScript only, no threads, no C# or native code, not
 | city | 154 / 163 / 505 ms | 465 / 679 / 737 ms | 9 / 114 ms |
 
 - **Reading:** in the window, drawing costs far more than the sim: about 150 ms of a 1× frame is not sim time. B1 comes first. Of the sim cost, the node search (a new find, not in the plan) and decay are the clearest targets.
+
+### B1. Cache the static drawing
+- **Pieces cached:** `render/PieceLayer.gd` (a child of `DynamicLayer`, drawn behind it) holds the zone overlays, roads, floors, the floor under fires, walls, doors and furniture. It redraws when `World.pieces_version` (bumped on placing or removing a wall, floor, road, furniture piece or fire, on wall or floor HP changes, and on house loss or abandonment) or `zone_version` changes, at most every 0.25 s, plus a 1 s refresh for anything not flagged (blueprint states, colours).
+- **Per frame** (`DynamicLayer`): fires, the lit furnace glow, crate iron marks, raid outlines and loot bags.
+- **The bigger find: `draw_circle`.** The frame timing showed per-frame `_draw` of bushes and fires alone at about 67 ms, and the tree layer at about 160 ms per redraw. Each `draw_circle` builds its own polygon, and those don't batch. Every filled circle (trees, hemp, bushes, berries, agents) is now one shared mipmapped white disc texture, tinted per draw (`render/Disc.gd`). It looks the same, with slightly smoother edges.
+- **Trees and bushes:** `StaticLayer` redraws at most every 0.25 s. Bushes moved there (redrawn when berry counts change), so they still draw under walls.
+- **`--frames`** also prints `_draw` milliseconds per frame for each layer.
+- **Bench:** 197 s, lines identical to B0 (B1 changes rendering only).
+
+| Minute 60 | Before (B0) avg / p95 | After (B1) avg / p95 / worst | sim per frame |
+|---|---|---|---|
+| map 1× | 176 / 466 ms | 14.1 / 23.7 / 58.8 ms | 4.1 ms |
+| map 16× | 463 / 631 ms | 149 / 196 / 219 ms | 120 ms |
+| city 1× | 154 / 163 ms | 11.7 / 15.2 / 61.0 ms | 2.5 ms |
+| city 16× | 465 / 679 ms | 147 / 189 / 206 ms | 116 ms |
+
+- **Reading:** 1× now runs at about 70–85 fps. At 16× the frame is now almost all sim: the main loop catches up up to 2 sim seconds (20 steps) per frame, so a slow sim makes long frames. The cached piece layer costs about 13 ms per frame at 16× (one redraw of about 50 ms every 0.25 s, since decay shading changes every sim second). Worst 1× frames (about 60 ms) are those redraws plus the housekeeping or kingdom tick.
+- **Web-safe:** yes (canvas drawing and an `ImageTexture` only).

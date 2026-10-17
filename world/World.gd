@@ -25,6 +25,7 @@ var kingdoms := {} # id -> Kingdom
 var respawn_queue: Array = [] # [{type, at}]
 
 var static_dirty := true
+var pieces_version := 0 # bumps when walls, floors, roads, furniture or fires change (PieceLayer redraws)
 var started := false
 var deaths := 0
 var death_causes := {"killed": 0, "cold": 0, "hunger": 0}
@@ -129,16 +130,19 @@ func _per_second(s: float) -> void:
 			if b.regrow_timer >= Cfg.BUSH_REGROW_SECS:
 				b.regrow_timer = 0.0
 				b.amount += 1
+				static_dirty = true # berries are drawn in StaticLayer
 	# Walls outside any burning house fire's zone decay (agreed: 10 min to 0); so do abandoned
 	# pieces and pieces standing in another side's zone. Floors and furniture too.
 	for w in walls.values().duplicate():
 		if _unprotected(w.cell, w.owner_id):
 			w.hp -= w.max_hp / Cfg.WALL_DECAY_SECS * s
+			pieces_version += 1
 			if w.hp <= 0.0:
 				remove_wall(w)
 	for fl in floors.values().duplicate():
 		if _unprotected(fl.cell, fl.owner_id):
 			fl.hp -= fl.max_hp / Cfg.WALL_DECAY_SECS * s
+			pieces_version += 1
 			if fl.hp <= 0.0:
 				floors.erase(fl.cell)
 	for fu in furniture.values().duplicate():
@@ -456,6 +460,7 @@ func place_wall(c: Vector2i, door: bool, fid: int, tier: int = 0, shared: bool =
 	w.shared = shared
 	walls[c] = w
 	astar.set_point_solid(c, true)
+	pieces_version += 1
 	return w
 
 
@@ -464,17 +469,20 @@ func remove_wall(w: Wall) -> void:
 		return
 	walls.erase(w.cell)
 	astar.set_point_solid(w.cell, false)
+	pieces_version += 1
 
 
 ## Roads: walkable, faster, and cheaper for A* so agents prefer them (agreed).
 func place_road(c: Vector2i, tier: int) -> void:
 	roads[c] = tier
+	pieces_version += 1
 	astar.set_point_weight_scale(c, 1.0 / Items.ROAD_SPEED[tier])
 
 
 func place_floor(c: Vector2i, fid: int) -> Floor:
 	var fl := Floor.new(c, fid)
 	floors[c] = fl
+	pieces_version += 1
 	return fl
 
 
@@ -490,6 +498,7 @@ func place_furniture(c: Vector2i, kind: int, fid: int, house, tier: int = 0) -> 
 	var fu := Furniture.new(c, kind, fid, tier)
 	fu.house = house
 	furniture[c] = fu
+	pieces_version += 1
 	return fu
 
 
@@ -498,6 +507,7 @@ func remove_furniture(fu: Furniture, reason: String = "chest destroyed") -> void
 	if furniture.get(fu.cell) != fu:
 		return
 	furniture.erase(fu.cell)
+	pieces_version += 1
 	if fu.is_storage() and fu.store.total() > 0:
 		drop_loot(fu.cell, fu.store.stacks.duplicate(), fu.store.tools.duplicate(), -1, reason)
 		fu.store = Inventory.new()
@@ -507,6 +517,7 @@ func place_fire(c: Vector2i, house_fire: bool, fid: int) -> Campfire:
 	var f := Campfire.new(c, house_fire, fid)
 	fires[c] = f
 	astar.set_point_solid(c, true)
+	pieces_version += 1
 	if house_fire:
 		house_fires.append(f)
 		zones_dirty = true
@@ -518,6 +529,7 @@ func remove_fire(f: Campfire) -> void:
 		return
 	fires.erase(f.cell)
 	astar.set_point_solid(f.cell, false)
+	pieces_version += 1
 	if f.is_house:
 		house_fires.erase(f)
 		zones_dirty = true

@@ -102,6 +102,7 @@ static func attack_wall(a: Agent, w: Wall) -> void:
 	if weapon != "unarmed" and a.inv.wear(weapon):
 		EventBus.log_event("%s's %s broke." % [a.short(), weapon.replace("_", " ")])
 	w.hp -= dmg
+	World.pieces_version += 1
 	if w.hp <= 0.0:
 		var owner: Faction = World.factions.get(w.owner_id)
 		EventBus.log_event("%s breaks through %s's %s!" % [a.short(), owner.name if owner else "an old", "door" if w.is_door else "wall"])

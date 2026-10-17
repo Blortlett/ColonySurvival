@@ -375,6 +375,8 @@ static func _gather_step(a: Agent, j: Job, dt: float) -> bool:
 	if j.timer >= secs:
 		j.timer -= secs
 		j.node.amount -= 1
+		if j.node.type == ResourceNode.Type.BUSH:
+			World.static_dirty = true # berries are drawn in StaticLayer
 		a.inv.add(j.item, 1)
 		if j.node.type != ResourceNode.Type.BUSH:
 			a.add_xp("str", Cfg.XP_GATHER)
@@ -755,6 +757,8 @@ static func _perform_task(a: Agent, j: Job, t: Task, cost: Dictionary, dt: float
 			if j.timer >= g[0]:
 				j.timer = 0.0
 				n.amount -= 1
+				if n.type == ResourceNode.Type.BUSH:
+					World.static_dirty = true
 				if a.free_space() > 0 and (n.type != ResourceNode.Type.METAL or a.inv.has_tool("pickaxe_t2")):
 					a.inv.add(n.item(), 1)
 				a.add_xp("str", Cfg.XP_GATHER)

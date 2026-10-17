@@ -59,6 +59,12 @@ func _label(pos: Vector2, size: int) -> Label:
 
 
 func _process(dt: float) -> void:
+	var t := Time.get_ticks_usec()
+	_update(dt)
+	World.prof_add("hud", t)
+
+
+func _update(dt: float) -> void:
 	_refresh -= dt
 	if _refresh > 0.0:
 		return

@@ -484,6 +484,7 @@ static func demolish(c: Vector2i) -> void:
 	if fu and fu.kind != Furniture.Kind.BOARD:
 		World.remove_furniture(fu, "chest destroyed")
 	World.floors.erase(c)
+	World.pieces_version += 1
 	demolished += 1
 
 
