@@ -1,7 +1,6 @@
 # Anarchy Colony Sim — Vicious Kingdoms Plan (draft)
 
-**Status: draft, not ready to build.**
-> **Before starting:** ask the user to settle the **vassal tier** (§2). It is underbaked on purpose. Kingdom rivalry (§1) and the simple tax (§3) are close to ready.
+**Status: superseded by `Docs/Kingdom_Wars_Plan.md`.** Kept for history. Kingdom wars and tax are fully specified there; the vassal tier (§2) is deferred.
 
 **Builds on:** v3 (`Docs/Kingdoms_Plan_v3.md`): push-out ladder, power checks, wars, raids.
 **Goal:**
