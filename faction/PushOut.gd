@@ -197,6 +197,7 @@ static func leave_step(f: Faction) -> void:
 		for h in inside:
 			Factions.abandon_house(h)
 			f.houses.erase(h)
+			World.buildings_version += 1
 			f.board.remove_for_house(h)
 		f.evicted_by = -1
 		k.pushouts.erase(f.id)

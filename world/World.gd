@@ -43,6 +43,9 @@ var _hk_index := 0
 # Rebuilt when zones or protection change (protect_version: owners, factions); new pieces
 # are checked on the next tick and appended (new dict keys go last, so order is kept).
 var protect_version := 0
+## Bumps when any group's building list, kingdom membership or furniture changes; the
+## group lookup caches (Factions.shared_*, Stock.storages) are cleared on it (B4).
+var buildings_version := 0
 var _decay_seen := Vector2i(-1, -1) # zone_version, protect_version at the last rebuild
 var _decay_walls: Array[Wall] = []
 var _decay_floors: Array[Floor] = []
@@ -381,7 +384,7 @@ func find_path(a: Agent, dest: Vector2i) -> Array[Vector2i]:
 		return []
 	var ts := Time.get_ticks_usec()
 	var opened: Array[Vector2i] = []
-	for h in a.faction.houses + Factions.shared_workshops(a.faction) + Factions.shared_smelteries(a.faction):
+	for h in a.faction.houses + Factions.machine_houses(a.faction):
 		if walls.has(h.door_cell) and astar.is_point_solid(h.door_cell) and passable(a, h.door_cell):
 			opened.append(h.door_cell)
 	var trap := house_at(start)
@@ -559,6 +562,7 @@ func place_furniture(c: Vector2i, kind: int, fid: int, house, tier: int = 0) -> 
 	fu.house = house
 	furniture[c] = fu
 	pieces_version += 1
+	buildings_version += 1
 	_new_furniture.append(fu)
 	return fu
 
@@ -569,6 +573,7 @@ func remove_furniture(fu: Furniture, reason: String = "chest destroyed") -> void
 		return
 	furniture.erase(fu.cell)
 	pieces_version += 1
+	buildings_version += 1
 	if fu.is_storage() and fu.store.total() > 0:
 		drop_loot(fu.cell, fu.store.stacks.duplicate(), fu.store.tools.duplicate(), -1, reason)
 		fu.store = Inventory.new()

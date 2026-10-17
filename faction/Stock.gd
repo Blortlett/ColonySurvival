@@ -34,6 +34,9 @@ static func group_chest_with(a: Agent, item: String) -> Furniture:
 
 ## The group's chests, plus the crates of every smeltery its side may use (v3).
 static func storages(f: Faction) -> Array[Furniture]:
+	var hit = Factions.cache_get(f, Factions.CACHE_STORAGES)
+	if hit != null:
+		return hit
 	var out: Array[Furniture] = []
 	for h in f.houses:
 		var ch := h.live_chest()
@@ -41,6 +44,7 @@ static func storages(f: Faction) -> Array[Furniture]:
 			out.append(ch)
 	for s in Factions.shared_smelteries(f):
 		out.append_array(s.crates())
+	Factions.cache_put(f, Factions.CACHE_STORAGES, out)
 	return out
 
 

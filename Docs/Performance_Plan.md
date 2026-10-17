@@ -173,7 +173,7 @@ All steps are **web-safe**: GDScript only, no threads, no C# or native code, not
 
 | Mean per run | Baseline (n=9) | Plan as written (n=4) | Scans 0.25, idle 1.0 (n=8) | **Built: scans 0.25, 0.5 / 0.5 (n=4)** |
 |---|---|---|---|---|
-| kills | 65 | 54 | 111 | **56** |
+| kills | 65 | 55 | 111 | **56** |
 | fights started | 146 | 111 | 246 | **122** |
 | raids (won + lost) | 7.2 | 4.3 | 17.0 | **7.0** |
 | trades | 5,321 | 5,394 | 5,048 | **5,445** |
@@ -185,4 +185,11 @@ All steps are **web-safe**: GDScript only, no threads, no C# or native code, not
 
 - **Bench (seed 12345):** 173.8 s (B2: 188.7 s). `think` 42.7 s → 26.2 s, `think_ladder` 10.0 → 6.6 s. `think_social` stays about 17 s, since the scans keep their rate.
 - **Watch:** servants average a little lower (9.1 vs 12.4). That is within the seed noise seen for single runs, but worth checking in a playtest.
+- **Web-safe:** yes.
+
+### B4. Cache group lookups
+- `Factions.shared_workshops / shared_smelteries`, a new `Factions.machine_houses` (workshops then smelteries, the order `nearest_machine` and `find_path` use) and `Stock.storages` are cached per group.
+- **Exact invalidation, not a 1 s timer:** the cache is cleared whenever `World.buildings_version` moves. It is bumped when a group's building list changes, a house is abandoned, a faction disbands, kingdom membership changes, and furniture is placed or removed. Nothing can go stale, so the existing "object still exists" checks are enough, and the sim stays deterministic. Callers treat the cached arrays as read-only (they already did).
+- **Bench:** 172.2 s (B3: 173.8 s, within noise), lines identical to B3.
+- **Profile:** `think_ladder` 6,576 → 5,568 ms, `path_doors` 4,475 → 3,651 ms, `run_CRAFT` 1,863 → 1,715 ms. Everything else is unchanged. These lookups weren't a big cost on their own: the time in `TASK.obtain` is the node search and the walking (B5).
 - **Web-safe:** yes.

@@ -32,6 +32,7 @@ static func form(fa: Faction, fb: Faction) -> Kingdom:
 		f.kingdom = k
 	recompute(k, false)
 	World.zones_dirty = true
+	World.buildings_version += 1
 	EventBus.log_event("%s and %s form the kingdom of %s." % [fa.name, fb.name, k.name])
 	Cities.on_formed(k)
 	return k
@@ -43,6 +44,7 @@ static func join(f: Faction, k: Kingdom) -> void:
 	f.kingdom = k
 	recompute(k)
 	World.zones_dirty = true
+	World.buildings_version += 1
 	EventBus.log_event("%s joins the kingdom of %s (%d groups)." % [f.name, k.name, k.groups.size()])
 	Cities.on_joined(k, f)
 
@@ -57,6 +59,7 @@ static func leave(f: Faction, why: String = "") -> void:
 		if t.claimed_by != -1 and f.members.has(t.claimed_by):
 			t.claimed_by = -1
 	World.zones_dirty = true
+	World.buildings_version += 1
 	Cities.on_left(k, f)
 	if why != "":
 		EventBus.log_event("%s leaves %s (%s)." % [f.name, k.name, why])
@@ -74,6 +77,7 @@ static func dissolve(k: Kingdom) -> void:
 	Wars.drop_side(Wars.kingdom_side(k))
 	World.kingdoms.erase(k.id)
 	World.zones_dirty = true
+	World.buildings_version += 1
 	Cities.on_dissolved(k)
 	EventBus.log_event("The kingdom of %s dissolves." % k.name)
 
@@ -110,6 +114,7 @@ static func update_all() -> void:
 		for fid in k.groups.duplicate():
 			if not World.factions.has(fid):
 				k.groups.erase(fid)
+				World.buildings_version += 1
 		if not World.kingdoms.has(k.id):
 			continue
 		if k.groups.size() < 2:

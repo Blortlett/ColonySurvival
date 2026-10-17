@@ -283,6 +283,7 @@ static func plan_on_plot(f: Faction, cap: int, kind: int) -> House:
 	h.plot = idx
 	k.plots[idx] = {"kind": plot_kind, "fid": f.id, "house": h}
 	f.houses.append(h)
+	World.buildings_version += 1
 	f.board.post(Task.new(Task.Type.PLACE_HOUSE_FIRE, h.fire_cell, h))
 	return h
 
@@ -331,6 +332,7 @@ static func relocate(f: Faction) -> void:
 			continue
 		Factions.abandon_house(h)
 		f.houses.erase(h)
+		World.buildings_version += 1
 		f.board.remove_for_house(h)
 		if h.plot_kid == k.id and k.plots.has(h.plot) and k.plots[h.plot].house == h:
 			k.plots.erase(h.plot)

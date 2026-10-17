@@ -1,6 +1,26 @@
 class_name Factions
 ## Faction membership, leadership, houses and servants.
 
+## Group lookups that callers repeat many times per step (B4): [fid, kind] -> Array,
+## cleared whenever World.buildings_version moves. Callers must not change the arrays.
+static var _cache := {}
+static var _cache_version := -1
+const CACHE_WORKSHOPS := 0
+const CACHE_SMELTERIES := 1
+const CACHE_MACHINE_HOUSES := 2
+const CACHE_STORAGES := 3
+
+
+static func cache_get(f: Faction, kind: int):
+	if _cache_version != World.buildings_version:
+		_cache_version = World.buildings_version
+		_cache.clear()
+	return _cache.get(Vector2i(f.id, kind))
+
+
+static func cache_put(f: Faction, kind: int, v: Array) -> void:
+	_cache[Vector2i(f.id, kind)] = v
+
 # --- Membership ---
 
 static func make_solo(a: Agent) -> void:
@@ -86,6 +106,7 @@ static func disband(f: Faction) -> void:
 	f.houses.clear()
 	f.board.clear()
 	World.factions.erase(f.id)
+	World.buildings_version += 1
 	World.protect_version += 1
 	if not f.solo:
 		EventBus.log_event("Faction %s is gone." % f.name)
@@ -195,6 +216,7 @@ static func _plan_house(f: Faction, cap: int, kind: int) -> House:
 		return null
 	var h := House.new(f.id, best, cap, kind)
 	f.houses.append(h)
+	World.buildings_version += 1
 	f.board.post(Task.new(Task.Type.PLACE_HOUSE_FIRE, h.fire_cell, h))
 	return h
 
@@ -303,6 +325,7 @@ static func destroy_house(h: House) -> void:
 		return
 	f.board.remove_for_house(h)
 	f.houses.erase(h)
+	World.buildings_version += 1
 	if h.state != House.State.PLANNED and not f.solo:
 		EventBus.log_event("%s lost a house (fire went out)." % f.name)
 
@@ -324,6 +347,7 @@ static func abandon_house(h: House) -> void:
 			w.owner_id = 0
 	World.pieces_version += 1
 	World.protect_version += 1
+	World.buildings_version += 1
 
 
 ## Runs every 2 s per faction: occupant lists, new house blueprints, refuel tasks, completion.
@@ -437,21 +461,41 @@ static func _upgrade(list: Array[House], tier: int) -> bool:
 
 ## Workshops this group may use: its own, plus every workshop in its kingdom (agreed).
 static func shared_workshops(f: Faction) -> Array[House]:
-	if f.kingdom == null:
-		return f.workshops()
+	var hit = cache_get(f, CACHE_WORKSHOPS)
+	if hit != null:
+		return hit
 	var out: Array[House] = []
-	for g in f.kingdom.members():
-		out.append_array(g.workshops())
+	if f.kingdom == null:
+		out = f.workshops()
+	else:
+		for g in f.kingdom.members():
+			out.append_array(g.workshops())
+	cache_put(f, CACHE_WORKSHOPS, out)
 	return out
 
 
 ## Smelteries this group may use: its own, plus every smeltery in its kingdom.
 static func shared_smelteries(f: Faction) -> Array[House]:
-	if f.kingdom == null:
-		return f.smelteries()
+	var hit = cache_get(f, CACHE_SMELTERIES)
+	if hit != null:
+		return hit
 	var out: Array[House] = []
-	for g in f.kingdom.members():
-		out.append_array(g.smelteries())
+	if f.kingdom == null:
+		out = f.smelteries()
+	else:
+		for g in f.kingdom.members():
+			out.append_array(g.smelteries())
+	cache_put(f, CACHE_SMELTERIES, out)
+	return out
+
+
+## Shared workshops then shared smelteries (machine search order).
+static func machine_houses(f: Faction) -> Array[House]:
+	var hit = cache_get(f, CACHE_MACHINE_HOUSES)
+	if hit != null:
+		return hit
+	var out: Array[House] = shared_workshops(f) + shared_smelteries(f)
+	cache_put(f, CACHE_MACHINE_HOUSES, out)
 	return out
 
 
@@ -459,7 +503,7 @@ static func shared_smelteries(f: Faction) -> Array[House]:
 static func nearest_machine(a: Agent, kind: int) -> Furniture:
 	var best: Furniture = null
 	var best_d := Cfg.WORKSHOP_RANGE
-	for w in shared_workshops(a.faction) + shared_smelteries(a.faction):
+	for w in machine_houses(a.faction):
 		if not w.operational():
 			continue
 		var m := w.machine(kind)
