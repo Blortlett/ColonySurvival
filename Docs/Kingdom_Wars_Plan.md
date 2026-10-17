@@ -1,6 +1,6 @@
 # Anarchy Colony Sim — Kingdom Wars and Tax Plan
 
-**Status: agreed, ready to build.**
+**Status: built (KW1–KW6). Implementation notes and first playtest in §9–§10.**
 **Replaces:** `Docs/Vicious_Kingdoms_Plan.md` (the earlier draft). Where the two disagree, this plan wins.
 **Builds on:**
 - v3 (`Docs/Kingdoms_Plan_v3.md`): push-out ladder, power checks, raids, smelteries and gear.
@@ -167,7 +167,7 @@ Not part of this plan. Losers scatter (§1.8); nobody joins the winner. To be re
 **Where it goes:**
 - Iron goes into the kingdom's **smeltery crates** if there is room.
 - Everything else goes into the **capital's chest**.
-- Chests have no size limit, so everything fits.
+- **Correction:** ordinary chests do have limits (30 / 60 / 90 slots by tier). Only the **capital's chest** has no limit (see §9), so taxed and plundered goods always fit there.
 
 ### 3.3 Resist or pay (agreed)
 **The group resists if:**
@@ -288,3 +288,41 @@ Run a 60-minute bench after each phase.
 - **Raid marches across the map:** pathing cost and time limits on long marches. Is 6 minutes enough?
 - **Tax and gangs:** does tax resentment make gangs viable without separate mood tuning?
 - **The capital chest:** with no size limit it grows forever. That is fine for now, but it makes the capital a very rich raid target, which may be a feature.
+
+---
+
+## 9. Implementation notes
+
+All six phases are built. New modules: `faction/KingdomWars.gd` (war check, grace, truce, attack on sight, scatter, capital) and `faction/Tax.gd`.
+
+**Deviations from the plan and clarifications:**
+- **The capital's chest has no limit.** The plan assumed chests had no size limit, but they do (30 / 60 / 90 by tier). Only the capital's chest is unlimited (`Furniture.slots()` checks the cached `Kingdom.capital`). Other chests keep their limits.
+- **The capital** is the king's group's finished city house with a burning fire, nearest the city centre. When it is sacked, the next such house becomes the capital, so a raid may "move on to the capital" twice in a row.
+- **Push-outs no longer touch other kingdoms.** The v3 "city stands too close: war" rule between kingdoms is removed. All kingdom-against-kingdom wars come from `KingdomWars`.
+- **Group raids pause during a kingdom war.** A group in a kingdom at war in a kingdom war starts no raids of its own, not even in push-out or tax wars. Every hand goes to the kingdom-wide raid. Those wars resume once the kingdom war ends.
+- **Raiding axes:** a kingdom raid needs at least **one raiding axe in the whole party**, not one per group.
+- **Mid-war falling apart:** if a kingdom dissolves during a kingdom war (a group turns gang, groups die out), its survivors scatter. The log says "falls apart mid-war" instead of "is broken by".
+- **What the tax takes first:** the capital chest's stocking shortfall (berries, spare axe and pickaxe, a weapon) comes first, then the baseline. Board-task shortfalls are not included.
+- **Tax wars** use `Wars.declare` (a normal kingdom-versus-group war) and skip groups already at war with the kingdom. A group that resists is taxed again once that war ends in peace.
+- **Fleeing below 30% HP** applies to fights between warring kingdoms only: on sight, when attacked, and mid-fight (`Brain._run_fight`). A fleeing agent stays in the raid party and counts as alive.
+
+## 10. First playtest observations (seed 12345, 60-minute bench)
+
+**Run A (KW1–KW4, before tax):**
+- 3 kingdom wars declared, the first at minute 28 (right after the 20-minute grace ran out for the first kingdoms).
+- 2 kingdoms scattered (10 survivors). 61 deaths from enemy kingdom members.
+- 5 kingdom raids, 1 retreat, 3 capitals sacked.
+- **Norholt against Valdale:** Norholt marched 18 raiders on the capital. The sacks went capital → capital → smeltery → workshop → house, the plunder (29–32 items per sack) went home, Valdale raided back, and Valdale scattered at minute 52.
+- Morgard then declared on the weakened winner at once (280 vs 77). The weakest-target rule punishes a winner straight after its war.
+- Deaths 160 in 60 minutes (v3 baseline: 116). 179 s real for 60 sim minutes.
+
+**Run B (all phases):**
+- 5 kingdom wars, 5 scatters (13 survivors), 41 war deaths, 2 kingdom raids, 2 capitals sacked.
+- Several small kingdoms broke or fell apart within a minute or two of being declared on. A kingdom of two small groups barely survives a war.
+- Halmoor ended up breaking Ostholt (the kingdom that had broken three others) with a 16-raider march.
+- Deaths 188 in 60 minutes. 157 s real for 60 sim minutes, about 2.6 s per sim minute, no slower than before.
+- **Tax: 1 paid, 10 resisted.** Almost every resist logged **0 kingdom power nearby**. The groups being taxed sit 23–44 cells from the capital, and the 30-cell "near" radius around *their* house rarely catches a kingdom member, since members cluster in the city. Result:
+  - Tax mostly produces tax wars rather than payments.
+  - Moods stay high (about 75–90 happy agents of 120).
+  - Gangs haven't been helped yet.
+- **Tuning to decide:** count "kingdom power near the group" from a larger radius (for example 50), count the whole kingdom's power scaled by distance, or lower the courage threshold. `TAX_NEAR_RADIUS` is marked (agreed), so it was left as is.
