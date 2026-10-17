@@ -150,3 +150,16 @@ All steps are **web-safe**: GDScript only, no threads, no C# or native code, not
 
 - **Reading:** 1× now runs at about 70–85 fps. At 16× the frame is now almost all sim: the main loop catches up up to 2 sim seconds (20 steps) per frame, so a slow sim makes long frames. The cached piece layer costs about 13 ms per frame at 16× (one redraw of about 50 ms every 0.25 s, since decay shading changes every sim second). Worst 1× frames (about 60 ms) are those redraws plus the housekeeping or kingdom tick.
 - **Web-safe:** yes (canvas drawing and an `ImageTexture` only).
+
+### B2. Event-driven decay
+- `World` keeps the unprotected walls, floors and furniture in three lists, in the same order as the piece dictionaries, so pieces decay and break in the same order as before.
+- **Full rescan** when `zone_version` (fires lit or out, kingdom changes) or the new `protect_version` (house abandonment changes owners, a faction disbands) has changed since the last tick. Otherwise only pieces placed since the last tick are checked and appended (new dictionary keys go last, so order holds), and removed pieces are dropped.
+- **Bench:** 189 s, lines identical to B1, so decay timings match.
+
+| Minute 60 profile | Before (B0) | After |
+|---|---|---|
+| `world_timers` | 15,830 ms | 5,443 ms |
+| `decay` | 13,150 ms | 3,241 ms |
+| full rescans | 3,600 (every second) | 422 |
+
+- **Web-safe:** yes.

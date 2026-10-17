@@ -36,6 +36,18 @@ var zone_map := PackedInt32Array()
 var zones_dirty := true
 var zone_version := 0 # bumps on every zone rebuild (renderers cache outlines on it)
 var _hk_index := 0
+
+# Event-driven decay (Performance Plan B2): the pieces outside protection, in dict order.
+# Rebuilt when zones or protection change (protect_version: owners, factions); new pieces
+# are checked on the next tick and appended (new dict keys go last, so order is kept).
+var protect_version := 0
+var _decay_seen := Vector2i(-1, -1) # zone_version, protect_version at the last rebuild
+var _decay_walls: Array[Wall] = []
+var _decay_floors: Array[Floor] = []
+var _decay_furniture: Array[Furniture] = []
+var _new_walls: Array[Wall] = []
+var _new_floors: Array[Floor] = []
+var _new_furniture: Array[Furniture] = []
 var _kingdom_acc := 0.0
 
 var _next_agent_id := 1
@@ -133,20 +145,21 @@ func _per_second(s: float) -> void:
 				static_dirty = true # berries are drawn in StaticLayer
 	# Walls outside any burning house fire's zone decay (agreed: 10 min to 0); so do abandoned
 	# pieces and pieces standing in another side's zone. Floors and furniture too.
-	for w in walls.values().duplicate():
-		if _unprotected(w.cell, w.owner_id):
+	_update_decay_sets()
+	for w in _decay_walls:
+		if walls.get(w.cell) == w:
 			w.hp -= w.max_hp / Cfg.WALL_DECAY_SECS * s
 			pieces_version += 1
 			if w.hp <= 0.0:
 				remove_wall(w)
-	for fl in floors.values().duplicate():
-		if _unprotected(fl.cell, fl.owner_id):
+	for fl in _decay_floors:
+		if floors.get(fl.cell) == fl:
 			fl.hp -= fl.max_hp / Cfg.WALL_DECAY_SECS * s
 			pieces_version += 1
 			if fl.hp <= 0.0:
 				floors.erase(fl.cell)
-	for fu in furniture.values().duplicate():
-		if fu.kind != Furniture.Kind.BOARD and _unprotected(fu.cell, fu.owner_id):
+	for fu in _decay_furniture:
+		if furniture.get(fu.cell) == fu:
 			fu.hp -= fu.max_hp / Cfg.WALL_DECAY_SECS * s
 			if fu.hp <= 0.0:
 				remove_furniture(fu)
@@ -164,6 +177,45 @@ func _per_second(s: float) -> void:
 		if SimClock.time >= r.at:
 			respawn_queue.erase(r)
 			_respawn_node(r.type)
+
+
+## Bring the unprotected-piece lists up to date: a full scan when zones or protection
+## changed, else just check the pieces placed since the last tick. Gone pieces are dropped.
+func _update_decay_sets() -> void:
+	privilege_owner(Vector2i.ZERO) # rebuild zones if dirty, so zone_version is current
+	var seen := Vector2i(zone_version, protect_version)
+	if seen != _decay_seen:
+		_decay_seen = seen
+		_decay_walls.clear()
+		_decay_floors.clear()
+		_decay_furniture.clear()
+		for w in walls.values():
+			if _unprotected(w.cell, w.owner_id):
+				_decay_walls.append(w)
+		for fl in floors.values():
+			if _unprotected(fl.cell, fl.owner_id):
+				_decay_floors.append(fl)
+		for fu in furniture.values():
+			if fu.kind != Furniture.Kind.BOARD and _unprotected(fu.cell, fu.owner_id):
+				_decay_furniture.append(fu)
+		if profiling:
+			prof["decay_rebuilds (count)"] = prof.get("decay_rebuilds (count)", 0) + 1000 # prints as N.0 ms
+	else:
+		_decay_walls = _decay_walls.filter(func(w): return walls.get(w.cell) == w)
+		_decay_floors = _decay_floors.filter(func(fl): return floors.get(fl.cell) == fl)
+		_decay_furniture = _decay_furniture.filter(func(fu): return furniture.get(fu.cell) == fu)
+		for w in _new_walls:
+			if walls.get(w.cell) == w and _unprotected(w.cell, w.owner_id):
+				_decay_walls.append(w)
+		for fl in _new_floors:
+			if floors.get(fl.cell) == fl and _unprotected(fl.cell, fl.owner_id):
+				_decay_floors.append(fl)
+		for fu in _new_furniture:
+			if furniture.get(fu.cell) == fu and fu.kind != Furniture.Kind.BOARD and _unprotected(fu.cell, fu.owner_id):
+				_decay_furniture.append(fu)
+	_new_walls.clear()
+	_new_floors.clear()
+	_new_furniture.clear()
 
 
 # --- Grid queries ---
@@ -461,6 +513,7 @@ func place_wall(c: Vector2i, door: bool, fid: int, tier: int = 0, shared: bool =
 	walls[c] = w
 	astar.set_point_solid(c, true)
 	pieces_version += 1
+	_new_walls.append(w)
 	return w
 
 
@@ -483,6 +536,7 @@ func place_floor(c: Vector2i, fid: int) -> Floor:
 	var fl := Floor.new(c, fid)
 	floors[c] = fl
 	pieces_version += 1
+	_new_floors.append(fl)
 	return fl
 
 
@@ -499,6 +553,7 @@ func place_furniture(c: Vector2i, kind: int, fid: int, house, tier: int = 0) -> 
 	fu.house = house
 	furniture[c] = fu
 	pieces_version += 1
+	_new_furniture.append(fu)
 	return fu
 
 

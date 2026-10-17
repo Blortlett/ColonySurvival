@@ -86,6 +86,7 @@ static func disband(f: Faction) -> void:
 	f.houses.clear()
 	f.board.clear()
 	World.factions.erase(f.id)
+	World.protect_version += 1
 	if not f.solo:
 		EventBus.log_event("Faction %s is gone." % f.name)
 
@@ -322,6 +323,7 @@ static func abandon_house(h: House) -> void:
 		if w:
 			w.owner_id = 0
 	World.pieces_version += 1
+	World.protect_version += 1
 
 
 ## Runs every 2 s per faction: occupant lists, new house blueprints, refuel tasks, completion.
