@@ -228,3 +228,105 @@ Each phase ends with something runnable and gets its own commit. Each is checked
 - **Gang survival:** do gangs ever get a smeltery? If not, do smeltery raids keep them armed?
 - **Wood and stone drain:** stone walls (2 cut stone = 4 stone each) and furnace fuel compete with v2's upgrades.
 - **Performance:** v2 runs at about 2.5–3 s of real time per sim minute in bench mode. Keep 16× running in real time.
+
+---
+
+## 10. Implementation Notes (v3 build)
+
+Phases 0–5 are each one commit (`4f1b956`, `947408f`, `8c2ec05`, `b841f77`, `e3aeeb3`, `62b92ed`). Where the build differs from the plan above, or fills in something the plan left open:
+
+### Memory fix (0)
+- `Campfire.house`, `Furniture.house` and `Task.board` are now weak references (a property over a `WeakRef`, so call sites are unchanged). `Raid` ↔ `Job.raid` turned out not to be a loop.
+- A cleared task board marks its tasks done, so agents holding one stop cleanly.
+- **Result:** a 12-minute bench gives identical output and leaks **0** instances at exit (was 802). The "6 resources still in use" error is gone too.
+
+### Territorial kingdoms (1)
+- **Grid:** plot (0,0) is the king's house, the bottom-left plot of block (0,0). The grid is anchored so that house sits in its plot's inner corner and its v2 bottom door faces the outer road. Blocks are 21 cells apart (two 10-cell plots plus the ring road). Cities reach out to block ring 2.
+- **Doors:** a `House` now has a door side. City houses sit in their plot's inner corner and face the outer side with the smaller gap to the road. Houses outside cities keep bottom doors.
+- **Plaza:** goes on plot (0,1), across the road from the king's door, so the leader's own block stays free for houses.
+- **Workshops and smelteries:** take plots outside the leader's block (block ring 1+), not the v2 plot ring 2+.
+- **Placement order:** candidate plots are sorted by block ring, then by blocks already started (fill a block first), then by distance from the centre.
+- **Moving closer (gap filled):**
+  - Early on, close plots are often blocked, mostly by abandoned fires and old walls; demolition clears them.
+  - Groups that got a far plot meanwhile move whenever a free plot opens in a nearer block ring, using the v2 rule: build first, abandon once COMPLETE.
+  - Without this, the leader's block stayed empty while groups sat two blocks out.
+- **"Close enough"** means the leader's block and the adjacent ones (block ring ≤ 1). A search that has to go further, or fails, marks the city as short of room for 60 s.
+- **Ladder timing:** each step waits one check (`PUSH_CHECK_SECS` 10 s), so the panel can show inviting → demanding → leaving / war.
+  - An invite is accepted if relations are ≥ −10 (`INVITE_MIN_RELATION`, start) and the two sides are not at war.
+  - Power is the sum of members' `fight_power()` (HP-scaled best damage, gear included from Phase 5, no ally bonus).
+- **Gaps filled in the ladder:**
+  - A group that agreed to leave but is still there after 6 minutes means war.
+  - After peace, a 5-minute truce comes before the ladder restarts.
+  - A lone settler (a solo agent) can't wage war, so it just has to leave.
+  - A house of another kingdom standing on its own city plot can't move, so it means war straight away.
+  - Blockers of wanted plots beyond the 22-cell radius are only picked from groups outside any kingdom, one at a time, so cities don't start kingdom wars just to expand.
+- **No settling on others' land:** nobody plans a building within 24 cells of a foreign kingdom's centre. Groups told to leave search for a site past the radius, away from the king.
+- **Demolition scope:**
+  - The city area is the leader's block plus the adjacent blocks, plus every block holding a plot, with their ring roads.
+  - Any wall, door, floor, furniture piece (not the kingdom board) or abandoned house fire there that is inside no live building's footprint is torn down.
+  - It takes 2 s per piece (`DEMOLISH_SECS`, start). Walls go first, so floors and chests inside can be reached.
+
+### Metal (2)
+- **Metal rock:** about 200 nodes are scattered in a separate pass after the normal world generation, at least 6 cells apart (`METAL_MIN_GAP`). Respawns pick random spots, never next to existing nodes.
+- **Mining:** takes 8 s per raw iron with the tier-2 pickaxe (`GATHER_METAL`, start). Clearing a metal node without one yields nothing.
+- **Gap filled, who mines:** a group with a workshop gives one member (`MINERS_PER_GROUP`) a tier-2 pickaxe. That member mines towards 20 raw iron (`IRON_STOCK_GOAL`), counting the group's members, chests and crates.
+- A tier-2 pickaxe also counts as the basic pickaxe on the goal ladder.
+- **Storage:** raw iron is always deposited, in a smeltery crate if one is in range, otherwise in the chest.
+
+### Smeltery and stone tier (3)
+- **Machine costs (start, the plan gave none):**
+  - furnace: 4 cut stone + 4 stone
+  - anvil: 4 raw iron + 2 wood
+  - crate: 4 planks + 1 handle
+- **Layout:** furnace and anvil in the top corners, crates in the bottom corners. Floors are wood like every other building.
+- **When groups build one:**
+  - Groups build a smeltery after their house and workshop are reinforced.
+  - Gangs build one straight after their workshop.
+  - Independent groups and kingdoms aim for 1 each (`KINGDOM_SMELTERIES`).
+- **Stone tier timing:** starts once the side has a working smeltery.
+- **Upgrade tiers:** upgrade tasks now carry a target tier, so a tier-0 wall can go straight to stone.
+- **Metal doors and iron-bound chests** are only posted once the anvil and furnace recipes exist. In practice they first appeared with Phase 4.
+
+### Furnace and anvil (4)
+- **Making metal doors:** the metal door is an item made at the anvil (2 bars, 6 s, start). Material sourcing now follows processing chains: door → bars → raw iron + wood.
+- **Gap filled, smeltery staffing:** one agent per machine at a time (a 120 s claim). The furnace keeps the side's stock at 6 bars (`BAR_STOCK_GOAL`), up to 4 per trip. The anvil then makes one spare set of gear (sword, helmet, chest piece, leg armour) for the crates.
+- **Iron raiding axe:** raiders craft one instead of the wooden axe when there is an anvil and at least 2 iron on hand. Its wall damage (25 × 5) and 80 durability went in here, with the item, rather than in Phase 5.
+
+### Combat progression (5)
+- **Armour storage:** worn armour lives in `Agent.worn`, outside the inventory. Agents put on any armour they carry for an empty slot, on every think.
+- **Gear priority:** applies within a group. A member takes a piece from the side's chests or crates only if no higher-ranked member of its own group lacks it.
+- **Gangs and smelteries:** a gang may raid a smeltery of a group up to 4 members bigger than it would take on for a house (`RAID_SMELTERY_SIZE_BONUS`, start).
+  - Each unit of iron in the target's crates counts 3× in the gang's score; gear counts 6×.
+  - A sacked smeltery's crates are emptied like a chest.
+- **Bench line** now also prints:
+  - metal nodes, raw iron, bars, crate contents
+  - tier-2 picks, swords, armour pieces, iron axes
+  - smelteries (working, gang-owned), stone walls, metal doors, iron-bound chests
+  - worn gear and armoured agents
+  - kills between armoured and unarmoured agents
+  - smeltery raids
+  - push-out counts and demolitions
+- **`--shot`** adds `shot_smeltery` and `shot_gear`.
+
+### First playtest observations (seed 12345, 60-minute bench)
+- **Performance:**
+  - Real time per sim minute in bench mode: about 2.8 s after Phase 1, 3.3 s on average after Phase 5, with peaks of 4–5.5 s per minute after minute 50.
+  - 16× is at the edge of real time late in the game.
+  - The biggest costs are `run_TASK` (material sourcing and pathing) and the per-second decay loops.
+- **Packing:**
+  - The leader's block fills wall to wall once early blockers are demolished, by about minute 25.
+  - By minute 60: 4 kingdoms holding 18 groups, 32 plots, about 1,600 road cells (800 paved) and about 1,800 pieces demolished.
+- **Push-outs:**
+  - 16 invites, 14 joins, 3 groups left, 5 push-out wars in 60 minutes.
+  - One push-out war around minute 30–36 was very bloody: about 55 deaths in 6 minutes (deaths 61 → 116).
+  - After that, the edge stays mostly quiet.
+- **Metal:**
+  - First tier-2 picks at minute 9, first smeltery at minute 10, first iron bars at about minute 25, first gear at about minute 40.
+  - By minute 60: 19 swords, 37 worn armour pieces on 14 armoured agents, 28 metal doors, 19 iron-bound chests and about 620 stone walls.
+  - Raw iron piles up (about 250), mostly in chests of groups without a smeltery. The bar goal of 6 per side is the bottleneck.
+- **Armour wins:** armoured agents won 2 of 2 kills against unarmoured agents. That sample is too small, and came late.
+- **Gangs:**
+  - Gangs did build smelteries early (3 of the first 3, by minute 10), but lost them as they dissolved.
+  - Gangs are gone well before gear exists, so no smeltery raids and no gang members wearing stolen gear were seen.
+  - A forced gang next to a stocked smeltery also dissolved within a minute.
+  - User decision: gangs dying out is fine for now and will be addressed later. The smeltery-raid scoring is in place but unverified in a live run.
