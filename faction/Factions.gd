@@ -79,6 +79,8 @@ static func leave(a: Agent) -> void:
 
 
 static func disband(f: Faction) -> void:
+	Kingdoms.leave(f)
+	Wars.drop_side(Wars.side(f))
 	for h in f.houses.duplicate():
 		abandon_house(h)
 	f.houses.clear()
@@ -126,6 +128,9 @@ static func make_servant(v: Agent, master: Agent) -> void:
 		var old: Agent = World.agents.get(v.master_id)
 		if old:
 			old.servants.erase(v.id)
+	var old := v.faction
+	if old and not old.solo and old != master.faction:
+		Relations.change(old, master.faction, Cfg.REL_SERVANT)
 	leave(v)
 	var f := master.faction
 	if f.solo:
@@ -346,8 +351,10 @@ static func _workshop_goals(f: Faction) -> void:
 	if ch.store.total() < min(ch.slots(), Cfg.STOCK_BERRIES_PER_MEMBER * f.members.size()) / 2:
 		return # stock the chest first
 	var shops := shared_workshops(f)
+	var want := 1 if f.kingdom == null else Kingdoms.workshop_target(f.kingdom)
+	if shops.size() < want and not shops.any(func(w): return w.state != House.State.COMPLETE):
+		plan_house(f, 0, House.Kind.WORKSHOP) # one at a time per kingdom
 	if shops.is_empty():
-		plan_house(f, 0, House.Kind.WORKSHOP)
 		return
 	if not shops.any(func(w): return w.operational()):
 		return
@@ -363,9 +370,14 @@ static func _workshop_goals(f: Faction) -> void:
 				w.reinforce = true
 
 
-## Workshops this group may use: its own (Phase D adds the kingdom's).
+## Workshops this group may use: its own, plus every workshop in its kingdom (agreed).
 static func shared_workshops(f: Faction) -> Array[House]:
-	return f.workshops()
+	if f.kingdom == null:
+		return f.workshops()
+	var out: Array[House] = []
+	for g in f.kingdom.members():
+		out.append_array(g.workshops())
+	return out
 
 
 ## Nearest usable machine of this kind for the agent, within range.

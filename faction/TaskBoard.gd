@@ -6,6 +6,7 @@ var tasks: Array[Task] = []
 
 
 func post(t: Task) -> void:
+	t.board = self
 	tasks.append(t)
 
 

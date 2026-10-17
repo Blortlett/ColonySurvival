@@ -14,6 +14,8 @@ var color: Color
 var board := TaskBoard.new()
 var houses: Array[House] = []
 var plan_retry_at := 0.0
+var kingdom: Kingdom = null
+var relations := {} # faction id -> -100..100 (agreed events)
 
 
 func _init(rng: RandomNumberGenerator) -> void:
@@ -47,6 +49,15 @@ func is_gang() -> bool:
 		return false
 	var l: Agent = World.agents.get(leader_id)
 	return l != null and l.is_angry()
+
+
+func total_auth() -> int:
+	var n := 0
+	for mid in members:
+		var m: Agent = World.agents.get(mid)
+		if m:
+			n += m.stats.auth
+	return n
 
 
 func homes() -> Array[House]:

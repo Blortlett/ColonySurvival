@@ -19,6 +19,7 @@ const PRIORITY := {
 }
 const CLAIM_TIMEOUT := 90.0
 
+var board: TaskBoard # the board it was posted on (group or kingdom)
 var type: Type
 var cell: Vector2i
 var house: House

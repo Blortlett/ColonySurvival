@@ -20,6 +20,7 @@ var loot := {} # Vector2i -> LootBag
 var agents := {} # id -> Agent
 var agent_list: Array[Agent] = []
 var factions := {} # id -> Faction
+var kingdoms := {} # id -> Kingdom
 var respawn_queue: Array = [] # [{type, at}]
 
 var static_dirty := true
@@ -30,7 +31,9 @@ var death_causes := {"killed": 0, "cold": 0, "hunger": 0}
 # Cached privilege-zone owner per cell, rebuilt when a house fire starts/stops burning.
 var zone_map := PackedInt32Array()
 var zones_dirty := true
+var zone_version := 0 # bumps on every zone rebuild (renderers cache outlines on it)
 var _hk_index := 0
+var _kingdom_acc := 0.0
 
 var _next_agent_id := 1
 var _second_acc := 0.0
@@ -92,6 +95,10 @@ func step(dt: float) -> void:
 			_hk_index = (_hk_index + 1) % fl.size()
 			Factions.housekeeping(fl[_hk_index])
 	prof_add("housekeeping", t)
+	_kingdom_acc += dt
+	if _kingdom_acc >= 2.0:
+		_kingdom_acc = 0.0
+		Kingdoms.update_all()
 	_mood_acc += dt
 	if _mood_acc >= 60.0:
 		_mood_acc = 0.0
@@ -134,6 +141,7 @@ func _per_second(s: float) -> void:
 			fu.hp -= fu.max_hp / Cfg.WALL_DECAY_SECS * s
 			if fu.hp <= 0.0:
 				remove_furniture(fu)
+	Wars.update()
 	# Loot bags despawn.
 	for bag in loot.values().duplicate():
 		bag.timer -= s
@@ -194,9 +202,15 @@ func agents_near(p: Vector2, radius: float) -> Array:
 	return spatial.query(p, radius)
 
 
-## Same group (Phase D extends this to the same kingdom).
+## Same group, or groups of the same kingdom (shared territory, workshops, no fire spacing).
 func same_side(fa: int, fb: int) -> bool:
-	return fa == fb
+	if fa == fb:
+		return true
+	var a: Faction = factions.get(fa)
+	if a == null or a.kingdom == null:
+		return false
+	var b: Faction = factions.get(fb)
+	return b != null and b.kingdom == a.kingdom
 
 
 ## Faction id whose burning house fire claims this cell, or 0.
@@ -210,6 +224,7 @@ func privilege_owner(c: Vector2i) -> int:
 
 func _rebuild_zones() -> void:
 	zones_dirty = false
+	zone_version += 1
 	zone_map.resize(Cfg.MAP_W * Cfg.MAP_H)
 	zone_map.fill(0)
 	var r := Cfg.PRIVILEGE_RADIUS
@@ -595,6 +610,8 @@ func kill_agent(a: Agent, killer: Agent) -> void:
 	deaths += 1
 	var why := ("killed by %s" % killer.short()) if killer else ("died of %s" % ("cold" if a.warmth <= 0.0 else "hunger"))
 	drop_loot(a.cell(), a.inv.stacks.duplicate(), a.inv.tools.duplicate(), a.id, why)
+	if killer:
+		Relations.change(a.faction, killer.faction, Cfg.REL_KILL)
 	if killer:
 		death_causes.killed += 1
 	else:

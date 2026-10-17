@@ -17,6 +17,8 @@ const SAWMILL := Color(0.62, 0.48, 0.30)
 const CUTTER := Color(0.45, 0.45, 0.50)
 
 var show_zones := true
+var _outline_version := -1
+var _outline := {} # kingdom id -> PackedVector2Array of line segments
 
 
 func _process(_dt: float) -> void:
@@ -36,6 +38,7 @@ func _draw() -> void:
 			var rect := Rect2(Vector2(f.cell - Vector2i(r, r)) * s, Vector2(r * 2 + 1, r * 2 + 1) * s)
 			draw_rect(rect, Color(col, 0.08))
 			draw_rect(rect, Color(col, 0.35), false, 1.0)
+		_draw_kingdom_outlines()
 		for h in World.all_houses():
 			if h.state == House.State.PLANNED or h.state == House.State.BUILDING:
 				var outer := h.footprint()
@@ -80,6 +83,52 @@ func _draw() -> void:
 	for bag in World.loot.values():
 		var p := Vector2(bag.cell) * s
 		draw_rect(Rect2(p + Vector2(s * 0.3, s * 0.3), Vector2(s * 0.4, s * 0.4)), LOOT)
+
+
+## Outline of each kingdom's merged territory, rebuilt only when the zones change.
+func _draw_kingdom_outlines() -> void:
+	World.privilege_owner(Vector2i.ZERO) # rebuild zones if dirty
+	if _outline_version != World.zone_version:
+		_outline_version = World.zone_version
+		_build_outlines()
+	for kid in _outline:
+		var k: Kingdom = World.kingdoms.get(kid)
+		if k:
+			draw_multiline(_outline[kid], k.color, 2.0)
+
+
+func _build_outlines() -> void:
+	_outline.clear()
+	if World.kingdoms.is_empty():
+		return
+	var s := float(Cfg.CELL)
+	var w := Cfg.MAP_W
+	var kmap := PackedInt32Array()
+	kmap.resize(w * Cfg.MAP_H)
+	for i in kmap.size():
+		var owner := World.zone_map[i]
+		if owner != 0:
+			var f: Faction = World.factions.get(owner)
+			if f and f.kingdom:
+				kmap[i] = f.kingdom.id
+	for y in Cfg.MAP_H:
+		for x in w:
+			var k := kmap[y * w + x]
+			if k == 0:
+				continue
+			if not _outline.has(k):
+				_outline[k] = PackedVector2Array()
+			var seg: PackedVector2Array = _outline[k]
+			var p := Vector2(x, y) * s
+			if x == 0 or kmap[y * w + x - 1] != k:
+				seg.append_array([p, p + Vector2(0, s)])
+			if x == w - 1 or kmap[y * w + x + 1] != k:
+				seg.append_array([p + Vector2(s, 0), p + Vector2(s, s)])
+			if y == 0 or kmap[(y - 1) * w + x] != k:
+				seg.append_array([p, p + Vector2(s, 0)])
+			if y == Cfg.MAP_H - 1 or kmap[(y + 1) * w + x] != k:
+				seg.append_array([p + Vector2(0, s), p + Vector2(s, s)])
+			_outline[k] = seg
 
 
 func _draw_furniture(fu: Furniture, p: Vector2, s: float) -> void:

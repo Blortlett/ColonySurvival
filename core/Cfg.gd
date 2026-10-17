@@ -74,6 +74,23 @@ const WORKSHOP_SIZE := Vector2i(5, 4) # fixed interior: fire + sawmill + stone c
 const WORKSHOP_RANGE := 90.0 # how far agents walk to a workshop to process or craft
 const RAID_AXES_PER_GANG := 3 # gangs craft up to this many raiding axes (or one per member)
 
+# --- Relations and kingdoms (Phase D) ---
+const REL_TRADE := 5.0 # (agreed)
+const REL_SHARED_FIRE := 3.0 # (agreed)
+const REL_DEFEND := 10.0 # (agreed)
+const REL_ROB := -15.0 # (agreed)
+const REL_SERVANT := -25.0 # (agreed)
+const REL_KILL := -30.0 # (agreed)
+const GROUP_MEET_COOLDOWN := 60.0 # (agreed)
+const ALLY_AT := 40.0 # (agreed)
+const WAR_AT := -40.0 # (agreed)
+const ALLY_CHANCE := 0.2 # (agreed)
+const WAR_CHANCE := 0.2 # (agreed)
+const KINGDOM_MAX_GROUPS := 6 # (agreed)
+const PEACE_SECS := 600.0 # war ends after 10 min without raids (agreed)
+const PEACE_RELATION := -20.0 # relation after peace (agreed)
+const BYSTANDER_DEFEND_OPINION := 30.0 # happy bystanders defend agents they like this much
+
 # --- Chests (Phase B) ---
 const STOCK_BERRIES_PER_MEMBER := 5 # (agreed)
 const HOME_RANGE := 40.0 # how far from home an agent still uses the chest

@@ -19,6 +19,8 @@ static func scan(a: Agent) -> void:
 			continue
 		if a.faction == b.faction:
 			continue
+		if a.is_angry() and World.same_side(a.faction.id, b.faction.id):
+			continue # allies don't shake each other down
 		a.set_cooldown(b.id)
 		b.set_cooldown(a.id)
 		if a.is_happy():
@@ -48,6 +50,9 @@ static func _happy_meets(a: Agent, b: Agent) -> bool:
 		elif not fa.solo and not fb.solo:
 			_trade(a, b)
 			return true
+	elif b.is_neutral() and not fa.solo and not fb.solo:
+		_trade(a, b) # neutrals don't start trades, but they take part
+		return true
 	elif b.is_neutral() and fb.solo and (fa.solo or fa.has_room()):
 		# Neutrals comply with a happy invite only if the inviter wins the charisma roll.
 		if cha_roll(a, b):
@@ -62,23 +67,28 @@ static func _happy_meets(a: Agent, b: Agent) -> bool:
 static func _trade(a: Agent, b: Agent) -> void:
 	var give_a := _surplus_for(a, b)
 	var give_b := _surplus_for(b, a)
-	if give_a != "" and give_b != "":
-		a.inv.remove(give_a, 2)
-		b.inv.add(give_a, 2)
-		b.inv.remove(give_b, 2)
-		a.inv.add(give_b, 2)
+	if give_a != "" or give_b != "":
+		# A trade: one or both sides hand over 2 of something the other is short of.
+		if give_a != "":
+			a.inv.remove(give_a, 2)
+			b.inv.add(give_a, 2)
+		if give_b != "":
+			b.inv.remove(give_b, 2)
+			a.inv.add(give_b, 2)
 		a.change_mood(5.0)
 		b.change_mood(5.0)
 		a.change_opinion(b.id, 10.0)
 		b.change_opinion(a.id, 10.0)
+		Relations.change(a.faction, b.faction, Cfg.REL_TRADE)
 	else:
 		a.change_opinion(b.id, 2.0)
 		b.change_opinion(a.id, 2.0)
 
 
 static func _surplus_for(giver: Agent, taker: Agent) -> String:
-	for k in ["wood", "stone", "hemp", "berry", "arrow"]:
-		if giver.inv.count(k) >= 5 and taker.inv.count(k) < 2 and taker.free_space() >= 2:
+	for k in Items.STACKABLES:
+		var have := giver.inv.count(k)
+		if have >= 4 and taker.inv.count(k) * 2 < have and taker.free_space() >= 2:
 			return k
 	return ""
 
@@ -143,3 +153,4 @@ static func _demand(a: Agent, b: Agent, attack: bool) -> void:
 		b.change_opinion(a.id, -40.0)
 		if n > 0:
 			EventBus.log_event("%s hands %d items to %s." % [b.short(), n, a.short()])
+			Relations.change(a.faction, b.faction, Cfg.REL_ROB)

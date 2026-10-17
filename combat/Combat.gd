@@ -36,16 +36,24 @@ static func on_attacked(vic: Agent, att: Agent) -> void:
 	call_defenders(vic, att)
 
 
+## Group mates and kingdom allies nearby help; so do happy bystanders who like the victim.
+## Helping a member of another group: +10 relation (agreed).
 static func call_defenders(vic: Agent, att: Agent) -> void:
-	if vic.faction.solo or vic.faction == att.faction:
+	if vic.faction == att.faction:
 		return
 	for m in World.agents_near(vic.pos, Cfg.DEFEND_RADIUS):
-		if m == vic or m == att or m.faction != vic.faction or m.in_combat() or m.hp < 30.0:
+		if m == vic or m == att or m.in_combat() or m.hp < 30.0 or m.faction == att.faction:
+			continue
+		var ally: bool = not vic.faction.solo and World.same_side(m.faction.id, vic.faction.id)
+		var friend: bool = m.is_happy() and m.opinion_of(vic.id) >= Cfg.BYSTANDER_DEFEND_OPINION
+		if not ally and not friend:
 			continue
 		var j := Job.new(Job.Kind.FIGHT, Job.PRIO_CRITICAL)
 		j.target_id = att.id
 		Brain.set_job(m, j)
 		vic.change_opinion(m.id, 20.0)
+		if m.faction != vic.faction:
+			Relations.change(m.faction, vic.faction, Cfg.REL_DEFEND)
 
 
 ## One attack with the given weapon. Returns false if it couldn't be made (e.g. no line of sight).
@@ -122,6 +130,7 @@ static func accept_surrender(a: Agent, v: Agent) -> void:
 		Factions.make_servant(v, master)
 	else:
 		var n := rob(a, v, Cfg.DEMAND_FRACTION)
+		Relations.change(a.faction, v.faction, Cfg.REL_ROB)
 		v.change_mood(-20.0) # no happy boost for being spared (agreed)
 		v.change_opinion(a.id, -50.0)
 		EventBus.log_event("%s spares %s but takes %d items." % [a.short(), v.short(), n])

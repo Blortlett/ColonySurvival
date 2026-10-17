@@ -92,6 +92,7 @@ static func think(a: Agent) -> void:
 			return
 	# Social layer (may start fights).
 	var ts := Time.get_ticks_usec()
+	Relations.meet(a)
 	Social.scan(a)
 	World.prof_add("think_social", ts)
 	if not a.alive or (a.job and a.job.prio >= Job.PRIO_CRITICAL):
@@ -197,7 +198,10 @@ static func _servant_job(a: Agent) -> Job:
 
 
 static func _task_job(a: Agent) -> Job:
-	var t := a.faction.board.claim(a.id, a.cell(), func(c): return not _blacklisted(a, c))
+	var ok := func(c): return not _blacklisted(a, c)
+	var t := a.faction.board.claim(a.id, a.cell(), ok)
+	if t == null and a.faction.kingdom:
+		t = a.faction.kingdom.board.claim(a.id, a.cell(), ok)
 	if t == null:
 		return null
 	var j := Job.new(Job.Kind.TASK, Job.PRIO_TASK)
@@ -222,20 +226,22 @@ static func _loot_job(a: Agent) -> Job:
 	return j
 
 
-## Nothing left on the ladder: angry agents prowl for victims, happy ones seek company.
+## Nothing left on the ladder: angry agents prowl for victims, happy ones seek company
+## (recruits, or other groups to trade with once their own group is full).
 static func _roam_job(a: Agent) -> Job:
 	if a.is_servant() or a.is_neutral():
 		return null
 	if a.is_happy() and World.rng.randf() > 0.3:
 		return null
-	if a.is_happy() and not a.faction.solo and not a.faction.has_room():
-		return null # full faction: no need to recruit
+	var traders := a.is_happy() and not a.faction.solo and not a.faction.has_room()
 	var best: Agent = null
 	var best_d := 40.0 if a.is_angry() else 25.0
 	for o in World.agents_near(a.pos, best_d):
-		if o == a or o.faction == a.faction or not a.can_interact(o.id):
+		if o == a or World.same_side(o.faction.id, a.faction.id) or not a.can_interact(o.id):
 			continue
 		if a.is_happy() and o.is_angry():
+			continue
+		if traders and o.faction.solo:
 			continue
 		var d := a.pos.distance_to(o.pos)
 		if d < best_d:
@@ -382,6 +388,8 @@ static func _gather_step(a: Agent, j: Job, dt: float) -> bool:
 ## materials, processing them at a workshop machine for planks / handles / cut stone.
 static func _obtain_step(a: Agent, j: Job, cost: Dictionary, dt: float, bulk: int = 1) -> int:
 	if a.inv.has_cost(cost):
+		j.chest = null
+		j.machine = null
 		return Obtain.DONE
 	if j.chest:
 		if _chest_step(a, j, dt):
@@ -470,6 +478,8 @@ static func _keep_for(cost: Dictionary) -> Dictionary:
 ## Stand at the machine and run batches until we have j.amount of j.item or run out of input.
 static func _process_step(a: Agent, j: Job, dt: float) -> int:
 	var m := j.machine
+	if not Items.PROCESS.has(j.item):
+		return Obtain.DONE
 	if m == null or World.furniture.get(m.cell) != m or m.house == null or not m.house.operational():
 		return Obtain.FAILED
 	var mv := move_to(a, m.cell, dt)
@@ -553,6 +563,9 @@ static func _run_warm(a: Agent, j: Job, dt: float) -> void:
 	j.timer += dt
 	if j.timer >= Cfg.WARM_SIT_SECS:
 		a.warmth = 1.0
+		for o in World.agents_near(World.center(f.cell), Cfg.WARM_RADIUS + 1):
+			if o.faction != a.faction and not o.faction.solo and not a.faction.solo:
+				Relations.shared_fire(a.faction, o.faction)
 		if a.is_happy():
 			for o in World.agents_near(World.center(f.cell), Cfg.WARM_RADIUS + 1):
 				if o != a and o.is_happy() and o.faction != a.faction:
@@ -593,7 +606,7 @@ static func _run_task(a: Agent, j: Job, dt: float) -> void:
 	if t.type == Task.Type.REFUEL:
 		var fire: Campfire = World.fires.get(t.cell)
 		if fire == null:
-			a.faction.board.complete(t)
+			t.board.complete(t)
 			_done(a)
 			return
 		cost = {"wood": max(1, min(fire.wood_space(), a.capacity() / 2))}
@@ -627,7 +640,7 @@ static func _run_task(a: Agent, j: Job, dt: float) -> void:
 
 
 static func _perform_task(a: Agent, j: Job, t: Task, cost: Dictionary, dt: float) -> void:
-	var board := a.faction.board
+	var board := t.board
 	var fid := a.faction.id
 	match t.type:
 		Task.Type.BUILD_FLOOR:

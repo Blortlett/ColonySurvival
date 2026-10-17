@@ -32,6 +32,7 @@ var think_t := 0.0
 var attack_cd := 0.0
 var last_attacker := -1
 var rebel_t := 0.0
+var meet_t := 0.0 # next group-level meeting check
 var kills := 0
 
 

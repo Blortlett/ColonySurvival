@@ -78,9 +78,9 @@ func _process(dt: float) -> void:
 	for h in World.all_houses():
 		if h.state == House.State.COMPLETE:
 			houses += 1
-	_top.text = "%s  %s  |  Agents %d (happy %d / neutral %d / angry %d)  |  Factions %d  Servants %d  Houses %d  Deaths %d  |  [Space] pause [1-5] speed [Z] zones [L] labels  LMB inspect  RMB pan  Wheel zoom" % [
+	_top.text = "%s  %s  |  Agents %d (happy %d / neutral %d / angry %d)  |  Groups %d  Kingdoms %d  Wars %d  Servants %d  Houses %d  Deaths %d  |  [Space] pause [1-5] speed [Z] zones [L] labels  LMB inspect  RMB pan  Wheel zoom" % [
 		SimClock.time_string(), "PAUSED" if SimClock.paused else "x%d" % int(SimClock.speed),
-		World.agent_list.size(), happy, neutral, angry, Factions.real_count(), servants, houses, World.deaths]
+		World.agent_list.size(), happy, neutral, angry, Factions.real_count(), World.kingdoms.size(), Wars.wars.size(), servants, houses, World.deaths]
 	var lines := EventBus.lines.slice(max(0, EventBus.lines.size() - 12))
 	_log.text = "\n".join(lines)
 	_update_inspector()
@@ -110,7 +110,8 @@ func _update_inspector() -> void:
 	lines.append("STR %d  AGI %d  CHA %d  AUTH %d   Kills %d" % [a.stats.str, a.stats.agi, a.stats.cha, a.stats.auth, a.kills])
 	lines.append("XP  str %.0f/%.0f  agi %.0f/%.0f  cha %.0f/%.0f" % [
 		a.xp.str, Agent.xp_to_next(a.stats.str), a.xp.agi, Agent.xp_to_next(a.stats.agi), a.xp.cha, Agent.xp_to_next(a.stats.cha)])
-	lines.append("Faction: %s%s  (%d members)" % [f.display_name(), "  [LEADER]" if f.leader_id == a.id and not f.solo else "", f.members.size()])
+	lines.append("Group: %s%s  (%d members)%s" % [f.display_name(), "  [LEADER]" if f.leader_id == a.id and not f.solo else "", f.members.size(),
+		("   Kingdom: %s%s" % [f.kingdom.name, "  [KING]" if f.kingdom.king_id == a.id else ""]) if f.kingdom else ""])
 	if a.is_servant():
 		lines.append("Servant of #%d" % a.master_id)
 	if a.servants.size() > 0:
@@ -140,8 +141,7 @@ func _fire_text(f: Campfire) -> String:
 		var by: Agent = World.agents.get(f.placed_by)
 		lines.append("Placed by: %s" % ("#%d" % f.placed_by if by else ("#%d (dead)" % f.placed_by if f.placed_by != -1 else "unknown")))
 		lines.append("Fuel: %d/%d wood" % [f.wood_left(), f.max_wood()])
-		return "
-".join(lines)
+		return "\n".join(lines)
 	var g: Faction = World.factions.get(f.house.faction_id if f.house else f.owner_id)
 	if g == null:
 		return "House fire (no group)"
@@ -149,7 +149,20 @@ func _fire_text(f: Campfire) -> String:
 	var gang := not g.solo and leader != null and leader.is_angry()
 	lines.append("Group %s%s" % [g.display_name(), "   [GANG]" if gang else ""])
 	lines.append("Leader: %s   Members %d/%d" % [leader.short() if leader else "—", g.members.size(), Cfg.FACTION_MAX])
-	lines.append("Kingdom: —   Relations: —")
+	if g.kingdom:
+		var k := g.kingdom
+		var king: Agent = World.agents.get(k.king_id)
+		var lead: Faction = World.factions.get(k.leading_fid)
+		lines.append("Kingdom: %s   King: %s   Leading group: %s" % [k.name, king.short() if king else "—", lead.name if lead else "—"])
+		lines.append("  Groups (%d/%d): %s" % [k.groups.size(), Cfg.KINGDOM_MAX_GROUPS, ", ".join(k.members().map(func(x): return "%s (AUTH %d)" % [x.name, x.total_auth()]))])
+	else:
+		lines.append("Kingdom: none%s" % ("  (gangs never ally)" if gang else ""))
+	var wars := Wars.enemies_of(g)
+	lines.append("Allies: %s   Wars: %s" % [g.kingdom.name if g.kingdom else "—", ", ".join(wars) if wars.size() > 0 else "none"])
+	var rel: Array[String] = []
+	for r in Relations.top(g, 3):
+		rel.append("%s %+d" % [r[0].name, r[1]])
+	lines.append("Relations: %s" % (", ".join(rel) if rel.size() > 0 else "—"))
 	for id in g.members:
 		var m: Agent = World.agents.get(id)
 		if m == null:
@@ -184,10 +197,20 @@ func _fire_text(f: Campfire) -> String:
 	var parts: Array[String] = []
 	for k in counts:
 		parts.append("%s x%d" % [k, counts[k]])
-	lines.append("Board: %d tasks (%d claimed)%s" % [g.board.tasks.size(), claimed, "" if parts.is_empty() else "
-  " + ", ".join(parts)])
-	return "
-".join(lines)
+	lines.append("Board: %d tasks (%d claimed)%s" % [g.board.tasks.size(), claimed, "" if parts.is_empty() else "\n  " + ", ".join(parts)])
+	if g.kingdom:
+		lines.append("Kingdom board: %s" % _board_summary(g.kingdom.board))
+	return "\n".join(lines)
+
+
+func _board_summary(b: TaskBoard) -> String:
+	var counts := {}
+	for t in b.tasks:
+		counts[t.label()] = counts.get(t.label(), 0) + 1
+	var parts: Array[String] = []
+	for k in counts:
+		parts.append("%s x%d" % [k, counts[k]])
+	return "%d tasks%s" % [b.tasks.size(), "" if parts.is_empty() else " — " + ", ".join(parts)]
 
 
 func _loot_text(b: LootBag) -> String:
@@ -204,8 +227,7 @@ func _loot_text(b: LootBag) -> String:
 		for t in b.tools:
 			tp.append("%s (%d/%d)" % [t.type, t.dur, Items.DURABILITY[t.type]])
 		lines.append("Tools: %s" % ", ".join(tp))
-	return "
-".join(lines)
+	return "\n".join(lines)
 
 
 func _furniture_text(fu: Furniture) -> String:
@@ -226,5 +248,4 @@ func _furniture_text(fu: Furniture) -> String:
 				lines.append("Recipe: %s -> %d %s  (%.0f s)" % [", ".join(ins), p.out, item, p.secs])
 		if fu.kind == Furniture.Kind.SAWMILL:
 			lines.append("Also: raiding axes are crafted here")
-	return "
-".join(lines)
+	return "\n".join(lines)

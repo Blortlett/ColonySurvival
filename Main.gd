@@ -33,9 +33,14 @@ func _ready() -> void:
 func _shot(minutes: int) -> void:
 	for i in int(minutes * 60.0 / Cfg.MAX_SIM_STEP):
 		World.step(Cfg.MAX_SIM_STEP)
+	# The busiest complete house, preferring one in a kingdom.
 	var busiest: House = null
+	var best_score := -1
 	for h in World.all_houses():
-		if h.state == House.State.COMPLETE and (busiest == null or h.occupants.size() > busiest.occupants.size()):
+		var f: Faction = World.factions.get(h.faction_id)
+		var score := h.occupants.size() + (100 if f and f.kingdom else 0)
+		if h.state == House.State.COMPLETE and not h.is_workshop() and score > best_score:
+			best_score = score
 			busiest = h
 	for frame in 3:
 		await get_tree().process_frame
@@ -122,7 +127,10 @@ func _bench_line(minute: int, ms: int) -> String:
 		for t in a.inv.tools:
 			if t.type == "raiding_axe":
 				raid_axes += 1
-	return "min %3d | %4d ms | deaths %d | moods %s | factions %d servants %d | houses %s | fires %d walls %d (reinf %d) floors %d | chests %d (%d items) | workshops %d (working %d) | processed %d raid_axes %d | tools %d | warm %.2f hunger %.2f | jobs %s" % [
+	var in_kingdoms := 0
+	for k in World.kingdoms.values():
+		in_kingdoms += k.groups.size()
+	return ("kingdoms %d (%d groups) wars %d | " % [World.kingdoms.size(), in_kingdoms, Wars.wars.size()]) + "min %3d | %4d ms | deaths %d | moods %s | factions %d servants %d | houses %s | fires %d walls %d (reinf %d) floors %d | chests %d (%d items) | workshops %d (working %d) | processed %d raid_axes %d | tools %d | warm %.2f hunger %.2f | jobs %s" % [
 		minute, ms, World.deaths, moods, Factions.real_count(), servants, houses,
 		World.fires.size(), World.walls.size(), reinforced, World.floors.size(), chests, stored, shops, working,
 		processed, raid_axes, tools, warmth / n, hunger / n, jobs]
