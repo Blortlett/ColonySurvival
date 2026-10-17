@@ -90,3 +90,45 @@
 - Record before and after numbers for each step in an "Implementation Notes" section at the end of this doc.
 
 **Done when:** the 60-minute bench runs at least 30% faster than 197 s, and windowed frames at 16× hold 60 fps in the standard view (or the remaining bottleneck is written down).
+
+---
+
+## Implementation Notes
+
+All steps are **web-safe**: GDScript only, no threads, no C# or native code, nothing outside what the web export already runs. Bench numbers are seed 12345, 60-minute headless bench, on the dev PC; run-to-run timing noise is about ±5%.
+
+### Part A (`31672c3`)
+- A1 as planned. A2 and A3 changed by user decision before the build (see Part A above): paving goes to building links only, and A3 was dropped.
+- **Bench after Part A:** 203 s (the plan's 197 s baseline was before Part A). Kingdoms form from minute 6; 5 kingdoms (21 groups) by minute 60; 1,813 road cells, 454 paved (about 800 before A2). No script errors.
+
+### B0. Measure first
+- **Profile sub-sections** (bench only): `TASK.obtain` with `obtain_chest / process / pick / gather` under it (also for `CRAFT`), `TASK.move`, `TASK.perform.<type>`, `gather_node_search`, `path_doors` (the door opening around each A* search), `decay` and `wars` inside `world_timers`, `think_raid_task` and `think_ladder` inside `think`, and `hk_houses / plan_house / workshop_goals / relocate / raids` inside housekeeping.
+- **`--frames=N`** (windowed): fast-forwards N sim minutes, then times 300 frames at 1× and at 16× in two fixed views, the whole map (the default camera) and the biggest city (zoom 1.1). Vsync is off, so the numbers show the real cost. `sim` is the part of each frame spent stepping the sim.
+- **Bench with profiling:** 212 s, bench lines identical to Part A.
+
+| Section (60 min) | ms |
+|---|---|
+| `run_TASK` | 64,541 |
+| — `TASK.obtain` | 32,576 |
+| —— `obtain_gather` | 16,250 (almost all `gather_node_search`) |
+| —— `obtain_process` | 10,630 (walking to the machine) |
+| —— `obtain_pick` / `obtain_chest` | 803 / 71 |
+| — `TASK.move` | 7,720 |
+| — `TASK.perform.*` | about 4,500 (`CLEAR_NODE` 2,163, `DEMOLISH` 1,104) |
+| `think` | 42,710 (`think_ladder` 9,994, `think_raid_task` 3,936) |
+| `run_GATHER` | 19,466 |
+| `housekeeping` | 17,883 (`hk_houses` 7,716, `hk_workshop_goals` 5,451, `hk_plan_house` 3,433) |
+| `think_social` | 17,661 |
+| `gather_node_search` (all callers) | 16,271 |
+| `world_timers` | 15,830 (`decay` 13,150) |
+| `run_WANDER` | 14,716 |
+| `astar` | 12,360 (+ `path_doors` 5,779) |
+
+- **Windowed frames before B1** (minute 60, about 1,640 walls, 1,400 floors, 1,800 roads):
+
+| View | 1× avg / p95 / worst | 16× avg / p95 / worst | sim per frame (1× / 16×) |
+|---|---|---|---|
+| map | 176 / 466 / 501 ms | 463 / 631 / 741 ms | 12 / 126 ms |
+| city | 154 / 163 / 505 ms | 465 / 679 / 737 ms | 9 / 114 ms |
+
+- **Reading:** in the window, drawing costs far more than the sim: about 150 ms of a 1× frame is not sim time. B1 comes first. Of the sim cost, the node search (a new find, not in the plan) and decay are the clearest targets.

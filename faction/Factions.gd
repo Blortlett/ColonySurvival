@@ -331,6 +331,7 @@ static func housekeeping(f: Faction) -> void:
 		disband(f)
 		return
 	var planned := false
+	var t := Time.get_ticks_usec()
 	for h in f.houses.duplicate():
 		for oid in h.occupants.duplicate():
 			if not oid in f.members:
@@ -352,6 +353,8 @@ static func housekeeping(f: Faction) -> void:
 				elif not f.solo:
 					EventBus.log_event("%s finished a house for %d." % [f.name, h.capacity])
 			_ensure_piece_tasks(f, h)
+	World.prof_add("hk_houses", t)
+	t = Time.get_ticks_usec()
 	# Fill free slots with homeless members.
 	var homeless: Array[int] = []
 	for mid in f.members:
@@ -367,13 +370,20 @@ static func housekeeping(f: Faction) -> void:
 		if h:
 			while h.has_room() and homeless.size() > 0:
 				h.occupants.append(homeless.pop_front())
+	World.prof_add("hk_plan_house", t)
+	t = Time.get_ticks_usec()
 	if not f.solo and not planned:
 		_workshop_goals(f)
+	World.prof_add("hk_workshop_goals", t)
+	t = Time.get_ticks_usec()
 	if f.kingdom:
 		Cities.relocate(f)
 	if f.evicted_by != -1:
 		PushOut.leave_step(f)
+	World.prof_add("hk_relocate", t)
+	t = Time.get_ticks_usec()
 	Raids.consider(f)
+	World.prof_add("hk_raids", t)
 
 
 ## Group ladder steps 4-6 (agreed): build a workshop (or use the kingdom's), then reinforce

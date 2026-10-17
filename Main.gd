@@ -5,6 +5,7 @@ var _agents: Node2D
 var _dynamic: Node2D
 var _camera: Camera2D
 var _hud: CanvasLayer
+var _sim_usec := 0 # time spent stepping the sim in _process (--frames)
 
 
 func _ready() -> void:
@@ -27,6 +28,46 @@ func _ready() -> void:
 			_bench(int(arg.get_slice("=", 1)) if "=" in arg else 30)
 		elif arg.begins_with("--shot"):
 			_shot(int(arg.get_slice("=", 1)) if "=" in arg else 5)
+		elif arg.begins_with("--frames"):
+			_frames(int(arg.get_slice("=", 1)) if "=" in arg else 30)
+
+
+## Windowed frame times (Performance Plan B0): fast-forward N sim minutes, then time 300
+## frames at 1x and at 16x in two fixed views, the whole map and the biggest city. Vsync is
+## off so the numbers show the real cost; sim = time spent stepping the sim in those frames.
+func _frames(minutes: int) -> void:
+	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
+	for i in int(minutes * 60.0 / Cfg.MAX_SIM_STEP):
+		World.step(Cfg.MAX_SIM_STEP)
+	var views := {"map": [_camera.position, _camera.zoom]}
+	var city: Kingdom = null
+	for k in World.kingdoms.values():
+		if k.has_city and (city == null or k.plots.size() > city.plots.size()):
+			city = k
+	if city:
+		views["city"] = [Vector2(Cities.plot_rect(city, Vector2i.ZERO).end) * Cfg.CELL, Vector2.ONE * 1.1]
+	for v in views:
+		_camera.position = views[v][0]
+		_camera.zoom = views[v][1]
+		for speed in [1.0, 16.0]:
+			SimClock.set_speed(speed)
+			for frame in 30:
+				await get_tree().process_frame
+			var times: Array[int] = []
+			_sim_usec = 0
+			var last := Time.get_ticks_usec()
+			for frame in 300:
+				await get_tree().process_frame
+				var now := Time.get_ticks_usec()
+				times.append(now - last)
+				last = now
+			var total := 0
+			for x in times:
+				total += x
+			times.sort()
+			print("frames %s %2dx (min %d): avg %.2f ms, p95 %.2f ms, worst %.2f ms, sim %.2f ms/frame" % [
+				v, int(speed), minutes, total / 300000.0, times[284] / 1000.0, times[299] / 1000.0, _sim_usec / 300000.0])
+	get_tree().quit()
 
 
 ## Fast-forward N sim minutes, then save screenshots to user://: the full map, the busiest
@@ -267,10 +308,12 @@ func _metal_line() -> String:
 func _process(delta: float) -> void:
 	# Cap catch-up so a slow frame doesn't spiral.
 	var remaining: float = min(SimClock.scaled(delta), Cfg.MAX_SIM_STEP * 20)
+	var t := Time.get_ticks_usec()
 	while remaining > 0.0:
 		var s: float = min(remaining, Cfg.MAX_SIM_STEP)
 		World.step(s)
 		remaining -= s
+	_sim_usec += Time.get_ticks_usec() - t
 
 
 func _unhandled_input(event: InputEvent) -> void:

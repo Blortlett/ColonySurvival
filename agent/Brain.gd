@@ -104,6 +104,7 @@ static func think(a: Agent) -> void:
 			return
 	if a.job:
 		return
+	var tj := Time.get_ticks_usec()
 	var j: Job = null
 	var raid := Raids.find(a.raid_id) if a.raid_id != -1 else null
 	var defend := Raids.find(a.defend_raid) if a.defend_raid != -1 else null
@@ -115,10 +116,13 @@ static func think(a: Agent) -> void:
 		j = _servant_job(a)
 	if j == null:
 		j = _task_job(a)
+	World.prof_add("think_raid_task", tj)
+	tj = Time.get_ticks_usec()
 	if j == null:
 		j = _loot_job(a)
 	if j == null:
 		j = GoalLadder.next(a)
+	World.prof_add("think_ladder", tj)
 	if j == null:
 		j = _roam_job(a)
 	if j == null:
@@ -342,7 +346,9 @@ static func _gather_step(a: Agent, j: Job, dt: float) -> bool:
 		return true # nobody mines metal without a tier-2 pickaxe (agreed)
 	if j.node == null or j.node.amount <= 0 or World.nodes.get(j.node.cell) != j.node:
 		var type := ResourceNode.type_for_item(j.item)
+		var ts := Time.get_ticks_usec()
 		j.node = World.nearest_node(type, a.cell(), NODE_SEARCH, func(n): return not _blacklisted(a, n.cell))
+		World.prof_add("gather_node_search", ts)
 		j.timer = 0.0
 		j.arrived = false
 		if j.node == null:
@@ -389,26 +395,35 @@ static func _obtain_step(a: Agent, j: Job, cost: Dictionary, dt: float, bulk: in
 		j.chest = null
 		j.machine = null
 		return Obtain.DONE
+	var pk: String = (Job.Kind.keys()[j.kind] + ".obtain_") if World.profiling else ""
+	var t := Time.get_ticks_usec()
 	if j.chest:
 		if _chest_step(a, j, dt):
 			j.chest = null
 			j.item = ""
+		World.prof_add(pk + "chest", t)
 		return Obtain.WORKING
 	if j.machine:
 		var r := _process_step(a, j, dt)
+		World.prof_add(pk + "process", t)
 		if r != Obtain.WORKING:
 			j.machine = null
 			j.item = ""
 			j.timer = 0.0
 		return Obtain.FAILED if r == Obtain.FAILED else Obtain.WORKING
 	if j.item == "" or a.inv.count(j.item) >= j.amount:
-		if not _pick_material(a, j, cost, bulk):
+		var picked := _pick_material(a, j, cost, bulk)
+		World.prof_add(pk + "pick", t)
+		if not picked:
 			return Obtain.FAILED
 		if j.chest or j.machine or j.item == "":
 			return Obtain.WORKING
+		t = Time.get_ticks_usec()
 	if a.free_space() <= 0:
 		GoalLadder.drop_junk(a, _keep_for(cost))
-	if _gather_step(a, j, dt) and a.inv.count(j.item) < j.amount and not a.inv.has_cost(cost):
+	var gathered := _gather_step(a, j, dt)
+	World.prof_add(pk + "gather", t)
+	if gathered and a.inv.count(j.item) < j.amount and not a.inv.has_cost(cost):
 		return Obtain.FAILED
 	return Obtain.WORKING
 
@@ -659,12 +674,16 @@ static func _run_task(a: Agent, j: Job, dt: float) -> void:
 	if not a.inv.has_cost(cost):
 		# Gather a bit extra for walls/floors so one trip covers several tasks.
 		var bulk := 4 if t.type in [Task.Type.BUILD_WALL, Task.Type.BUILD_FLOOR, Task.Type.UPGRADE_WALL] else 1
-		if _obtain_step(a, j, cost, dt, bulk) == Obtain.FAILED:
+		var to := Time.get_ticks_usec()
+		var ob := _obtain_step(a, j, cost, dt, bulk)
+		World.prof_add("TASK.obtain", to)
+		if ob == Obtain.FAILED:
 			_blacklist_cell(a, t.cell)
 			_done(a) # couldn't get materials
 		return
 	j.item = ""
 	# Go to the site.
+	var tm := Time.get_ticks_usec()
 	if not j.arrived or World.cheb(a.cell(), t.cell) > 1:
 		if j.cell == Vector2i.ZERO or World.cheb(j.cell, t.cell) > 1:
 			j.cell = World.approach_cell(a, t.cell)
@@ -675,6 +694,7 @@ static func _run_task(a: Agent, j: Job, dt: float) -> void:
 					_done(a)
 				return
 		var m := move_to(a, j.cell, dt)
+		World.prof_add("TASK.move", tm)
 		if m == Move.FAILED:
 			_blacklist_cell(a, t.cell)
 			_done(a)
@@ -682,7 +702,9 @@ static func _run_task(a: Agent, j: Job, dt: float) -> void:
 		if m == Move.MOVING:
 			return
 		j.arrived = true
+	tm = Time.get_ticks_usec()
 	_perform_task(a, j, t, cost, dt)
+	World.prof_add("TASK.perform." + Task.Type.keys()[t.type] if World.profiling else "", tm)
 
 
 static func _perform_task(a: Agent, j: Job, t: Task, cost: Dictionary, dt: float) -> void:

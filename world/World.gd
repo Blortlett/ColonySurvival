@@ -121,6 +121,7 @@ func _update_fires(dt: float) -> void:
 
 
 func _per_second(s: float) -> void:
+	var t := Time.get_ticks_usec()
 	# Bushes regrow berries.
 	for b in bushes:
 		if b.amount < Cfg.BUSH_BERRIES:
@@ -145,7 +146,10 @@ func _per_second(s: float) -> void:
 			fu.hp -= fu.max_hp / Cfg.WALL_DECAY_SECS * s
 			if fu.hp <= 0.0:
 				remove_furniture(fu)
+	prof_add("decay", t)
+	t = Time.get_ticks_usec()
 	Wars.update()
+	prof_add("wars", t)
 	# Loot bags despawn.
 	for bag in loot.values().duplicate():
 		bag.timer -= s
@@ -313,6 +317,7 @@ func find_path(a: Agent, dest: Vector2i) -> Array[Vector2i]:
 	var fail_key := "%d:%d,%d:%d,%d" % [a.id, start.x, start.y, dest.x, dest.y]
 	if SimClock.time < _path_fail.get(fail_key, -1.0):
 		return []
+	var ts := Time.get_ticks_usec()
 	var opened: Array[Vector2i] = []
 	for h in a.faction.houses + Factions.shared_workshops(a.faction) + Factions.shared_smelteries(a.faction):
 		if walls.has(h.door_cell) and astar.is_point_solid(h.door_cell) and passable(a, h.door_cell):
@@ -324,6 +329,7 @@ func find_path(a: Agent, dest: Vector2i) -> Array[Vector2i]:
 		opened.append(start)
 	for c in opened:
 		astar.set_point_solid(c, false)
+	prof_add("path_doors", ts)
 	var p: Array[Vector2i] = []
 	var t := Time.get_ticks_usec()
 	if not astar.is_point_solid(dest):
