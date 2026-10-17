@@ -4,6 +4,11 @@ class_name Combat
 static func start_fight(att: Agent, vic: Agent, to_death: bool = false) -> void:
 	if not att.alive or not vic.alive or att == vic:
 		return
+	World.social_counts.fights += 1
+	if World.profiling:
+		var st := get_stack()
+		var src: String = st[1]["function"] if st.size() > 1 else "?"
+		World.fight_sources[src] = World.fight_sources.get(src, 0) + 1
 	var j := Job.new(Job.Kind.FIGHT, Job.PRIO_CRITICAL)
 	j.target_id = vic.id
 	j.to_death = to_death

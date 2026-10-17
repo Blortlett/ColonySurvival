@@ -62,6 +62,7 @@ static func encounter(fa: Faction, fb: Faction) -> bool:
 		return false
 	if not ready("meet", fa, fb, Cfg.GROUP_MEET_COOLDOWN):
 		return false
+	World.social_counts.group_meetings += 1
 	var s := score(fa, fb)
 	if s >= Cfg.ALLY_AT and World.rng.randf() < Cfg.ALLY_CHANCE:
 		Kingdoms.try_ally(fa, fb)

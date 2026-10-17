@@ -29,6 +29,8 @@ var pieces_version := 0 # bumps when walls, floors, roads, furniture or fires ch
 var started := false
 var deaths := 0
 var death_causes := {"killed": 0, "cold": 0, "hunger": 0}
+var social_counts := {"trades": 0, "robberies": 0, "group_meetings": 0, "fights": 0, "thinks": 0} # bench rates (B3)
+var fight_sources := {} # caller of Combat.start_fight -> count (bench diagnostics)
 var gear_fights := {"armoured_won": 0, "armoured_lost": 0} # kills between armoured and unarmoured agents (v3)
 
 # Cached privilege-zone owner per cell, rebuilt when a house fire starts/stops burning.
@@ -57,7 +59,11 @@ var _mood_acc := 0.0
 
 
 func setup() -> void:
-	rng.seed = Cfg.SEED if Cfg.SEED != 0 else randi()
+	var seed: int = Cfg.SEED
+	for arg in OS.get_cmdline_user_args():
+		if arg.begins_with("--seed="):
+			seed = int(arg.get_slice("=", 1)) # bench comparisons across seeds
+	rng.seed = seed if seed != 0 else randi()
 	astar.region = Rect2i(0, 0, Cfg.MAP_W, Cfg.MAP_H)
 	astar.cell_size = Vector2.ONE
 	astar.diagonal_mode = AStarGrid2D.DIAGONAL_MODE_ONLY_IF_NO_OBSTACLES

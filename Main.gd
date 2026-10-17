@@ -179,6 +179,8 @@ func _bench(minutes: int) -> void:
 			World.step(Cfg.MAX_SIM_STEP)
 		print(_bench_line(m + 1, Time.get_ticks_msec() - s0))
 	print("deaths by cause: %s" % World.death_causes)
+	print("social: %s" % World.social_counts)
+	print("fight sources: %s" % World.fight_sources)
 	print("--- %d sim minutes in %.1f s real ---" % [minutes, (Time.get_ticks_msec() - t0) / 1000.0])
 	var keys := World.prof.keys()
 	keys.sort_custom(func(x, y): return World.prof[x] > World.prof[y])

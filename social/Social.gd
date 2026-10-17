@@ -68,6 +68,7 @@ static func _trade(a: Agent, b: Agent) -> void:
 	var give_a := _surplus_for(a, b)
 	var give_b := _surplus_for(b, a)
 	if give_a != "" or give_b != "":
+		World.social_counts.trades += 1
 		# A trade: one or both sides hand over 2 of something the other is short of.
 		if give_a != "":
 			a.inv.remove(give_a, 2)
@@ -150,6 +151,7 @@ static func _demand(a: Agent, b: Agent, attack: bool) -> void:
 		Combat.start_fight(a, b)
 	else:
 		var n := Combat.rob(a, b, Cfg.DEMAND_FRACTION)
+		World.social_counts.robberies += 1
 		b.change_mood(-15.0)
 		b.change_opinion(a.id, -40.0)
 		if n > 0:

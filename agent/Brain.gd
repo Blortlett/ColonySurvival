@@ -8,6 +8,7 @@ const BLACKLIST_SECS := 60.0
 const NODE_SEARCH := 70.0
 
 static var _blacklist := {} # "agent_id:cell" -> expiry time
+static var _thinking: Agent = null # the agent inside think(), whose next think is set after it
 
 
 static func update(a: Agent, dt: float) -> void:
@@ -16,11 +17,26 @@ static func update(a: Agent, dt: float) -> void:
 		return
 	a.attack_cd -= dt
 	a.think_t -= dt
+	a.social_t -= dt
 	if a.think_t <= 0.0:
-		a.think_t += Cfg.THINK_INTERVAL
 		var t := Time.get_ticks_usec()
+		_thinking = a
+		World.social_counts.thinks += 1
 		think(a)
+		_thinking = null
+		a.last_think = SimClock.time
+		a.think_t += think_interval(a.job)
+		a.social_t = Cfg.THINK_INTERVAL
 		World.prof_add("think", t)
+	elif a.social_t <= 0.0:
+		# Between slower thinks, still look around at the base rate: encounters with
+		# passers-by (meetings, robberies, fights) need it to keep their rates.
+		a.social_t += Cfg.THINK_INTERVAL
+		if a.job == null or a.job.prio < Job.PRIO_CRITICAL:
+			var ts := Time.get_ticks_usec()
+			Relations.meet(a)
+			Social.scan(a)
+			World.prof_add("think_social", ts)
 	if a.job:
 		if World.profiling:
 			var t2 := Time.get_ticks_usec()
@@ -49,6 +65,22 @@ static func set_job(a: Agent, j: Job) -> void:
 			a.job.task.claimed_by = -1
 	a.job = j
 	a.path.clear()
+	# A job ending, or one set from outside think (a fight, a flight), brings the next
+	# think forward to that job's interval.
+	if a != _thinking and a.think_t > think_interval(j):
+		a.think_t = think_interval(j)
+
+
+## Seconds between thinks for this job (B3). No job: the base 0.25 s, to pick one quickly.
+static func think_interval(j: Job) -> float:
+	if j == null:
+		return Cfg.THINK_INTERVAL
+	match j.kind:
+		Job.Kind.FIGHT, Job.Kind.FLEE, Job.Kind.RAID, Job.Kind.DEFEND:
+			return Cfg.THINK_INTERVAL
+		Job.Kind.WANDER, Job.Kind.IDLE, Job.Kind.WARM:
+			return Cfg.THINK_IDLE
+	return Cfg.THINK_WORK
 
 
 static func flee(a: Agent, from: Vector2, from_id: int, prio: int = Job.PRIO_CRITICAL, dist: int = 10) -> void:
@@ -173,7 +205,7 @@ static func _happy_company(f: Campfire, a: Agent) -> bool:
 
 
 static func _rebellion_check(a: Agent) -> void:
-	a.rebel_t += Cfg.THINK_INTERVAL
+	a.rebel_t += Cfg.THINK_INTERVAL if a.last_think < 0.0 else SimClock.time - a.last_think
 	if a.rebel_t < Cfg.REBEL_CHECK_SECS:
 		return
 	a.rebel_t = 0.0

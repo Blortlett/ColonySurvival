@@ -163,3 +163,26 @@ All steps are **web-safe**: GDScript only, no threads, no C# or native code, not
 | full rescans | 3,600 (every second) | 422 |
 
 - **Web-safe:** yes.
+
+### B3. Lighter thinking for idle agents
+- **Per-job think interval:** 0.25 s for fights, flight, raids, defence and having no job; 0.5 s for everything else (`Cfg.THINK_WORK`, `Cfg.THINK_IDLE`). A job ending, or a job set from outside `think` (being attacked, fleeing, a raid call), brings the next think forward to that job's interval, so interruptions still react at once.
+- **Deviation 1, social scans stay at 0.25 s:** `Relations.meet` and `Social.scan` keep their own 0.25 s timer between slower thinks. With the scans slowed as planned, fights fell by about 45% and raids by half: agents passing each other were missed.
+- **Deviation 2, idle at 0.5 s, not 1.0 s:** with wandering, idling and warming at 1.0 s, raids roughly doubled and kills rose by half (more wars, which raids keep alive). At 0.5 s the rates match.
+- **Bench tools added:** `--seed=N` (overrides `Cfg.SEED`), and end-of-bench counters `social:` (trades, robberies, group meetings, fights started, thinks) and `fight sources:` (who called `Combat.start_fight`).
+- **Rate comparison:** 60-minute benches, mean over seeds. The baseline is this code with every interval at 0.25 s (9 runs, seeds 12345 and 1–7). Single runs swing a lot: the same seed gave 76 or 58 kills after a change that only moved one early social check.
+
+| Mean per run | Baseline (n=9) | Plan as written (n=4) | Scans 0.25, idle 1.0 (n=8) | **Built: scans 0.25, 0.5 / 0.5 (n=4)** |
+|---|---|---|---|---|
+| kills | 65 | 54 | 111 | **56** |
+| fights started | 146 | 111 | 246 | **122** |
+| raids (won + lost) | 7.2 | 4.3 | 17.0 | **7.0** |
+| trades | 5,321 | 5,394 | 5,048 | **5,445** |
+| group meetings | 1,754 | 1,937 | 1,660 | **1,971** |
+| robberies | 8.2 | 10.8 | 8.0 | **8.2** |
+| servants (avg over the run) | 12.4 | 10.5 | 11.9 | **9.1** |
+| kingdoms at minute 60 | 5.8 | 6.0 | 5.4 | **5.5** |
+| thinks | 1.73 M | 0.80 M | 0.82 M | **0.90 M** |
+
+- **Bench (seed 12345):** 173.8 s (B2: 188.7 s). `think` 42.7 s → 26.2 s, `think_ladder` 10.0 → 6.6 s. `think_social` stays about 17 s, since the scans keep their rate.
+- **Watch:** servants average a little lower (9.1 vs 12.4). That is within the seed noise seen for single runs, but worth checking in a playtest.
+- **Web-safe:** yes.

@@ -155,6 +155,9 @@ const REBEL_CHANCE := 0.1
 
 # --- AI ---
 const THINK_INTERVAL := 0.25
+# Per-job think intervals (Performance Plan B3, start): fights, flight and raids keep 0.25 s.
+const THINK_WORK := 0.5 # gathering, tasks, crafting, deliveries
+const THINK_IDLE := 0.5 # wandering, idling, warming up (1.0 tripled raids; see Performance Plan B3)
 const WANDER_RADIUS := 10
 const LOOT_SEEK_RADIUS := 10
 const MAX_SIM_STEP := 0.1
