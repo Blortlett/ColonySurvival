@@ -178,8 +178,8 @@ static func _plan_house(f: Faction, cap: int, kind: int) -> House:
 		if away == Vector2.ZERO:
 			away = Vector2.RIGHT.rotated(World.rng.randf() * TAU)
 		anchor = centre + Vector2i(away * (Cfg.PUSH_RADIUS + 12))
-	var workshop := kind == House.Kind.WORKSHOP
-	var size := Cfg.WORKSHOP_SIZE if workshop else House.interior_size(cap)
+	var workshop := kind != House.Kind.HOUSE # workshops and smelteries follow the workshop rules
+	var size := House.size_for(kind, cap)
 	var best: Rect2i
 	var best_d := INF
 	for i in 120 if workshop else 80:
@@ -254,28 +254,41 @@ static func _ensure_piece_tasks(f: Faction, h: House) -> void:
 		f.board.post(Task.new(Task.Type.BUILD_DOOR, d, h))
 	if h.state != House.State.COMPLETE:
 		return
-	if h.is_workshop():
-		for m in [[h.saw_cell, Furniture.Kind.SAWMILL, Task.Type.PLACE_SAWMILL], [h.cutter_cell, Furniture.Kind.CUTTER, Task.Type.PLACE_CUTTER]]:
-			var mc: Vector2i = m[0]
-			if h.machine(m[1]) == null and not have.has(Vector3i(mc.x, mc.y, m[2])):
-				f.board.post(Task.new(m[2], mc, h))
-	else:
+	if h.is_home():
 		var cc := h.chest_cell
 		if h.live_chest() == null and not have.has(Vector3i(cc.x, cc.y, Task.Type.PLACE_CHEST)):
 			f.board.post(Task.new(Task.Type.PLACE_CHEST, cc, h))
-	if not h.reinforce:
+	else:
+		for mc in h.machine_cells.values() + h.crate_cells:
+			if not World.furniture.has(mc) and not have.has(Vector3i(mc.x, mc.y, Task.Type.PLACE_MACHINE)):
+				f.board.post(Task.new(Task.Type.PLACE_MACHINE, mc, h))
+	if h.upgrade_to <= 0:
 		return
-	# Upgrades, one task per basic piece (break, then replace; agreed).
+	# Upgrades, one task per piece below the target tier (break, then replace; agreed).
 	for c in h.wall_cells:
 		var w: Wall = World.walls.get(c)
-		if w and w.tier == 0 and w.owner_id == f.id and not have.has(Vector3i(c.x, c.y, Task.Type.UPGRADE_WALL)):
-			f.board.post(Task.new(Task.Type.UPGRADE_WALL, c, h))
+		if w and w.owner_id == f.id:
+			_post_upgrade(f, h, have, Task.Type.UPGRADE_WALL, c, w.tier, h.upgrade_to)
 	var dw: Wall = World.walls.get(d)
-	if dw and dw.tier == 0 and dw.owner_id == f.id and not have.has(Vector3i(d.x, d.y, Task.Type.UPGRADE_DOOR)):
-		f.board.post(Task.new(Task.Type.UPGRADE_DOOR, d, h))
+	if dw and dw.owner_id == f.id:
+		_post_upgrade(f, h, have, Task.Type.UPGRADE_DOOR, d, dw.tier, min(h.upgrade_to, Items.max_door_tier()))
 	var ch := h.live_chest()
-	if ch and ch.tier == 0 and not have.has(Vector3i(ch.cell.x, ch.cell.y, Task.Type.UPGRADE_CHEST)):
-		f.board.post(Task.new(Task.Type.UPGRADE_CHEST, ch.cell, h))
+	if ch:
+		_post_upgrade(f, h, have, Task.Type.UPGRADE_CHEST, ch.cell, ch.tier, min(h.upgrade_to, Items.max_chest_tier()))
+
+
+## Post (or raise the target of) an upgrade task for a piece below the target tier.
+static func _post_upgrade(f: Faction, h: House, have: Dictionary, type: int, c: Vector2i, cur: int, target: int) -> void:
+	if cur >= target:
+		return
+	if have.has(Vector3i(c.x, c.y, type)):
+		var t := f.board.find(type, c)
+		if t and t.claimed_by == -1 and t.tier < target:
+			t.tier = target
+		return
+	var t := Task.new(type, c, h)
+	t.tier = target
+	f.board.post(t)
 
 
 ## Fire burnt out or house cancelled: the house is gone, its walls stay and decay.
@@ -325,7 +338,7 @@ static func housekeeping(f: Faction) -> void:
 		if h.state == House.State.PLANNED:
 			planned = true
 			var blocked: bool = World.walls.has(h.fire_cell) or World.fires.has(h.fire_cell) or (h.plot_kid == -1 and World.nodes.has(h.fire_cell))
-			if not World.house_fire_spacing_ok(h.fire_cell, h, f.id, h.is_workshop()) or blocked:
+			if not World.house_fire_spacing_ok(h.fire_cell, h, f.id, not h.is_home()) or blocked:
 				destroy_house(h)
 				planned = false
 				continue
@@ -334,8 +347,8 @@ static func housekeeping(f: Faction) -> void:
 				f.board.post(Task.new(Task.Type.REFUEL, h.fire_cell, h))
 			if h.state == House.State.BUILDING and _house_built(h):
 				h.state = House.State.COMPLETE
-				if h.is_workshop():
-					EventBus.log_event("%s finished a workshop." % f.name)
+				if not h.is_home():
+					EventBus.log_event("%s finished a %s." % [f.name, h.label()])
 				elif not f.solo:
 					EventBus.log_event("%s finished a house for %d." % [f.name, h.capacity])
 			_ensure_piece_tasks(f, h)
@@ -364,7 +377,8 @@ static func housekeeping(f: Faction) -> void:
 
 
 ## Group ladder steps 4-6 (agreed): build a workshop (or use the kingdom's), then reinforce
-## the house, then the workshop.
+## the house, then the workshop. v3: then a smeltery (gangs go for it straight after the
+## workshop), then the stone tier: houses, the smeltery's door, then the workshop (agreed).
 static func _workshop_goals(f: Faction) -> void:
 	var homes := f.homes()
 	if homes.is_empty():
@@ -383,16 +397,28 @@ static func _workshop_goals(f: Faction) -> void:
 		return
 	if not shops.any(func(w): return w.operational()):
 		return
-	var houses_done := true
-	for h in homes:
+	var reinforced := _upgrade(homes, 1) and _upgrade(f.workshops(), 1)
+	if not reinforced and not f.is_gang():
+		return
+	var smelts := shared_smelteries(f)
+	var want_s := 1 if f.kingdom == null else Cfg.KINGDOM_SMELTERIES
+	if smelts.size() < want_s and not smelts.any(func(s): return s.state != House.State.COMPLETE):
+		plan_house(f, 0, House.Kind.SMELTERY)
+	if not reinforced or not smelts.any(func(s): return s.operational()):
+		return
+	if _upgrade(homes, 2) and _upgrade(f.smelteries(), 2):
+		_upgrade(f.workshops(), 2)
+
+
+## Raise the target tier of these finished buildings; true once all of them are there.
+static func _upgrade(list: Array[House], tier: int) -> bool:
+	var done := true
+	for h in list:
 		if h.state == House.State.COMPLETE:
-			h.reinforce = true
-			if not h.fully_reinforced():
-				houses_done = false
-	if houses_done:
-		for w in f.workshops():
-			if w.state == House.State.COMPLETE:
-				w.reinforce = true
+			h.upgrade_to = max(h.upgrade_to, tier)
+			if not h.fully_upgraded(tier):
+				done = false
+	return done
 
 
 ## Workshops this group may use: its own, plus every workshop in its kingdom (agreed).
@@ -405,14 +431,26 @@ static func shared_workshops(f: Faction) -> Array[House]:
 	return out
 
 
+## Smelteries this group may use: its own, plus every smeltery in its kingdom.
+static func shared_smelteries(f: Faction) -> Array[House]:
+	if f.kingdom == null:
+		return f.smelteries()
+	var out: Array[House] = []
+	for g in f.kingdom.members():
+		out.append_array(g.smelteries())
+	return out
+
+
 ## Nearest usable machine of this kind for the agent, within range.
 static func nearest_machine(a: Agent, kind: int) -> Furniture:
 	var best: Furniture = null
 	var best_d := Cfg.WORKSHOP_RANGE
-	for w in shared_workshops(a.faction):
+	for w in shared_workshops(a.faction) + shared_smelteries(a.faction):
 		if not w.operational():
 			continue
 		var m := w.machine(kind)
+		if m == null:
+			continue
 		var d := a.pos.distance_to(World.center(m.cell))
 		if d < best_d and not Brain._blacklisted(a, m.cell):
 			best_d = d

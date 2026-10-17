@@ -250,8 +250,9 @@ func _rebuild_zones() -> void:
 						zone_map[i] = f.owner_id
 
 
+## Workshop and smeltery fires: their zones yield to house zones.
 static func _is_workshop_fire(f: Campfire) -> bool:
-	return f.house != null and f.house.is_workshop()
+	return f.house != null and not f.house.is_home()
 
 
 func can_build(c: Vector2i, fid: int) -> bool:
@@ -312,7 +313,7 @@ func find_path(a: Agent, dest: Vector2i) -> Array[Vector2i]:
 	if SimClock.time < _path_fail.get(fail_key, -1.0):
 		return []
 	var opened: Array[Vector2i] = []
-	for h in a.faction.houses + Factions.shared_workshops(a.faction):
+	for h in a.faction.houses + Factions.shared_workshops(a.faction) + Factions.shared_smelteries(a.faction):
 		if walls.has(h.door_cell) and astar.is_point_solid(h.door_cell) and passable(a, h.door_cell):
 			opened.append(h.door_cell)
 	var trap := house_at(start)
@@ -490,7 +491,7 @@ func remove_furniture(fu: Furniture, reason: String = "chest destroyed") -> void
 	if furniture.get(fu.cell) != fu:
 		return
 	furniture.erase(fu.cell)
-	if fu.kind == Furniture.Kind.CHEST and fu.store.total() > 0:
+	if fu.is_storage() and fu.store.total() > 0:
 		drop_loot(fu.cell, fu.store.stacks.duplicate(), fu.store.tools.duplicate(), -1, reason)
 		fu.store = Inventory.new()
 

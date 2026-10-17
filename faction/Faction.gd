@@ -64,13 +64,19 @@ func total_auth() -> int:
 
 func homes() -> Array[House]:
 	var out: Array[House] = []
-	out.assign(houses.filter(func(h): return not h.is_workshop()))
+	out.assign(houses.filter(func(h): return h.is_home()))
 	return out
 
 
 func workshops() -> Array[House]:
 	var out: Array[House] = []
 	out.assign(houses.filter(func(h): return h.is_workshop()))
+	return out
+
+
+func smelteries() -> Array[House]:
+	var out: Array[House] = []
+	out.assign(houses.filter(func(h): return h.is_smeltery()))
 	return out
 
 

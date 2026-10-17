@@ -21,6 +21,13 @@ const DOOR_R := Color(0.52, 0.36, 0.20)
 const METAL := Color(0.62, 0.62, 0.66)
 const SAWMILL := Color(0.62, 0.48, 0.30)
 const CUTTER := Color(0.45, 0.45, 0.50)
+const STONE_WALL := Color(0.52, 0.52, 0.54)
+const MORTAR := Color(0.36, 0.36, 0.38)
+const IRON := Color(0.22, 0.23, 0.26)
+const RIVET := Color(0.62, 0.63, 0.68)
+const FURNACE := Color(0.30, 0.27, 0.26)
+const GLOW := Color(1.0, 0.45, 0.08)
+const CRATE := Color(0.60, 0.44, 0.24)
 
 var show_zones := true
 var _outline_version := -1
@@ -89,13 +96,28 @@ func _draw() -> void:
 	for w in World.walls.values():
 		var p := Vector2(w.cell) * s
 		var col: Color
-		if w.tier > 0:
+		if w.tier >= 2:
+			col = IRON if w.is_door else STONE_WALL
+		elif w.tier > 0:
 			col = DOOR_R if w.is_door else WALL_R
 		else:
 			col = DOOR if w.is_door else WALL
 		col = col.darkened(0.5 * (1.0 - w.hp / w.max_hp))
 		draw_rect(Rect2(p, Vector2(s, s)), col)
-		if w.tier > 0:
+		if w.tier >= 2:
+			if w.is_door:
+				# Dark iron with rivets.
+				draw_rect(Rect2(p, Vector2(s, s)), RIVET.darkened(0.3), false, 1.0)
+				for r in [Vector2(0.18, 0.18), Vector2(0.82, 0.18), Vector2(0.18, 0.82), Vector2(0.82, 0.82)]:
+					draw_rect(Rect2(p + r * s - Vector2(1, 1), Vector2(2, 2)), RIVET)
+			else:
+				# Grey blocks: offset mortar joints.
+				draw_line(p + Vector2(0, s * 0.5), p + Vector2(s, s * 0.5), MORTAR, 1.0)
+				var off: float = s * (0.3 if (w.cell.x + w.cell.y) % 2 == 0 else 0.7)
+				draw_line(p + Vector2(off, 0), p + Vector2(off, s * 0.5), MORTAR, 1.0)
+				draw_line(p + Vector2(s - off, s * 0.5), p + Vector2(s - off, s), MORTAR, 1.0)
+				draw_rect(Rect2(p, Vector2(s, s)), MORTAR, false, 1.0)
+		elif w.tier > 0:
 			# Plank seams, and iron bands on doors.
 			draw_line(p + Vector2(s * 0.5, 0), p + Vector2(s * 0.5, s), col.darkened(0.35), 1.0)
 			draw_rect(Rect2(p, Vector2(s, s)), METAL if w.is_door else col.darkened(0.3), false, 1.0)
@@ -173,7 +195,13 @@ func _draw_furniture(fu: Furniture, p: Vector2, s: float) -> void:
 			var r := Rect2(p + Vector2(s * 0.15, s * 0.25), Vector2(s * 0.7, s * 0.55))
 			draw_rect(r, CHEST)
 			draw_rect(Rect2(r.position + Vector2(0, r.size.y * 0.35), Vector2(r.size.x, s * 0.1)), CHEST_BAND)
-			if fu.tier > 0:
+			if fu.tier >= 2:
+				# Iron-bound: dark iron bands and corner rivets.
+				draw_rect(r, IRON, false, 2.0)
+				draw_rect(Rect2(r.position + Vector2(r.size.x * 0.45, 0), Vector2(s * 0.1, r.size.y)), IRON)
+				for c in [r.position, r.position + Vector2(r.size.x - 2, 0), r.end - Vector2(2, 2), r.position + Vector2(0, r.size.y - 2)]:
+					draw_rect(Rect2(c, Vector2(2, 2)), RIVET)
+			elif fu.tier > 0:
 				draw_rect(r, METAL, false, 1.5)
 		Furniture.Kind.BOARD:
 			draw_rect(Rect2(p + Vector2(s * 0.45, s * 0.35), Vector2(s * 0.1, s * 0.6)), BOARD_POST)
@@ -188,3 +216,26 @@ func _draw_furniture(fu: Furniture, p: Vector2, s: float) -> void:
 		Furniture.Kind.CUTTER:
 			draw_rect(Rect2(p + Vector2(s * 0.12, s * 0.12), Vector2(s * 0.76, s * 0.76)), CUTTER)
 			draw_rect(Rect2(p + Vector2(s * 0.12, s * 0.45), Vector2(s * 0.76, s * 0.1)), CUTTER.darkened(0.5))
+		Furniture.Kind.FURNACE:
+			# Stone body with a glowing mouth (brighter while lit and in use).
+			draw_rect(Rect2(p + Vector2(s * 0.08, s * 0.08), Vector2(s * 0.84, s * 0.84)), FURNACE)
+			var lit: bool = fu.house != null and fu.house.fire != null and fu.house.fire.burning()
+			var pulse := 0.75 + 0.25 * sin(Time.get_ticks_msec() * 0.006 + fu.cell.y)
+			var glow := GLOW if lit else GLOW.darkened(0.7)
+			draw_rect(Rect2(p + Vector2(s * 0.25, s * 0.45), Vector2(s * 0.5, s * 0.35)), Color(glow, pulse if lit else 1.0))
+			if lit:
+				draw_circle(p + Vector2(s * 0.5, s * 0.62), s * 0.32, Color(GLOW, 0.18 * pulse))
+		Furniture.Kind.ANVIL:
+			draw_rect(Rect2(p + Vector2(s * 0.12, s * 0.28), Vector2(s * 0.76, s * 0.18)), IRON)
+			draw_colored_polygon(PackedVector2Array([p + Vector2(s * 0.12, s * 0.28), p + Vector2(s * 0.0, s * 0.37), p + Vector2(s * 0.12, s * 0.46)]), IRON)
+			draw_rect(Rect2(p + Vector2(s * 0.35, s * 0.46), Vector2(s * 0.3, s * 0.2)), IRON.lightened(0.1))
+			draw_rect(Rect2(p + Vector2(s * 0.25, s * 0.66), Vector2(s * 0.5, s * 0.14)), IRON)
+			draw_line(p + Vector2(s * 0.14, s * 0.3), p + Vector2(s * 0.86, s * 0.3), RIVET, 1.0)
+		Furniture.Kind.CRATE:
+			var r := Rect2(p + Vector2(s * 0.1, s * 0.1), Vector2(s * 0.8, s * 0.8))
+			draw_rect(r, CRATE)
+			draw_rect(r, CRATE.darkened(0.45), false, 1.5)
+			draw_line(r.position, r.end, CRATE.darkened(0.45), 1.5)
+			draw_line(r.position + Vector2(r.size.x, 0), r.position + Vector2(0, r.size.y), CRATE.darkened(0.45), 1.5)
+			if fu.store.count("iron_bar") + fu.store.count("raw_iron") > 0:
+				draw_rect(Rect2(p + Vector2(s * 0.35, s * 0.4), Vector2(s * 0.3, s * 0.2)), METAL)

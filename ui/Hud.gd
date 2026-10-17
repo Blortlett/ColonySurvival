@@ -146,6 +146,8 @@ func _fire_text(f: Campfire) -> String:
 		lines.append("Placed by: %s" % ("#%d" % f.placed_by if by else ("#%d (dead)" % f.placed_by if f.placed_by != -1 else "unknown")))
 		lines.append("Fuel: %d/%d wood" % [f.wood_left(), f.max_wood()])
 		return "\n".join(lines)
+	if f.house and f.house.is_smeltery():
+		return smeltery_text(f.house)
 	var g: Faction = World.factions.get(f.house.faction_id if f.house else f.owner_id)
 	if g == null:
 		return "House fire (no group)"
@@ -201,14 +203,17 @@ func _fire_text(f: Campfire) -> String:
 	lines.append("Houses:")
 	for h in g.houses:
 		var fuel := "no fire" if h.fire == null else "%d/%d wood%s" % [h.fire.wood_left(), h.fire.max_wood(), "" if h.fire.burning() else " (out)"]
-		var reinforced := 0
-		for c in h.wall_cells + [h.door_cell]:
-			var w: Wall = World.walls.get(c)
-			if w and w.tier > 0:
-				reinforced += 1
-		var tiers := "" if reinforced == 0 else "  reinforced %d/%d" % [reinforced, h.wall_cells.size() + 1]
+		var tiers := _tier_text(h)
 		if h.is_workshop():
 			lines.append("  workshop %d%s  %s  %s%s%s" % [h.id, " *" if h.fire == f else "", House.State.keys()[h.state], fuel, tiers, "  [working]" if h.operational() else ""])
+			continue
+		if h.is_smeltery():
+			var held := 0
+			var slots := 0
+			for c in h.crates():
+				held += c.store.total()
+				slots += c.slots()
+			lines.append("  smeltery %d%s  %s  %s%s%s  crates %d/%d" % [h.id, " *" if h.fire == f else "", House.State.keys()[h.state], fuel, tiers, "  [working]" if h.operational() else "", held, slots])
 			continue
 		lines.append("  house %d%s%s  %s  %d/%d  %s%s" % [h.id, " *" if h.fire == f else "", " [plot %d,%d]" % [h.plot.x, h.plot.y] if h.plot_kid != -1 else "", House.State.keys()[h.state], h.occupants.size(), h.capacity, fuel, tiers])
 		var ch := h.live_chest()
@@ -226,6 +231,76 @@ func _fire_text(f: Campfire) -> String:
 	if g.kingdom:
 		lines.append("Kingdom board: %s" % _board_summary(g.kingdom.board))
 	return "\n".join(lines)
+
+
+## "reinforced 12/20, stone 4/20, metal door" for a building's walls and door.
+func _tier_text(h: House) -> String:
+	var t1 := 0
+	var t2 := 0
+	for c in h.wall_cells:
+		var w: Wall = World.walls.get(c)
+		if w and w.tier == 1:
+			t1 += 1
+		elif w and w.tier >= 2:
+			t2 += 1
+	var parts: Array[String] = []
+	if t1 > 0:
+		parts.append("reinforced %d/%d" % [t1, h.wall_cells.size()])
+	if t2 > 0:
+		parts.append("stone %d/%d" % [t2, h.wall_cells.size()])
+	var dw: Wall = World.walls.get(h.door_cell)
+	if dw and dw.tier > 0:
+		parts.append(["", "reinforced door", "metal door"][dw.tier])
+	return "" if parts.is_empty() else "  " + ", ".join(parts)
+
+
+## Smeltery panel (v3 §6): crates, what the furnace is processing, who works there, recipes.
+func smeltery_text(h: House) -> String:
+	var lines: Array[String] = []
+	var g: Faction = World.factions.get(h.faction_id)
+	var fuel := "no fire" if h.fire == null else "%d/%d wood%s" % [h.fire.wood_left(), h.fire.max_wood(), "" if h.fire.burning() else " (out)"]
+	lines.append("Smeltery %d   %s%s" % [h.id, House.State.keys()[h.state], "   [working]" if h.operational() else ""])
+	lines.append("Owner: %s%s" % [g.display_name() if g else "abandoned", ("   Kingdom: %s" % g.kingdom.name) if g and g.kingdom else ""])
+	lines.append("Fire: %s%s" % [fuel, _tier_text(h)])
+	var fu := h.machine(Furniture.Kind.FURNACE)
+	var an := h.machine(Furniture.Kind.ANVIL)
+	lines.append("Furnace: %s   Anvil: %s" % ["placed" if fu else "missing", "placed" if an else "missing"])
+	var i := 1
+	for c in h.crates():
+		lines.append("Crate %d: %d/%d — %s" % [i, c.store.total(), c.slots(), c.store.summary()])
+		i += 1
+	var at_furnace: Array[String] = []
+	var at_anvil: Array[String] = []
+	for a in World.agent_list:
+		if a.job == null or a.job.machine == null:
+			continue
+		if a.job.machine == fu:
+			at_furnace.append("%s (%s)" % [a.short(), a.job.item.replace("_", " ")])
+		elif a.job.machine == an:
+			at_anvil.append("%s (%s)" % [a.short(), Items.label(a.job.item)])
+	lines.append("Furnace: %s" % (", ".join(at_furnace) if at_furnace.size() > 0 else "idle"))
+	lines.append("Anvil: %s" % (", ".join(at_anvil) if at_anvil.size() > 0 else "idle"))
+	lines.append("Recipes:")
+	for item in Items.PROCESS:
+		var p: Dictionary = Items.PROCESS[item]
+		if p.machine == Furniture.Kind.FURNACE or p.machine == Furniture.Kind.ANVIL:
+			lines.append("  " + _recipe_line(item, p))
+	for item in Items.ANVIL_RECIPES:
+		lines.append("  anvil: %s -> %s" % [_cost_text(Items.RECIPES[item]), Items.label(item)])
+	return "
+".join(lines)
+
+
+func _cost_text(cost: Dictionary) -> String:
+	var ins: Array[String] = []
+	for k in cost:
+		ins.append("%d %s" % [cost[k], k.replace("_", " ")])
+	return " + ".join(ins)
+
+
+func _recipe_line(item: String, p: Dictionary) -> String:
+	var m := "furnace" if p.machine == Furniture.Kind.FURNACE else ("anvil" if p.machine == Furniture.Kind.ANVIL else "")
+	return "%s%s -> %d %s  (%.0f s)" % [m + ": " if m != "" else "", _cost_text(p["in"]), p.out, Items.label(item), p.secs]
 
 
 func _board_summary(b: TaskBoard) -> String:
@@ -260,7 +335,9 @@ func _furniture_text(fu: Furniture) -> String:
 	var g: Faction = World.factions.get(fu.owner_id)
 	lines.append("%s   (HP %d/%d)" % [fu.label().capitalize(), fu.hp, fu.max_hp])
 	lines.append("Owner: %s" % (g.display_name() if g else "abandoned"))
-	if fu.kind == Furniture.Kind.CHEST:
+	if fu.house and fu.house.is_smeltery():
+		return smeltery_text(fu.house)
+	if fu.is_storage():
 		lines.append("Slots: %d/%d" % [fu.store.total(), fu.slots()])
 		lines.append("Contents: %s" % fu.store.summary())
 	elif fu.kind == Furniture.Kind.BOARD:

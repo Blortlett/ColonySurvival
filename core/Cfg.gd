@@ -75,6 +75,8 @@ const FURNITURE_PER_HOUSE := 1 # the chest (agreed)
 
 # --- Workshops (Phase C) ---
 const WORKSHOP_SIZE := Vector2i(5, 4) # fixed interior: fire + sawmill + stone cutter (agreed, starting value)
+const SMELTERY_SIZE := Vector2i(6, 5) # fire, furnace, anvil, 2 crates (v3, start)
+const KINGDOM_SMELTERIES := 1 # smelteries a kingdom aims for (v3, start)
 const WORKSHOP_RANGE := 90.0 # how far agents walk to a workshop to process or craft
 const RAID_AXES_PER_GANG := 3 # gangs craft up to this many raiding axes (or one per member)
 const MINERS_PER_GROUP := 1 # members with a tier-2 pickaxe a group aims for (v3, start)

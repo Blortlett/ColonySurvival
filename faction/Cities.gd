@@ -260,16 +260,18 @@ static func plan_on_plot(f: Faction, cap: int, kind: int) -> House:
 	var plot_kind := "house"
 	if kind == House.Kind.WORKSHOP:
 		plot_kind = "workshop"
+	elif kind == House.Kind.SMELTERY:
+		plot_kind = "smeltery"
 	if kind == House.Kind.HOUSE:
 		idx = _plot_of(k, f, "house", true)
 		if idx == NONE:
 			idx = _house_plot(k)
 	else:
-		idx = _free_plot(k, 1, MAX_BLOCK_RING) # workshops further out
+		idx = _free_plot(k, 1, MAX_BLOCK_RING) # workshops and smelteries further out
 	if idx == NONE:
 		return null
 	var r := plot_rect(k, idx)
-	var size: Vector2i = Cfg.WORKSHOP_SIZE if kind == House.Kind.WORKSHOP else House.interior_size(cap)
+	var size: Vector2i = House.size_for(kind, cap)
 	var outer := size + Vector2i(2, 2)
 	var sub := sub_of(idx)
 	var pos := Vector2i(r.end.x - outer.x if sub.x == 0 else r.position.x, r.end.y - outer.y if sub.y == 0 else r.position.y)

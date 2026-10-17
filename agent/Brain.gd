@@ -753,8 +753,8 @@ static func _perform_task(a: Agent, j: Job, t: Task, cost: Dictionary, dt: float
 			World.place_furniture(t.cell, Furniture.Kind.BOARD, fid, null)
 			board.complete(t)
 			_done(a)
-		Task.Type.PLACE_SAWMILL, Task.Type.PLACE_CUTTER:
-			if World.furniture.has(t.cell) or t.house == null:
+		Task.Type.PLACE_MACHINE:
+			if World.furniture.has(t.cell) or t.house == null or t.house.furniture_kind_at(t.cell) < 0:
 				board.complete(t)
 				_done(a)
 				return
@@ -762,13 +762,12 @@ static func _perform_task(a: Agent, j: Job, t: Task, cost: Dictionary, dt: float
 				_done(a)
 				return
 			a.inv.pay(cost)
-			var kind := Furniture.Kind.SAWMILL if t.type == Task.Type.PLACE_SAWMILL else Furniture.Kind.CUTTER
-			World.place_furniture(t.cell, kind, fid, t.house)
+			World.place_furniture(t.cell, t.house.furniture_kind_at(t.cell), fid, t.house)
 			board.complete(t)
 			_done(a)
 		Task.Type.UPGRADE_WALL, Task.Type.UPGRADE_DOOR:
 			var w: Wall = World.walls.get(t.cell)
-			if (w and (w.tier >= 1 or w.owner_id != fid)) or (w == null and not World.can_build(t.cell, fid)):
+			if (w and (w.tier >= t.tier or w.owner_id != fid)) or (w == null and not World.can_build(t.cell, fid)):
 				board.complete(t)
 				_done(a)
 				return
@@ -777,18 +776,18 @@ static func _perform_task(a: Agent, j: Job, t: Task, cost: Dictionary, dt: float
 				World.remove_wall(w)
 			a.inv.pay(cost)
 			var door := t.type == Task.Type.UPGRADE_DOOR
-			World.place_wall(t.cell, door, fid, 1, door and t.house != null and t.house.is_workshop())
+			World.place_wall(t.cell, door, fid, t.tier, door and t.house != null and not t.house.is_home())
 			board.complete(t)
 			_done(a)
 		Task.Type.UPGRADE_CHEST:
 			var old: Furniture = t.house.live_chest() if t.house else null
-			if old == null or old.tier >= 1:
+			if old == null or old.tier >= t.tier:
 				board.complete(t)
 				_done(a)
 				return
 			a.inv.pay(cost)
 			World.furniture.erase(old.cell)
-			var nc := World.place_furniture(old.cell, Furniture.Kind.CHEST, fid, t.house, 1)
+			var nc := World.place_furniture(old.cell, Furniture.Kind.CHEST, fid, t.house, t.tier)
 			nc.store = old.store # contents carry over
 			t.house.chest = nc
 			board.complete(t)
@@ -820,7 +819,7 @@ static func _perform_task(a: Agent, j: Job, t: Task, cost: Dictionary, dt: float
 				if j.timer > 20.0:
 					_done(a)
 				return
-			if t.type == Task.Type.PLACE_HOUSE_FIRE and not World.house_fire_spacing_ok(t.cell, t.house, fid, t.house.is_workshop()):
+			if t.type == Task.Type.PLACE_HOUSE_FIRE and not World.house_fire_spacing_ok(t.cell, t.house, fid, not t.house.is_home()):
 				Factions.destroy_house(t.house)
 				_done(a)
 				return
@@ -833,7 +832,8 @@ static func _perform_task(a: Agent, j: Job, t: Task, cost: Dictionary, dt: float
 					EventBus.log_event("%s claims land for %s." % [a.short(), a.faction.name])
 			else:
 				var door := t.type == Task.Type.BUILD_DOOR
-				World.place_wall(t.cell, door, fid, 0, door and t.house != null and t.house.is_workshop())
+				var tier: int = 0 if door or t.house == null else t.house.base_wall_tier()
+				World.place_wall(t.cell, door, fid, tier, door and t.house != null and not t.house.is_home())
 				board.complete(t)
 			_done(a)
 

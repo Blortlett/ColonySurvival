@@ -50,6 +50,9 @@ static func next(a: Agent) -> Job:
 	var mj := _metal_job(a, ch)
 	if mj:
 		return mj
+	var crate := Stock.metal_crate(a) if not Stock.metal_plan(a).is_empty() else null
+	if crate:
+		return Brain.chest_job(crate, Stock.metal_plan(a))
 	# 6. Stockpile fuel.
 	if a.inv.count("wood") < 10:
 		return Brain._gather_job("wood", 10)
@@ -106,12 +109,10 @@ static func group_tools(f: Faction, t: String) -> int:
 			for tool in m.inv.tools:
 				if tool.type == t:
 					n += 1
-	for h in f.houses:
-		var ch := h.live_chest()
-		if ch:
-			for tool in ch.store.tools:
-				if tool.type == t:
-					n += 1
+	for ch in Stock.storages(f):
+		for tool in ch.store.tools:
+			if tool.type == t:
+				n += 1
 	return n
 
 
@@ -122,10 +123,8 @@ static func group_stock(f: Faction, item: String) -> int:
 		var m: Agent = World.agents.get(mid)
 		if m:
 			n += m.inv.count(item)
-	for h in f.houses:
-		var ch := h.live_chest()
-		if ch:
-			n += ch.store.count(item)
+	for ch in Stock.storages(f):
+		n += ch.store.count(item)
 	return n
 
 

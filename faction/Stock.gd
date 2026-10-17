@@ -4,6 +4,7 @@ class_name Stock
 
 const SPARE_TOOLS := ["axe", "pickaxe"]
 const WEAPONS := ["spear", "club", "bow"]
+const METAL_ITEMS := ["raw_iron", "iron_bar"]
 
 
 ## The agent's home chest, if it has one and is close enough to use it.
@@ -17,19 +18,52 @@ static func home_chest(a: Agent) -> Furniture:
 	return ch
 
 
-## Any chest of the agent's group holding `item`, within range.
+## Any chest of the agent's group (or crate of its side's smelteries) holding `item`, within range.
 static func group_chest_with(a: Agent, item: String) -> Furniture:
 	var best: Furniture = null
 	var best_d := Cfg.HOME_RANGE
-	for h in a.faction.houses:
-		var ch := h.live_chest()
-		if ch == null or ch.store.count(item) <= 0 or Brain._blacklisted(a, ch.cell):
+	for ch in storages(a.faction):
+		if ch.store.count(item) <= 0 or Brain._blacklisted(a, ch.cell):
 			continue
 		var d := a.pos.distance_to(World.center(ch.cell))
 		if d <= best_d:
 			best_d = d
 			best = ch
 	return best
+
+
+## The group's chests, plus the crates of every smeltery its side may use (v3).
+static func storages(f: Faction) -> Array[Furniture]:
+	var out: Array[Furniture] = []
+	for h in f.houses:
+		var ch := h.live_chest()
+		if ch:
+			out.append(ch)
+	for s in Factions.shared_smelteries(f):
+		out.append_array(s.crates())
+	return out
+
+
+## Nearest crate with room, of a smeltery this agent's side may use (v3 metal storage).
+static func metal_crate(a: Agent) -> Furniture:
+	var best: Furniture = null
+	var best_d := Cfg.WORKSHOP_RANGE
+	for s in Factions.shared_smelteries(a.faction):
+		for c in s.crates():
+			var d := a.pos.distance_to(World.center(c.cell))
+			if c.free_slots() > 0 and d < best_d and not Brain._blacklisted(a, c.cell):
+				best_d = d
+				best = c
+	return best
+
+
+## Metal goods to carry to a smeltery crate (v3 §3.2): all raw iron and iron bars.
+static func metal_plan(a: Agent) -> Dictionary:
+	var plan := {}
+	for k in METAL_ITEMS:
+		if a.inv.count(k) > 0:
+			plan[k] = a.inv.count(k)
+	return plan
 
 
 ## What the chest still lacks for the stocking goal (agreed): 5 berries per member,
@@ -86,8 +120,8 @@ static func deposit_plan(a: Agent, ch: Furniture) -> Dictionary:
 		var want := 0
 		if k == "berry":
 			want = need.get("berry", 0)
-		elif k == "raw_iron":
-			want = sur[k] # metal always goes into storage (v3)
+		elif k == "raw_iron" and metal_crate(a) == null:
+			want = sur[k] # metal goes into storage; a smeltery crate if there is one (v3)
 		elif k.begins_with("tool:"):
 			var t: String = k.substr(5)
 			if need.has(k) or (need.has("weapon") and t in WEAPONS):

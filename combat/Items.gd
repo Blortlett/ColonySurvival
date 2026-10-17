@@ -15,6 +15,7 @@ const RECIPES := {
 	"pickaxe_t2": {"plank": 1, "cut_stone": 2, "handle": 1}, # tier-2 pickaxe (v3, start)
 }
 const WORKSHOP_RECIPES := ["raiding_axe", "pickaxe_t2"] # must be crafted at a workshop (agreed)
+const ANVIL_RECIPES := [] # gear crafted at a smeltery's anvil (Phase 4)
 const ARROWS_PER_CRAFT := 5
 
 # Build costs (agreed).
@@ -36,12 +37,26 @@ const BUILD_COSTS := {
 	# Workshop machines (starting values).
 	"sawmill": {"wood": 6, "stone": 2},
 	"cutter": {"wood": 4, "stone": 4},
+	# Stone tier (v3, agreed pieces, start numbers).
+	"wall_s": {"cut_stone": 2}, # stone wall; smeltery walls are always stone (agreed)
+	"door_m": {"metal_door": 1}, # metal door, made at the anvil from 2 iron bars (agreed)
+	"chest_i": {"iron_bar": 2, "plank": 2}, # iron-bound chest
+	# Smeltery machines and crates (v3, start).
+	"furnace": {"cut_stone": 4, "stone": 4},
+	"anvil": {"raw_iron": 4, "wood": 2},
+	"crate": {"plank": 4, "handle": 1},
 }
-const WALL_HP := [100.0, 250.0] # basic, reinforced (agreed)
-const DOOR_HP := [80.0, 200.0] # basic, reinforced (agreed)
+const WALL_HP := [100.0, 250.0, 400.0] # basic, reinforced (agreed), stone (v3, start)
+const DOOR_HP := [80.0, 200.0, 500.0] # basic, reinforced (agreed), metal (v3, start)
 const FLOOR_HP := 50.0
 const FURNITURE_HP := 60.0
-const CHEST_SLOTS := [30, 60] # basic, reinforced (agreed)
+const CHEST_SLOTS := [30, 60, 90] # basic, reinforced (agreed), iron-bound (v3, start)
+const CRATE_SLOTS := 60 # smeltery storage crate (v3, start)
+const UPGRADE_COSTS := {
+	"wall": ["wall", "wall_r", "wall_s"],
+	"door": ["door", "door_r", "door_m"],
+	"chest": ["chest", "chest_r", "chest_i"],
+}
 
 const DURABILITY := {"axe": 100, "pickaxe": 100, "spear": 60, "club": 60, "bow": 80, "raiding_axe": 60, "pickaxe_t2": 150}
 
@@ -68,6 +83,15 @@ const WEAPONS := {
 
 static func is_tool(item: String) -> bool:
 	return DURABILITY.has(item)
+
+
+## Highest door / chest tier the economy can make yet (metal needs the anvil's recipes).
+static func max_door_tier() -> int:
+	return 2 if PROCESS.has("metal_door") else 1
+
+
+static func max_chest_tier() -> int:
+	return 2 if PROCESS.has("iron_bar") else 1
 
 
 static func label(item: String) -> String:

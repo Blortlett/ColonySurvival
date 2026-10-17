@@ -49,7 +49,7 @@ func _shot(minutes: int) -> void:
 	for h in World.all_houses():
 		var f: Faction = World.factions.get(h.faction_id)
 		var score := h.occupants.size() + (100 if f and f.kingdom else 0)
-		if h.state == House.State.COMPLETE and not h.is_workshop() and score > best_score:
+		if h.state == House.State.COMPLETE and h.is_home() and score > best_score:
 			best_score = score
 			busiest = h
 	for frame in 3:
@@ -85,6 +85,18 @@ func _shot(minutes: int) -> void:
 		for frame in 3:
 			await get_tree().process_frame
 		get_viewport().get_texture().get_image().save_png("user://shot_city.png")
+	# A smeltery close-up with its panel (v3): the busiest working one, else any.
+	var smelt: House = null
+	for h in World.all_houses():
+		if h.is_smeltery() and (smelt == null or (h.operational() and not smelt.operational()) or h.state > smelt.state):
+			smelt = h
+	if smelt:
+		_camera.position = World.center(smelt.fire_cell) * Cfg.CELL
+		_camera.zoom = Vector2.ONE * 3.0
+		_hud.selected_fire = smelt.fire
+		for frame in 3:
+			await get_tree().process_frame
+		get_viewport().get_texture().get_image().save_png("user://shot_smeltery.png")
 	if raid_seen and Raids.active.has(raid_seen):
 		_camera.position = World.center(raid_seen.target.fire_cell) * Cfg.CELL
 		_camera.zoom = Vector2.ONE * 2.0
@@ -197,7 +209,29 @@ func _metal_line() -> String:
 				tools[t.type] = tools.get(t.type, 0) + 1
 	for bag in World.loot.values():
 		items["raw_iron"] = items.get("raw_iron", 0) + bag.stacks.get("raw_iron", 0)
-	return "metal nodes %d raw_iron %d t2_picks %d | " % [nodes, items.get("raw_iron", 0), tools.get("pickaxe_t2", 0)]
+	var smelts := 0
+	var working := 0
+	var gang_smelts := 0
+	for h in World.all_houses():
+		if h.is_smeltery():
+			smelts += 1
+			working += 1 if h.operational() else 0
+			var g: Faction = World.factions.get(h.faction_id)
+			gang_smelts += 1 if g and g.is_gang() else 0
+	var stone := 0
+	var metal_doors := 0
+	for w in World.walls.values():
+		if w.tier >= 2:
+			if w.is_door:
+				metal_doors += 1
+			else:
+				stone += 1
+	var iron_chests := 0
+	for fu in World.furniture.values():
+		if fu.kind == Furniture.Kind.CHEST and fu.tier >= 2:
+			iron_chests += 1
+	return "metal nodes %d raw_iron %d t2_picks %d smelteries %d (working %d, gangs %d) stone_walls %d metal_doors %d iron_chests %d | " % [
+		nodes, items.get("raw_iron", 0), tools.get("pickaxe_t2", 0), smelts, working, gang_smelts, stone, metal_doors, iron_chests]
 
 
 func _process(delta: float) -> void:
