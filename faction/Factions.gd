@@ -170,6 +170,14 @@ static func _plan_house(f: Faction, cap: int, kind: int) -> House:
 		if h.state != House.State.PLANNED:
 			anchor = h.fire_cell
 			break
+	# Told to leave a kingdom's land: look further out, away from the king's house.
+	var ek: Kingdom = World.kingdoms.get(f.evicted_by)
+	if ek and ek.has_city:
+		var centre := Cities.centre_cell(ek)
+		var away := Vector2(anchor - centre).normalized()
+		if away == Vector2.ZERO:
+			away = Vector2.RIGHT.rotated(World.rng.randf() * TAU)
+		anchor = centre + Vector2i(away * (Cfg.PUSH_RADIUS + 12))
 	var workshop := kind == House.Kind.WORKSHOP
 	var size := Cfg.WORKSHOP_SIZE if workshop else House.interior_size(cap)
 	var best: Rect2i
@@ -197,6 +205,10 @@ static func _site_ok(interior: Rect2i, f: Faction, workshop: bool = false) -> bo
 	var fire_cell := interior.position + Vector2i(interior.size.x / 2, interior.size.y / 2)
 	if not World.house_fire_spacing_ok(fire_cell, null, f.id, workshop) or World.footprint_clash(outer):
 		return false
+	# Nobody settles on a foreign kingdom's land (v3 §1.3).
+	for k in World.kingdoms.values():
+		if k.has_city and f.kingdom != k and World.cheb(fire_cell, Cities.centre_cell(k)) <= Cfg.PUSH_RADIUS + 2:
+			return false
 	# The cell outside the door must stay open, or the house is sealed (diagonals past walls are blocked).
 	var outside := Vector2i(fire_cell.x + 1, outer.end.y)
 	if not World.is_walkable(outside):
@@ -346,6 +358,8 @@ static func housekeeping(f: Faction) -> void:
 		_workshop_goals(f)
 	if f.kingdom:
 		Cities.relocate(f)
+	if f.evicted_by != -1:
+		PushOut.leave_step(f)
 	Raids.consider(f)
 
 

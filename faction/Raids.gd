@@ -102,6 +102,8 @@ static func _war_target(f: Faction) -> House:
 			if h.state != House.State.COMPLETE or h.fire == null or not h.fire.burning():
 				continue
 			var d := Vector2(home).distance_to(Vector2(h.fire_cell))
+			if f.kingdom and f.kingdom.pushouts.has(g.id):
+				d -= 40.0 # a group refusing to leave our land comes first
 			if d < best_d:
 				best_d = d
 				best = h
@@ -375,7 +377,7 @@ static func run_raider(a: Agent, j: Job, dt: float) -> void:
 			if World.cheb(a.cell(), r.rally) > 3:
 				_walk(a, j, r.rally, 3, dt)
 		Raid.Phase.MARCH:
-			_walk(a, j, h.door_cell + Vector2i(0, 2), 2, dt, h)
+			_walk(a, j, h.door_outside(2), 2, dt, h)
 		Raid.Phase.ASSAULT:
 			if h.interior.has_point(a.cell()):
 				return # inside: hold until the defenders are gone

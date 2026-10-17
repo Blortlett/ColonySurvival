@@ -99,6 +99,16 @@ const RAID_RANGE := 80.0 # gangs look for targets this close to home
 const RAID_MAX_SECS := 180.0 # a raid is lost after 3 minutes (agreed)
 const KINGDOM_DEFEND_RANGE := 30 # same-kingdom groups this close send help (agreed)
 
+# --- Territorial kingdoms (v3 Phase 1) ---
+const PUSH_RADIUS := 22 # foreign houses this close to the king's house are pushed out
+const PUSH_POWER_RATIO := 1.5 # a group leaves if the kingdom is this much stronger
+const REL_LEAVE := -10.0 # relation change when a group agrees to leave
+const PUSH_CHECK_SECS := 10.0 # how often a kingdom checks its land (one ladder step per check)
+const PUSH_LEAVE_SECS := 360.0 # a group still there this long after agreeing to leave means war
+const PUSH_TRUCE_SECS := 300.0 # after peace, wait this long before demanding again
+const INVITE_MIN_RELATION := -10.0 # an invited group joins if relations are at least this
+const DEMOLISH_SECS := 2.0 # time to tear down one piece
+
 # --- Chests (Phase B) ---
 const STOCK_BERRIES_PER_MEMBER := 5 # (agreed)
 const HOME_RANGE := 40.0 # how far from home an agent still uses the chest

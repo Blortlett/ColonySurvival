@@ -15,6 +15,7 @@ var state := State.PLANNED
 var interior: Rect2i
 var fire_cell: Vector2i
 var door_cell: Vector2i
+var door_dir := Vector2i(0, 1) # the side the door faces (city houses face their block's outer road)
 var wall_cells: Array[Vector2i] = []
 var floor_cells: Array[Vector2i] = [] # every interior cell except the fire (agreed)
 var chest_cell: Vector2i
@@ -29,7 +30,7 @@ var plot_kid := -1 # kingdom id whose city plot this building stands on
 var plot := Vector2i.ZERO # plot index in that city
 
 
-func _init(fid: int, interior_rect: Rect2i, cap: int, k: Kind = Kind.HOUSE) -> void:
+func _init(fid: int, interior_rect: Rect2i, cap: int, k: Kind = Kind.HOUSE, dir: Vector2i = Vector2i(0, 1)) -> void:
 	id = _next_id
 	_next_id += 1
 	kind = k
@@ -38,9 +39,16 @@ func _init(fid: int, interior_rect: Rect2i, cap: int, k: Kind = Kind.HOUSE) -> v
 	capacity = cap
 	fire_cell = interior.position + Vector2i(interior.size.x / 2, interior.size.y / 2)
 	var outer := interior.grow(1)
-	# Door in the bottom wall, one column right of the fire so the cell inside the door is
-	# never the fire (otherwise the interior is only reachable diagonally = sealed off).
-	door_cell = Vector2i(fire_cell.x + 1, outer.end.y - 1)
+	door_dir = dir
+	# Door one column (or row) beside the fire so the cell inside the door is never the
+	# fire (otherwise the interior is only reachable diagonally = sealed off).
+	var dx := fire_cell.x + 1 if fire_cell.x + 1 < interior.end.x else fire_cell.x - 1
+	var dy := fire_cell.y + 1 if fire_cell.y + 1 < interior.end.y else fire_cell.y - 1
+	match dir:
+		Vector2i(0, -1): door_cell = Vector2i(dx, outer.position.y)
+		Vector2i(1, 0): door_cell = Vector2i(outer.end.x - 1, dy)
+		Vector2i(-1, 0): door_cell = Vector2i(outer.position.x, dy)
+		_: door_cell = Vector2i(dx, outer.end.y - 1)
 	for x in range(outer.position.x, outer.end.x):
 		for y in range(outer.position.y, outer.end.y):
 			var c := Vector2i(x, y)
@@ -66,6 +74,11 @@ static func interior_size(cap: int) -> Vector2i:
 	var w := int(ceil(sqrt(float(area))))
 	var h := int(ceil(float(area) / w))
 	return Vector2i(w, h)
+
+
+## The cell just outside the door (must stay walkable).
+func door_outside(dist: int = 1) -> Vector2i:
+	return door_cell + door_dir * dist
 
 
 func footprint() -> Rect2i:

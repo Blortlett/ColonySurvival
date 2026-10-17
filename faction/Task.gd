@@ -2,7 +2,7 @@ class_name Task
 extends RefCounted
 ## One claimable job on a faction task board.
 
-enum Type { PLACE_HOUSE_FIRE, BUILD_WALL, BUILD_DOOR, REFUEL, BUILD_FLOOR, PLACE_CHEST, PLACE_SAWMILL, PLACE_CUTTER, UPGRADE_WALL, UPGRADE_DOOR, UPGRADE_CHEST, CLEAR_NODE, BUILD_ROAD, UPGRADE_ROAD, PLACE_BOARD }
+enum Type { PLACE_HOUSE_FIRE, BUILD_WALL, BUILD_DOOR, REFUEL, BUILD_FLOOR, PLACE_CHEST, PLACE_SAWMILL, PLACE_CUTTER, UPGRADE_WALL, UPGRADE_DOOR, UPGRADE_CHEST, CLEAR_NODE, BUILD_ROAD, UPGRADE_ROAD, PLACE_BOARD, DEMOLISH }
 
 const PRIORITY := {
 	Type.PLACE_HOUSE_FIRE: 60,
@@ -20,6 +20,7 @@ const PRIORITY := {
 	Type.PLACE_BOARD: 35,
 	Type.BUILD_ROAD: 25,
 	Type.UPGRADE_ROAD: 15,
+	Type.DEMOLISH: 52, # walls first (+2), so floors and chests inside can be reached
 }
 const CLAIM_TIMEOUT := 90.0
 
@@ -47,6 +48,8 @@ func priority() -> int:
 	# An almost-empty fire is an emergency.
 	if type == Type.REFUEL and house and house.fire and house.fire.fuel_secs < Cfg.FIRE_SECS_PER_WOOD:
 		p += 50
+	if type == Type.DEMOLISH and World.walls.has(cell):
+		p += 2
 	return p
 
 
@@ -62,7 +65,7 @@ func cost() -> Dictionary:
 		Type.UPGRADE_WALL: return Items.BUILD_COSTS["wall_r"]
 		Type.UPGRADE_DOOR: return Items.BUILD_COSTS["door_r"]
 		Type.UPGRADE_CHEST: return Items.BUILD_COSTS["chest_r"]
-		Type.CLEAR_NODE: return {}
+		Type.CLEAR_NODE, Type.DEMOLISH: return {}
 		Type.BUILD_ROAD: return Items.BUILD_COSTS["road"]
 		Type.UPGRADE_ROAD: return Items.BUILD_COSTS["road_r"]
 		Type.PLACE_BOARD: return Items.BUILD_COSTS["board"]

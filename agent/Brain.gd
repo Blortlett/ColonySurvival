@@ -713,6 +713,17 @@ static func _perform_task(a: Agent, j: Job, t: Task, cost: Dictionary, dt: float
 					World.remove_node(n)
 					board.complete(t)
 					_done(a)
+		Task.Type.DEMOLISH:
+			if not Cities.is_junk(t.cell):
+				board.complete(t) # gone already, or part of a live building again
+				_done(a)
+				return
+			j.timer += dt
+			t.claim_time = SimClock.time
+			if j.timer >= Cfg.DEMOLISH_SECS:
+				Cities.demolish(t.cell) # no refund (agreed)
+				board.complete(t)
+				_done(a)
 		Task.Type.BUILD_ROAD, Task.Type.UPGRADE_ROAD:
 			var tier := 1 if t.type == Task.Type.BUILD_ROAD else 2
 			if World.roads.get(t.cell, 0) >= tier or World.walls.has(t.cell) or World.fires.has(t.cell):

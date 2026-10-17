@@ -1,15 +1,20 @@
 class_name Cities
-## City grids for kingdoms (Phase E): 10x10 plots on an 11-cell pitch separated by 1-cell
-## roads, anchored on the king group's house fire. Plot assignment, relocation into the
-## city, clearing trees and rocks, and roads (plaza, then roads between plots, then a
-## spur to each door, then paving).
+## City grids for kingdoms. v3 (agreed): 10x10 plots grouped in 2x2 blocks. The plots of a
+## block touch and their houses sit wall to wall in the block's inner corner, doors facing
+## the block's outer ring road. Plot (0,0) is the king group's house, the bottom-left plot
+## of block (0,0). Plot assignment, relocation into the city, clearing, demolition and roads
+## (plaza, then a ring road around each block, then a spur from each door, then paving).
 
-const PITCH := 11
 const PLOT := 10
-const MAX_RING := 4
+const BLOCK := 21 # two plots plus the ring road
+const MAX_BLOCK_RING := 2
+const CLOSE_BLOCK_RING := 1 # "close enough" to the leader's house (v3 §1.2)
 const NONE := Vector2i(-9999, -9999)
 const MAX_ROAD_TASKS := 30
 const MAX_CLEAR_TASKS := 20
+const MAX_DEMOLISH_TASKS := 20
+
+static var demolished := 0
 
 
 # --- Kingdom hooks ---
@@ -19,6 +24,8 @@ static func on_formed(k: Kingdom) -> void:
 
 
 static func on_joined(k: Kingdom, f: Faction) -> void:
+	f.evicted_by = -1
+	k.pushouts.erase(f.id)
 	if k.has_city:
 		assign_house_plot(k, f)
 
@@ -49,15 +56,62 @@ static func on_house_gone(h: House) -> void:
 
 # --- Grid ---
 
+static func block_of(idx: Vector2i) -> Vector2i:
+	return Vector2i(floori(idx.x / 2.0), floori((idx.y + 1) / 2.0))
+
+
+## Position inside the block: x 0 = left, 1 = right; y 0 = top, 1 = bottom.
+static func sub_of(idx: Vector2i) -> Vector2i:
+	return Vector2i(posmod(idx.x, 2), posmod(idx.y + 1, 2))
+
+
+static func block_plots(b: Vector2i) -> Array[Vector2i]:
+	var out: Array[Vector2i] = []
+	for sy in 2:
+		for sx in 2:
+			out.append(Vector2i(b.x * 2 + sx, b.y * 2 + sy - 1))
+	return out
+
+
+static func block_rect(k: Kingdom, b: Vector2i) -> Rect2i:
+	return Rect2i(k.city_origin - Vector2i(0, PLOT) + b * BLOCK, Vector2i(PLOT * 2, PLOT * 2))
+
+
 static func plot_rect(k: Kingdom, idx: Vector2i) -> Rect2i:
-	return Rect2i(k.city_origin + idx * PITCH, Vector2i(PLOT, PLOT))
+	return Rect2i(block_rect(k, block_of(idx)).position + sub_of(idx) * PLOT, Vector2i(PLOT, PLOT))
 
 
+## Block ring of a plot (0 = the leader's block).
 static func ring(idx: Vector2i) -> int:
-	return max(abs(idx.x), abs(idx.y))
+	var b := block_of(idx)
+	return max(abs(b.x), abs(b.y))
 
 
-## Lay out the grid on the king group's house (that house is the centre plot).
+## The king's house fire (or the centre plot if that house is gone).
+static func centre_cell(k: Kingdom) -> Vector2i:
+	var p = k.plots.get(Vector2i.ZERO)
+	if p and p.house:
+		return p.house.fire_cell
+	return plot_rect(k, Vector2i.ZERO).get_center()
+
+
+## The city area: the leader's and adjacent blocks plus every block with a plot, ring roads included.
+static func city_rect(k: Kingdom) -> Rect2i:
+	var blocks := {}
+	for bx in range(-CLOSE_BLOCK_RING, CLOSE_BLOCK_RING + 1):
+		for by in range(-CLOSE_BLOCK_RING, CLOSE_BLOCK_RING + 1):
+			blocks[Vector2i(bx, by)] = true
+	for idx in k.plots:
+		blocks[block_of(idx)] = true
+	var r := block_rect(k, Vector2i.ZERO).grow(1)
+	for b in blocks:
+		r = r.merge(block_rect(k, b).grow(1))
+	return r
+
+
+## Lay out the grid on the king group's house: it becomes plot (0,0), the bottom-left plot
+## of block (0,0), sitting in that plot's inner (top-right) corner so its bottom door faces
+## the outer road.
 static func found(k: Kingdom) -> void:
 	var anchor: House = null
 	var order: Array[Faction] = []
@@ -75,11 +129,14 @@ static func found(k: Kingdom) -> void:
 	if anchor == null:
 		return
 	k.has_city = true
-	k.city_origin = anchor.fire_cell - Vector2i(PLOT / 2, PLOT / 2)
+	var fp := anchor.footprint()
+	k.city_origin = Vector2i(fp.end.x - PLOT, fp.position.y)
 	k.plots[Vector2i.ZERO] = {"kind": "house", "fid": anchor.faction_id, "house": anchor}
 	anchor.plot_kid = k.id
 	anchor.plot = Vector2i.ZERO
-	var plaza := _free_plot(k, 1, 1)
+	# The plaza goes just across the road from the king's door, so the leader's own block
+	# stays free for houses (v3 §1.2).
+	var plaza := Vector2i(0, 1) if _plot_ok(k, Vector2i(0, 1)) else _search_plot(k, 1, 1)
 	if plaza != NONE:
 		k.plots[plaza] = {"kind": "plaza", "fid": -1, "house": null}
 	for f in k.members():
@@ -95,17 +152,34 @@ static func _plot_of(k: Kingdom, f: Faction, kind: String, unbuilt_only: bool = 
 	return NONE
 
 
-## Every group gets a house plot, nearest the centre first.
+## Every group gets a house plot: the leader's block first, then the adjacent blocks, then
+## the nearest free plot anywhere (agreed order). No free plot close by: push neighbours out.
 static func assign_house_plot(k: Kingdom, f: Faction) -> void:
-	if _plot_of(k, f, "house") != NONE:
+	var cur := _plot_of(k, f, "house")
+	if cur != NONE:
+		# Not built on yet and far out: take a closer plot if one has come free.
+		if k.plots[cur].house == null and ring(cur) > CLOSE_BLOCK_RING:
+			var near := _nearer_plot(k, CLOSE_BLOCK_RING)
+			if near != NONE:
+				k.plots.erase(cur)
+				k.plots[near] = {"kind": "house", "fid": f.id, "house": null}
 		return
-	var idx := _free_plot(k, 1, MAX_RING)
+	var idx := _house_plot(k)
 	if idx != NONE:
 		k.plots[idx] = {"kind": "house", "fid": f.id, "house": null}
 
 
-## Nearest free, buildable plot between the given rings. A failed search (crowded map)
-## isn't repeated for a while.
+static func _house_plot(k: Kingdom) -> Vector2i:
+	if SimClock.time < k.plot_retry_at:
+		return NONE
+	var idx := _free_plot(k, 0, MAX_BLOCK_RING)
+	if idx == NONE or ring(idx) > CLOSE_BLOCK_RING:
+		k.room_short_until = SimClock.time + 60.0
+	return idx
+
+
+## Nearest free, buildable plot between the given block rings. A failed search (crowded
+## map) isn't repeated for a while.
 static func _free_plot(k: Kingdom, min_ring: int, max_ring: int) -> Vector2i:
 	if SimClock.time < k.plot_retry_at:
 		return NONE
@@ -115,18 +189,37 @@ static func _free_plot(k: Kingdom, min_ring: int, max_ring: int) -> Vector2i:
 	return idx
 
 
+## Candidate plots: nearer block rings first, blocks already started before new ones (fill
+## a block first), then distance from the centre plot.
 static func _search_plot(k: Kingdom, min_ring: int, max_ring: int) -> Vector2i:
-	for r in range(min_ring, max_ring + 1):
-		var cands: Array[Vector2i] = []
-		for x in range(-r, r + 1):
-			for y in range(-r, r + 1):
-				if max(abs(x), abs(y)) == r:
-					cands.append(Vector2i(x, y))
-		cands.sort_custom(func(a, b): return abs(a.x) + abs(a.y) < abs(b.x) + abs(b.y))
-		for idx in cands:
-			if _plot_ok(k, idx):
-				return idx
+	for idx in candidate_plots(k, min_ring, max_ring):
+		if _plot_ok(k, idx):
+			return idx
 	return NONE
+
+
+static func candidate_plots(k: Kingdom, min_ring: int, max_ring: int) -> Array[Vector2i]:
+	var started := {}
+	for idx in k.plots:
+		started[block_of(idx)] = true
+	var centre := Vector2(plot_rect(k, Vector2i.ZERO).get_center())
+	var cands: Array = []
+	for bx in range(-max_ring, max_ring + 1):
+		for by in range(-max_ring, max_ring + 1):
+			var b := Vector2i(bx, by)
+			var r: int = max(abs(bx), abs(by))
+			if r < min_ring:
+				continue
+			for idx in block_plots(b):
+				if k.plots.has(idx):
+					continue
+				var d := centre.distance_to(Vector2(plot_rect(k, idx).get_center()))
+				cands.append([r * 10000.0 + (0.0 if started.has(b) else 5000.0) + d, idx])
+	cands.sort_custom(func(x, y): return x[0] < y[0])
+	var out: Array[Vector2i] = []
+	for c in cands:
+		out.append(c[1])
+	return out
 
 
 static func _plot_ok(k: Kingdom, idx: Vector2i) -> bool:
@@ -136,19 +229,19 @@ static func _plot_ok(k: Kingdom, idx: Vector2i) -> bool:
 	if r.position.x < 2 or r.position.y < 2 or r.end.x > Cfg.MAP_W - 2 or r.end.y > Cfg.MAP_H - 2:
 		return false
 	var fid: int = k.groups[0]
-	var g := r.grow(1)
-	# Other kingdoms' plots.
+	# Other kingdoms' cities (their plots and ring roads).
 	for ok in World.kingdoms.values():
 		if ok != k and ok.has_city:
 			for oidx in ok.plots:
-				if plot_rect(ok, oidx).grow(1).intersects(g):
+				if plot_rect(ok, oidx).grow(1).intersects(r.grow(1)):
 					return false
 	if not World.house_fire_spacing_ok(r.get_center(), null, fid):
 		return false
 	if World.footprint_clash(r.grow(-1)):
 		return false
-	for x in range(g.position.x, g.end.x):
-		for y in range(g.position.y, g.end.y):
+	# Neighbouring plots' houses sit right against the edge, so only the plot itself is checked.
+	for x in range(r.position.x, r.end.x):
+		for y in range(r.position.y, r.end.y):
 			var c := Vector2i(x, y)
 			if World.walls.has(c) or World.fires.has(c):
 				return false
@@ -158,24 +251,32 @@ static func _plot_ok(k: Kingdom, idx: Vector2i) -> bool:
 	return true
 
 
-## Plan a house or workshop on a city plot (called instead of a free site search).
+## Plan a house or workshop on a city plot (called instead of a free site search). The
+## building sits in the plot's inner corner (wall to wall with the block's other houses)
+## with its door on the outer side nearest the road (agreed).
 static func plan_on_plot(f: Faction, cap: int, kind: int) -> House:
 	var k := f.kingdom
 	var idx := NONE
-	var plot_kind := "workshop" if kind == House.Kind.WORKSHOP else "house"
+	var plot_kind := "house"
+	if kind == House.Kind.WORKSHOP:
+		plot_kind = "workshop"
 	if kind == House.Kind.HOUSE:
 		idx = _plot_of(k, f, "house", true)
 		if idx == NONE:
-			idx = _free_plot(k, 1, MAX_RING)
+			idx = _house_plot(k)
 	else:
-		idx = _free_plot(k, 2, MAX_RING)
+		idx = _free_plot(k, 1, MAX_BLOCK_RING) # workshops further out
 	if idx == NONE:
 		return null
 	var r := plot_rect(k, idx)
 	var size: Vector2i = Cfg.WORKSHOP_SIZE if kind == House.Kind.WORKSHOP else House.interior_size(cap)
 	var outer := size + Vector2i(2, 2)
-	var interior := Rect2i(r.position + (r.size - outer) / 2 + Vector2i.ONE, size)
-	var h := House.new(f.id, interior, cap, kind)
+	var sub := sub_of(idx)
+	var pos := Vector2i(r.end.x - outer.x if sub.x == 0 else r.position.x, r.end.y - outer.y if sub.y == 0 else r.position.y)
+	var side_h := Vector2i(-1, 0) if sub.x == 0 else Vector2i(1, 0)
+	var side_v := Vector2i(0, -1) if sub.y == 0 else Vector2i(0, 1)
+	var dir := side_h if PLOT - outer.x < PLOT - outer.y else side_v
+	var h := House.new(f.id, Rect2i(pos + Vector2i.ONE, size), cap, kind, dir)
 	h.plot_kid = k.id
 	h.plot = idx
 	k.plots[idx] = {"kind": plot_kind, "fid": f.id, "house": h}
@@ -198,21 +299,57 @@ static func relocate(f: Faction) -> void:
 		assign_house_plot(k, f)
 		Factions.plan_house(f, clamp(f.members.size() + 1, 2, Cfg.FACTION_MAX))
 		return
-	if not on_plot.any(func(h): return h.state == House.State.COMPLETE):
-		return
+	# A free plot in a nearer block ring than every home: build there and move in (the
+	# city packs around the leader's house over time).
+	var best := 99
+	for h in on_plot:
+		best = min(best, ring(h.plot))
+	if best > 0 and not f.houses.any(func(h): return h.state == House.State.PLANNED):
+		var near := _nearer_plot(k, best - 1)
+		if near != NONE:
+			k.plots[near] = {"kind": "house", "fid": f.id, "house": null}
+			Factions.plan_house(f, clamp(f.members.size() + 1, 2, Cfg.FACTION_MAX))
+	# Keep the nearest ring of homes whose finished houses hold everyone; leave the rest.
+	var keep_ring := -1
+	for r in range(0, MAX_BLOCK_RING + 1):
+		var room := 0
+		for h in on_plot:
+			if ring(h.plot) <= r and h.state == House.State.COMPLETE:
+				room += h.capacity
+		if room >= f.members.size():
+			keep_ring = r
+			break
+	if keep_ring == -1:
+		if not on_plot.any(func(h): return h.state == House.State.COMPLETE):
+			return
+		keep_ring = MAX_BLOCK_RING # not enough room near the leader yet: only leave off-plot homes
 	for h in f.homes():
-		if h.plot_kid != k.id:
-			Factions.abandon_house(h)
-			f.houses.erase(h)
-			f.board.remove_for_house(h)
-			EventBus.log_event("%s moves into the city of %s." % [f.name, k.name])
+		var keep := h.plot_kid == k.id and ring(h.plot) <= keep_ring
+		if keep or (h.state == House.State.PLANNED and h.plot_kid == k.id):
+			continue
+		Factions.abandon_house(h)
+		f.houses.erase(h)
+		f.board.remove_for_house(h)
+		if h.plot_kid == k.id and k.plots.has(h.plot) and k.plots[h.plot].house == h:
+			k.plots.erase(h.plot)
+		EventBus.log_event("%s moves %s the city of %s." % [f.name, "closer in" if h.plot_kid == k.id else "into", k.name])
+
+
+## A free plot no further out than this block ring (throttled like any search).
+static func _nearer_plot(k: Kingdom, max_ring: int) -> Vector2i:
+	if SimClock.time < k.close_retry_at:
+		return NONE
+	var idx := _search_plot(k, 0, max_ring)
+	if idx == NONE:
+		k.close_retry_at = SimClock.time + 30.0
+	return idx
 
 
 static func has_house_plot(f: Faction) -> bool:
 	return f.kingdom != null and f.kingdom.has_city
 
 
-# --- City works: clearing and roads ---
+# --- City works: clearing, demolition and roads ---
 
 static func update(k: Kingdom) -> void:
 	if not k.has_city:
@@ -273,6 +410,78 @@ static func update(k: Kingdom) -> void:
 			if World.roads.get(c, 0) == 1 and not have.has(Vector3i(c.x, c.y, Task.Type.UPGRADE_ROAD)):
 				board.post(Task.new(Task.Type.UPGRADE_ROAD, c, null))
 				roads_open += 1
+	if SimClock.time >= k.push_check_at:
+		k.push_check_at = SimClock.time + Cfg.PUSH_CHECK_SECS
+		_post_demolish(k, have)
+		PushOut.update(k)
+
+
+## DEMOLISH (agreed): every piece in the city area that belongs to no live building
+## (abandoned houses, burnt-out ones, stray walls) is torn down, no refund.
+static func _post_demolish(k: Kingdom, have: Dictionary) -> void:
+	var open := 0
+	for t in k.board.tasks:
+		if t.type == Task.Type.DEMOLISH:
+			open += 1
+	if open >= MAX_DEMOLISH_TASKS:
+		return
+	var area := city_rect(k)
+	var cells: Array[Vector2i] = []
+	for c in World.walls:
+		if area.has_point(c):
+			cells.append(c)
+	for c in World.fires:
+		var f: Campfire = World.fires[c]
+		if f.is_house and f.house == null and area.has_point(c):
+			cells.append(c)
+	for c in World.furniture:
+		if World.furniture[c].kind != Furniture.Kind.BOARD and area.has_point(c):
+			cells.append(c)
+	for c in World.floors:
+		if area.has_point(c):
+			cells.append(c)
+	if cells.is_empty():
+		return
+	var live: Array[Rect2i] = []
+	for h in World.all_houses():
+		if h.footprint().intersects(area):
+			live.append(h.footprint())
+	for c in cells:
+		if open >= MAX_DEMOLISH_TASKS:
+			break
+		if have.has(Vector3i(c.x, c.y, Task.Type.DEMOLISH)) or live.any(func(r): return r.has_point(c)):
+			continue
+		k.board.post(Task.new(Task.Type.DEMOLISH, c, null))
+		have[Vector3i(c.x, c.y, Task.Type.DEMOLISH)] = true
+		open += 1
+
+
+## Something at the cell to tear down that no live building owns.
+static func is_junk(c: Vector2i) -> bool:
+	var f: Campfire = World.fires.get(c)
+	var fu: Furniture = World.furniture.get(c)
+	var piece := World.walls.has(c) or World.floors.has(c) or (fu != null and fu.kind != Furniture.Kind.BOARD) or (f != null and f.is_house and f.house == null)
+	if not piece:
+		return false
+	for h in World.all_houses():
+		if h.footprint().has_point(c):
+			return false
+	return true
+
+
+## Tear down whatever stands at the cell (chests spill their contents).
+static func demolish(c: Vector2i) -> void:
+	var w: Wall = World.walls.get(c)
+	if w:
+		World.remove_wall(w)
+	var f: Campfire = World.fires.get(c)
+	if f and f.is_house and f.house == null:
+		World.remove_fire(f)
+	var fu: Furniture = World.furniture.get(c)
+	if fu and fu.kind != Furniture.Kind.BOARD:
+		World.remove_furniture(fu, "chest destroyed")
+	World.floors.erase(c)
+	demolished += 1
 
 
 static func _kingdom_has_workshop(k: Kingdom) -> bool:
@@ -291,7 +500,7 @@ static func plaza_plot(k: Kingdom) -> Vector2i:
 
 
 ## Unbuilt road cells for the current build stage (agreed order): the plaza, then the
-## roads between plots, then a spur from each door to the road below its plot.
+## ring roads around blocks, then a spur from each door to its ring road.
 static func road_targets(k: Kingdom) -> Array[Vector2i]:
 	var stages: Array = [_plaza_cells(k), _ring_cells(k), _spur_cells(k)]
 	for cells in stages:
@@ -328,16 +537,19 @@ static func _plaza_cells(k: Kingdom) -> Array[Vector2i]:
 	return out
 
 
-## The 1-cell road ring around every plot that has a finished building (or the plaza).
+## The 1-cell ring road around every block that has a finished building (or the plaza).
+## Roads run only around blocks, never between a block's plots (agreed).
 static func _ring_cells(k: Kingdom) -> Array[Vector2i]:
-	var seen := {}
-	var out: Array[Vector2i] = []
+	var blocks := {}
 	for idx in k.plots:
 		var p: Dictionary = k.plots[idx]
 		var h: House = p.house
-		if p.kind != "plaza" and (h == null or h.state != House.State.COMPLETE):
-			continue
-		var g := plot_rect(k, idx).grow(1)
+		if p.kind == "plaza" or (h != null and h.state == House.State.COMPLETE):
+			blocks[block_of(idx)] = true
+	var seen := {}
+	var out: Array[Vector2i] = []
+	for b in blocks:
+		var g := block_rect(k, b).grow(1)
 		for x in range(g.position.x, g.end.x):
 			for y in [g.position.y, g.end.y - 1]:
 				_add_once(Vector2i(x, y), seen, out)
@@ -347,18 +559,18 @@ static func _ring_cells(k: Kingdom) -> Array[Vector2i]:
 	return out
 
 
-## From each door straight down to the next road row of the grid.
+## From each door straight out to the block's ring road.
 static func _spur_cells(k: Kingdom) -> Array[Vector2i]:
 	var out: Array[Vector2i] = []
 	for idx in k.plots:
 		var h: House = k.plots[idx].house
 		if h == null or h.state != House.State.COMPLETE:
 			continue
-		var top := h.door_cell.y + 1
-		var rel := top - (k.city_origin.y - 1)
-		var road_y := k.city_origin.y - 1 + int(ceil(rel / float(PITCH))) * PITCH
-		for y in range(top, road_y + 1):
-			out.append(Vector2i(h.door_cell.x, y))
+		var br := block_rect(k, block_of(idx))
+		var c := h.door_outside()
+		while br.has_point(c):
+			out.append(c)
+			c += h.door_dir
 	return out
 
 
@@ -375,12 +587,13 @@ static func in_city(c: Vector2i) -> bool:
 	for k in World.kingdoms.values():
 		if not k.has_city:
 			continue
-		var rel: Vector2i = c - k.city_origin
-		var idx := Vector2i(floori(rel.x / float(PITCH)), floori(rel.y / float(PITCH)))
-		if ring(idx) > MAX_RING + 1:
+		var rel: Vector2i = c - (k.city_origin - Vector2i(0, PLOT))
+		var b := Vector2i(floori(rel.x / float(BLOCK)), floori(rel.y / float(BLOCK)))
+		if max(abs(b.x), abs(b.y)) > MAX_BLOCK_RING + 1:
 			continue
-		if k.plots.has(idx):
+		var w := Vector2i(posmod(rel.x, BLOCK), posmod(rel.y, BLOCK))
+		if w.x == PLOT * 2 or w.y == PLOT * 2:
+			return true # a ring road line
+		if k.plots.has(Vector2i(b.x * 2 + w.x / PLOT, b.y * 2 + w.y / PLOT - 1)):
 			return true
-		if posmod(rel.x, PITCH) == PLOT or posmod(rel.y, PITCH) == PLOT:
-			return true # a road line
 	return false

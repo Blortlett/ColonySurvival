@@ -147,7 +147,12 @@ func power() -> float:
 	for other in World.agents_near(pos, Cfg.DEFEND_RADIUS):
 		if other != self and other.faction == faction and not faction.solo:
 			allies += 1
-	return (hp / Cfg.MAX_HP) * best_damage() * (1.0 + allies * 0.5)
+	return fight_power() * (1.0 + allies * 0.5)
+
+
+## Strength on its own, without nearby allies (group and kingdom strength checks).
+func fight_power() -> float:
+	return (hp / Cfg.MAX_HP) * best_damage()
 
 
 # --- Social memory ---

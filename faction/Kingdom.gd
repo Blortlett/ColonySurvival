@@ -18,6 +18,11 @@ var has_city := false
 var city_origin := Vector2i.ZERO # top-left cell of the centre plot
 var plots := {} # Vector2i plot index -> {kind: "house"/"plaza"/"workshop", fid: int, house: House}
 var plot_retry_at := 0.0 # after a failed plot search, wait before searching again
+var close_retry_at := 0.0 # same, for plots in the leader's and adjacent blocks
+# Territory (v3 §1.3).
+var room_short_until := 0.0 # no close free plot lately: push neighbours off the plots we want
+var push_check_at := 0.0
+var pushouts := {} # faction id -> {stage, since, wanted, house}
 
 
 func _init(rng: RandomNumberGenerator) -> void:

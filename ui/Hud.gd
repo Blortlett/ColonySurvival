@@ -167,8 +167,14 @@ func _fire_text(f: Campfire) -> String:
 				built += 1 if World.roads.has(c) else 0
 				paved += 1 if World.roads.get(c, 0) >= 2 else 0
 			lines.append("  City: %d plots   roads %d/%d (paved %d)" % [k.plots.size(), built, road_cells.size(), paved])
+			var push := PushOut.describe(k)
+			if not push.is_empty():
+				lines.append("  Land: %s" % ", ".join(push))
 	else:
 		lines.append("Kingdom: none%s" % ("  (gangs never ally)" if gang else ""))
+	var ek: Kingdom = World.kingdoms.get(g.evicted_by)
+	if ek:
+		lines.append("Told to leave the land of %s" % ek.name)
 	var out_raid := Raids.of_attacker(g)
 	var in_raid := Raids.against(g)
 	if out_raid:

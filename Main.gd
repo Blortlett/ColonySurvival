@@ -78,7 +78,7 @@ func _shot(minutes: int) -> void:
 		if k.has_city and (city == null or k.plots.size() > city.plots.size()):
 			city = k
 	if city:
-		_camera.position = (Vector2(city.city_origin) + Vector2(5, 5)) * Cfg.CELL
+		_camera.position = Vector2(Cities.plot_rect(city, Vector2i.ZERO).end) * Cfg.CELL
 		_camera.zoom = Vector2.ONE * 1.1
 		var centre: House = city.plots[Vector2i.ZERO].house
 		_hud.selected_fire = centre.fire if centre and centre.fire else null
@@ -166,7 +166,8 @@ func _bench_line(minute: int, ms: int) -> String:
 	for c in World.roads:
 		if World.roads[c] >= 2:
 			paved += 1
-	return ("kingdoms %d (%d groups) plots %d roads %d (paved %d) wars %d raids %d/%d won/%d lost | " % [World.kingdoms.size(), in_kingdoms, plots, World.roads.size(), paved, Wars.wars.size(), Raids.active.size(), Raids.won_count, Raids.lost_count]) + "min %3d | %4d ms | deaths %d | moods %s | factions %d servants %d | houses %s | fires %d walls %d (reinf %d) floors %d | chests %d (%d items) | workshops %d (working %d) | processed %d raid_axes %d | tools %d | warm %.2f hunger %.2f | jobs %s" % [
+	var push := "push invited %d joined %d left %d wars %d demolished %d | " % [PushOut.invited, PushOut.joined, PushOut.left, PushOut.wars, Cities.demolished]
+	return push + ("kingdoms %d (%d groups) plots %d roads %d (paved %d) wars %d raids %d/%d won/%d lost | " % [World.kingdoms.size(), in_kingdoms, plots, World.roads.size(), paved, Wars.wars.size(), Raids.active.size(), Raids.won_count, Raids.lost_count]) + "min %3d | %4d ms | deaths %d | moods %s | factions %d servants %d | houses %s | fires %d walls %d (reinf %d) floors %d | chests %d (%d items) | workshops %d (working %d) | processed %d raid_axes %d | tools %d | warm %.2f hunger %.2f | jobs %s" % [
 		minute, ms, World.deaths, moods, Factions.real_count(), servants, houses,
 		World.fires.size(), World.walls.size(), reinforced, World.floors.size(), chests, stored, shops, working,
 		processed, raid_axes, tools, warmth / n, hunger / n, jobs]
