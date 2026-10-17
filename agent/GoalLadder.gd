@@ -8,7 +8,7 @@ static func next(a: Agent) -> Job:
 	# 2-3. Tools (a spare from the home chest first).
 	var ch := Stock.home_chest(a)
 	for t in ["axe", "pickaxe"]:
-		if not a.inv.has_tool(t):
+		if not a.inv.has_tool(t) and not (t == "pickaxe" and a.inv.has_tool("pickaxe_t2")):
 			if ch and ch.store.has_tool(t) and a.free_space() > 0:
 				return Brain.chest_job(ch, {"tool:" + t: -1})
 			return craft_or_gather(a, t)
@@ -46,6 +46,10 @@ static func next(a: Agent) -> Job:
 			var cj := Job.new(Job.Kind.CRAFT, Job.PRIO_LADDER)
 			cj.then_craft = "raiding_axe"
 			return cj
+	# v3: a group with a workshop gets a tier-2 pickaxe and mines raw iron (Phase 2).
+	var mj := _metal_job(a, ch)
+	if mj:
+		return mj
 	# 6. Stockpile fuel.
 	if a.inv.count("wood") < 10:
 		return Brain._gather_job("wood", 10)
@@ -71,6 +75,58 @@ static func _stock_job(a: Agent, ch: Furniture) -> Job:
 	if need.has("weapon"):
 		return craft_or_gather(a, "spear")
 	return null
+
+
+## Tier-2 pickaxe for MINERS_PER_GROUP members, then mine raw iron towards the group's goal.
+static func _metal_job(a: Agent, ch: Furniture) -> Job:
+	if a.faction.solo or a.is_servant():
+		return null
+	var f := a.faction
+	if not a.inv.has_tool("pickaxe_t2"):
+		if group_tools(f, "pickaxe_t2") >= Cfg.MINERS_PER_GROUP:
+			return null
+		if ch and ch.store.has_tool("pickaxe_t2") and a.free_space() > 0:
+			return Brain.chest_job(ch, {"tool:pickaxe_t2": -1})
+		if Factions.nearest_machine(a, Furniture.Kind.SAWMILL) == null:
+			return null
+		var cj := Job.new(Job.Kind.CRAFT, Job.PRIO_LADDER)
+		cj.then_craft = "pickaxe_t2"
+		return cj
+	if group_stock(f, "raw_iron") >= Cfg.IRON_STOCK_GOAL or a.free_space() < 4:
+		return null
+	return Brain._gather_job("raw_iron", a.inv.count("raw_iron") + min(10, a.free_space()))
+
+
+## Tools of a type held by members or stored in the group's chests.
+static func group_tools(f: Faction, t: String) -> int:
+	var n := 0
+	for mid in f.members:
+		var m: Agent = World.agents.get(mid)
+		if m:
+			for tool in m.inv.tools:
+				if tool.type == t:
+					n += 1
+	for h in f.houses:
+		var ch := h.live_chest()
+		if ch:
+			for tool in ch.store.tools:
+				if tool.type == t:
+					n += 1
+	return n
+
+
+## Units of an item held by members or stored in the group's chests.
+static func group_stock(f: Faction, item: String) -> int:
+	var n := 0
+	for mid in f.members:
+		var m: Agent = World.agents.get(mid)
+		if m:
+			n += m.inv.count(item)
+	for h in f.houses:
+		var ch := h.live_chest()
+		if ch:
+			n += ch.store.count(item)
+	return n
 
 
 static func raid_axes(f: Faction) -> int:

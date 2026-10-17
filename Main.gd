@@ -166,11 +166,38 @@ func _bench_line(minute: int, ms: int) -> String:
 	for c in World.roads:
 		if World.roads[c] >= 2:
 			paved += 1
+	var metal := _metal_line()
 	var push := "push invited %d joined %d left %d wars %d demolished %d | " % [PushOut.invited, PushOut.joined, PushOut.left, PushOut.wars, Cities.demolished]
-	return push + ("kingdoms %d (%d groups) plots %d roads %d (paved %d) wars %d raids %d/%d won/%d lost | " % [World.kingdoms.size(), in_kingdoms, plots, World.roads.size(), paved, Wars.wars.size(), Raids.active.size(), Raids.won_count, Raids.lost_count]) + "min %3d | %4d ms | deaths %d | moods %s | factions %d servants %d | houses %s | fires %d walls %d (reinf %d) floors %d | chests %d (%d items) | workshops %d (working %d) | processed %d raid_axes %d | tools %d | warm %.2f hunger %.2f | jobs %s" % [
+	return metal + push + ("kingdoms %d (%d groups) plots %d roads %d (paved %d) wars %d raids %d/%d won/%d lost | " % [World.kingdoms.size(), in_kingdoms, plots, World.roads.size(), paved, Wars.wars.size(), Raids.active.size(), Raids.won_count, Raids.lost_count]) + "min %3d | %4d ms | deaths %d | moods %s | factions %d servants %d | houses %s | fires %d walls %d (reinf %d) floors %d | chests %d (%d items) | workshops %d (working %d) | processed %d raid_axes %d | tools %d | warm %.2f hunger %.2f | jobs %s" % [
 		minute, ms, World.deaths, moods, Factions.real_count(), servants, houses,
 		World.fires.size(), World.walls.size(), reinforced, World.floors.size(), chests, stored, shops, working,
 		processed, raid_axes, tools, warmth / n, hunger / n, jobs]
+
+
+## v3 metal economy: nodes, items in circulation (agents, chests, loot bags), gear.
+func _metal_line() -> String:
+	var nodes := 0
+	for b in World.node_buckets[ResourceNode.Type.METAL].values():
+		for n in b:
+			if n.amount > 0:
+				nodes += 1
+	var items := {}
+	var tools := {}
+	var invs: Array = []
+	for a in World.agent_list:
+		invs.append(a.inv)
+	for fu in World.furniture.values():
+		if fu.store.total() > 0:
+			invs.append(fu.store)
+	for inv in invs:
+		for k in ["raw_iron"]:
+			items[k] = items.get(k, 0) + inv.count(k)
+		for t in inv.tools:
+			if t.type in ["pickaxe_t2"]:
+				tools[t.type] = tools.get(t.type, 0) + 1
+	for bag in World.loot.values():
+		items["raw_iron"] = items.get("raw_iron", 0) + bag.stacks.get("raw_iron", 0)
+	return "metal nodes %d raw_iron %d t2_picks %d | " % [nodes, items.get("raw_iron", 0), tools.get("pickaxe_t2", 0)]
 
 
 func _process(delta: float) -> void:

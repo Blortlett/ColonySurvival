@@ -26,3 +26,23 @@ static func generate(rng: RandomNumberGenerator) -> void:
 				World.add_node(ResourceNode.Type.HEMP, c)
 			elif roll < p_tree + p_rock + Cfg.DENSITY_HEMP + Cfg.DENSITY_BUSH:
 				World.add_node(ResourceNode.Type.BUSH, c)
+	_scatter_metal(rng)
+
+
+## Metal rock (v3, agreed: dispersed and rare): single nodes spread over the map, never in
+## clusters, at about 1/6 of the rock density.
+static func _scatter_metal(rng: RandomNumberGenerator) -> void:
+	var mr := RandomNumberGenerator.new()
+	mr.seed = rng.randi()
+	var want := int(Cfg.MAP_W * Cfg.MAP_H * Cfg.DENSITY_METAL)
+	var placed: Array[Vector2i] = []
+	for i in want * 20:
+		if placed.size() >= want:
+			break
+		var c := Vector2i(mr.randi_range(1, Cfg.MAP_W - 2), mr.randi_range(1, Cfg.MAP_H - 2))
+		if not World.is_walkable(c):
+			continue
+		if placed.any(func(p): return World.cheb(p, c) < Cfg.METAL_MIN_GAP):
+			continue
+		World.add_node(ResourceNode.Type.METAL, c)
+		placed.append(c)

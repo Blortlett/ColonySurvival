@@ -9,7 +9,7 @@ var astar := AStarGrid2D.new()
 var spatial := SpatialHash.new()
 
 var nodes := {} # Vector2i -> ResourceNode
-var node_buckets: Array = [{}, {}, {}, {}] # per ResourceNode.Type: bucket -> Array
+var node_buckets: Array = [{}, {}, {}, {}, {}] # per ResourceNode.Type: bucket -> Array
 var bushes: Array[ResourceNode] = []
 var walls := {} # Vector2i -> Wall (walls and doors)
 var floors := {} # Vector2i -> Floor
@@ -422,10 +422,10 @@ func nearest_node(type: int, from: Vector2i, max_r: float, pred: Callable = Call
 
 
 func _respawn_node(type: int) -> void:
-	# Prefer regrowing near an existing node of the same type to keep clusters.
+	# Prefer regrowing near an existing node of the same type to keep clusters (metal stays dispersed).
 	var anchor := NO_CELL
 	var keys: Array = node_buckets[type].keys()
-	if keys.size() > 0:
+	if keys.size() > 0 and type != ResourceNode.Type.METAL:
 		var arr: Array = node_buckets[type][keys[rng.randi() % keys.size()]]
 		if arr.size() > 0:
 			anchor = arr[rng.randi() % arr.size()].cell

@@ -13,11 +13,14 @@ const DENSITY_TREE := 0.06
 const DENSITY_ROCK := 0.03
 const DENSITY_HEMP := 0.015
 const DENSITY_BUSH := 0.01
+const DENSITY_METAL := 0.005 # about 1/6 of rock density (v3, start)
+const METAL_MIN_GAP := 6 # metal rock is dispersed, never clustered (agreed)
 
 const TREE_CAPACITY := 20
 const ROCK_CAPACITY := 20
 const HEMP_CAPACITY := 3
 const BUSH_BERRIES := 5
+const METAL_CAPACITY := 15 # raw iron per node (v3, start)
 const BUSH_REGROW_SECS := 60.0
 const NODE_RESPAWN_MIN := 180.0
 const NODE_RESPAWN_MAX := 360.0
@@ -27,6 +30,7 @@ const GATHER_WOOD := 4.0
 const GATHER_STONE := 5.0
 const GATHER_HEMP := 3.0 # same with any tool (agreed)
 const GATHER_BERRY := 1.0
+const GATHER_METAL := 8.0 # raw iron, with the tier-2 pickaxe only (v3, start)
 const TOOL_GATHER_MULT := 2.0
 
 # --- Stats ---
@@ -73,6 +77,8 @@ const FURNITURE_PER_HOUSE := 1 # the chest (agreed)
 const WORKSHOP_SIZE := Vector2i(5, 4) # fixed interior: fire + sawmill + stone cutter (agreed, starting value)
 const WORKSHOP_RANGE := 90.0 # how far agents walk to a workshop to process or craft
 const RAID_AXES_PER_GANG := 3 # gangs craft up to this many raiding axes (or one per member)
+const MINERS_PER_GROUP := 1 # members with a tier-2 pickaxe a group aims for (v3, start)
+const IRON_STOCK_GOAL := 20 # raw iron a group keeps mining towards (v3, start)
 
 # --- Relations and kingdoms (Phase D) ---
 const REL_TRADE := 5.0 # (agreed)
@@ -113,7 +119,7 @@ const DEMOLISH_SECS := 2.0 # time to tear down one piece
 const STOCK_BERRIES_PER_MEMBER := 5 # (agreed)
 const HOME_RANGE := 40.0 # how far from home an agent still uses the chest
 const KEEP_BERRIES := 4 # berries an agent keeps on itself; the rest is surplus
-const KEEP_STACKS := {"wood": 15, "stone": 10, "hemp": 5, "arrow": 15}
+const KEEP_STACKS := {"wood": 15, "stone": 10, "hemp": 5, "arrow": 15, "raw_iron": 0}
 
 # --- Social ---
 const SOCIAL_RANGE := 5.0

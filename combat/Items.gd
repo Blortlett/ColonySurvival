@@ -1,7 +1,7 @@
 class_name Items
 ## Item, recipe and weapon definitions.
 
-const STACKABLES := ["wood", "stone", "hemp", "berry", "arrow", "plank", "handle", "cut_stone"]
+const STACKABLES := ["wood", "stone", "hemp", "berry", "arrow", "plank", "handle", "cut_stone", "raw_iron"]
 
 # Recipes for crafted tools/weapons/ammo (agreed costs).
 const RECIPES := {
@@ -12,8 +12,9 @@ const RECIPES := {
 	"bow": {"wood": 4, "hemp": 3},
 	"arrow": {"wood": 1, "stone": 1}, # yields ARROWS_PER_CRAFT
 	"raiding_axe": {"plank": 2, "cut_stone": 2, "handle": 1}, # (agreed)
+	"pickaxe_t2": {"plank": 1, "cut_stone": 2, "handle": 1}, # tier-2 pickaxe (v3, start)
 }
-const WORKSHOP_RECIPES := ["raiding_axe"] # must be crafted at a workshop (agreed)
+const WORKSHOP_RECIPES := ["raiding_axe", "pickaxe_t2"] # must be crafted at a workshop (agreed)
 const ARROWS_PER_CRAFT := 5
 
 # Build costs (agreed).
@@ -42,7 +43,7 @@ const FLOOR_HP := 50.0
 const FURNITURE_HP := 60.0
 const CHEST_SLOTS := [30, 60] # basic, reinforced (agreed)
 
-const DURABILITY := {"axe": 100, "pickaxe": 100, "spear": 60, "club": 60, "bow": 80, "raiding_axe": 60}
+const DURABILITY := {"axe": 100, "pickaxe": 100, "spear": 60, "club": 60, "bow": 80, "raiding_axe": 60, "pickaxe_t2": 150}
 
 # Workshop processing: machine, input per batch, output per batch, seconds per batch.
 const PROCESS := {
@@ -67,3 +68,7 @@ const WEAPONS := {
 
 static func is_tool(item: String) -> bool:
 	return DURABILITY.has(item)
+
+
+static func label(item: String) -> String:
+	return "tier-2 pickaxe" if item == "pickaxe_t2" else item.replace("_", " ")

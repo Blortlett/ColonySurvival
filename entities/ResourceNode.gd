@@ -1,8 +1,8 @@
 class_name ResourceNode
 extends RefCounted
-## A tree, rock, hemp plant or berry bush occupying one cell.
+## A tree, rock, hemp plant, berry bush or metal rock occupying one cell.
 
-enum Type { TREE, ROCK, HEMP, BUSH }
+enum Type { TREE, ROCK, HEMP, BUSH, METAL }
 
 var type: Type
 var cell: Vector2i
@@ -18,6 +18,7 @@ func _init(t: Type, c: Vector2i) -> void:
 		Type.ROCK: amount = Cfg.ROCK_CAPACITY
 		Type.HEMP: amount = Cfg.HEMP_CAPACITY
 		Type.BUSH: amount = Cfg.BUSH_BERRIES
+		Type.METAL: amount = Cfg.METAL_CAPACITY
 
 
 func item() -> String:
@@ -25,6 +26,7 @@ func item() -> String:
 		Type.TREE: return "wood"
 		Type.ROCK: return "stone"
 		Type.HEMP: return "hemp"
+		Type.METAL: return "raw_iron"
 	return "berry"
 
 
@@ -34,4 +36,5 @@ static func type_for_item(item_name: String) -> int:
 		"stone": return Type.ROCK
 		"hemp": return Type.HEMP
 		"berry": return Type.BUSH
+		"raw_iron": return Type.METAL
 	return -1

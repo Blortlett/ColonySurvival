@@ -337,6 +337,8 @@ static func _gather_step(a: Agent, j: Job, dt: float) -> bool:
 		return true
 	if a.free_space() <= 0:
 		return true
+	if j.item == "raw_iron" and not a.inv.has_tool("pickaxe_t2"):
+		return true # nobody mines metal without a tier-2 pickaxe (agreed)
 	if j.node == null or j.node.amount <= 0 or World.nodes.get(j.node.cell) != j.node:
 		var type := ResourceNode.type_for_item(j.item)
 		j.node = World.nearest_node(type, a.cell(), NODE_SEARCH, func(n): return not _blacklisted(a, n.cell))
@@ -427,7 +429,7 @@ static func _pick_material(a: Agent, j: Job, cost: Dictionary, bulk: int) -> boo
 				j.transfer = {k: -(want - have)}
 				return true
 		if not Items.PROCESS.has(k):
-			if ResourceNode.type_for_item(k) < 0:
+			if ResourceNode.type_for_item(k) < 0 or (k == "raw_iron" and not a.inv.has_tool("pickaxe_t2")):
 				return false
 			j.item = k
 			j.amount = want
@@ -516,7 +518,7 @@ static func _run_craft(a: Agent, j: Job, dt: float) -> void:
 	elif mv == Move.ARRIVED:
 		a.inv.pay(cost)
 		a.inv.add_tool(j.then_craft)
-		EventBus.log_event("%s crafts a %s." % [a.short(), j.then_craft.replace("_", " ")])
+		EventBus.log_event("%s crafts a %s." % [a.short(), Items.label(j.then_craft)])
 		_done(a)
 
 
@@ -545,7 +547,10 @@ static func _gather_secs(a: Agent, n: ResourceNode) -> Array:
 			tool = "axe"
 		ResourceNode.Type.ROCK:
 			secs = Cfg.GATHER_STONE
-			tool = "pickaxe"
+			tool = "pickaxe" if a.inv.has_tool("pickaxe") or not a.inv.has_tool("pickaxe_t2") else "pickaxe_t2"
+		ResourceNode.Type.METAL:
+			secs = Cfg.GATHER_METAL
+			tool = "pickaxe_t2" # the only tool that mines metal (agreed)
 		ResourceNode.Type.HEMP:
 			secs = Cfg.GATHER_HEMP
 		_:
@@ -703,7 +708,7 @@ static func _perform_task(a: Agent, j: Job, t: Task, cost: Dictionary, dt: float
 			if j.timer >= g[0]:
 				j.timer = 0.0
 				n.amount -= 1
-				if a.free_space() > 0:
+				if a.free_space() > 0 and (n.type != ResourceNode.Type.METAL or a.inv.has_tool("pickaxe_t2")):
 					a.inv.add(n.item(), 1)
 				a.add_xp("str", Cfg.XP_GATHER)
 				if g[1] != "" and a.inv.has_tool(g[1]) and a.inv.wear(g[1]):

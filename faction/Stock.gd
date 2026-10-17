@@ -86,6 +86,8 @@ static func deposit_plan(a: Agent, ch: Furniture) -> Dictionary:
 		var want := 0
 		if k == "berry":
 			want = need.get("berry", 0)
+		elif k == "raw_iron":
+			want = sur[k] # metal always goes into storage (v3)
 		elif k.begins_with("tool:"):
 			var t: String = k.substr(5)
 			if need.has(k) or (need.has("weapon") and t in WEAPONS):
