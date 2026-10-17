@@ -372,14 +372,14 @@ func line_clear(a: Vector2i, b: Vector2i) -> bool:
 
 # --- Pathfinding ---
 
-var _path_fail := {} # "agent:start:dest" -> expiry; failed searches flood the map, so don't repeat them
+var _path_fail := {} # Vector4i(agent, start, dest) -> expiry; failed searches flood the map, so don't repeat them
 
 
 func find_path(a: Agent, dest: Vector2i) -> Array[Vector2i]:
 	var start := a.cell()
 	if not in_bounds(dest) or not in_bounds(start):
 		return []
-	var fail_key := "%d:%d,%d:%d,%d" % [a.id, start.x, start.y, dest.x, dest.y]
+	var fail_key := Vector4i(a.id, start.x * 65536 + start.y, dest.x, dest.y)
 	if SimClock.time < _path_fail.get(fail_key, -1.0):
 		return []
 	var ts := Time.get_ticks_usec()
@@ -474,15 +474,25 @@ func nearest_node(type: int, from: Vector2i, max_r: float, pred: Callable = Call
 	var best: ResourceNode = null
 	var best_d := INF
 	var max_ring := int(ceil(max_r / NODE_BUCKET)) + 1
+	var fp := Vector2(from)
+	var buckets: Dictionary = node_buckets[type]
 	for ring in range(0, max_ring + 1):
 		if best != null and (ring - 1) * NODE_BUCKET > best_d:
 			break
+		# Same bucket order as a full square scan that skips the inside (B5), but only the
+		# ring's edge, and buckets that can't hold anything closer are skipped.
 		for bx in range(bf.x - ring, bf.x + ring + 1):
-			for by in range(bf.y - ring, bf.y + ring + 1):
-				if max(abs(bx - bf.x), abs(by - bf.y)) != ring:
-					continue
-				var arr = node_buckets[type].get(Vector2i(bx, by))
+			var edge_col: bool = abs(bx - bf.x) == ring
+			var by := bf.y - ring
+			while by <= bf.y + ring:
+				var key := Vector2i(bx, by)
+				by = by + 1 if edge_col or by == bf.y + ring else bf.y + ring
+				var arr = buckets.get(key)
 				if arr == null:
+					continue
+				var lo := Vector2(key * NODE_BUCKET)
+				var gap := Vector2(maxf(maxf(lo.x - fp.x, fp.x - (lo.x + NODE_BUCKET - 1)), 0.0), maxf(maxf(lo.y - fp.y, fp.y - (lo.y + NODE_BUCKET - 1)), 0.0)).length()
+				if gap > max_r or gap > best_d:
 					continue
 				for n in arr:
 					if n.amount <= 0:
@@ -608,9 +618,10 @@ func remove_fire(f: Campfire) -> void:
 ## A workshop fire only has to stay outside other sides' zones (R+1); its zone yields to houses.
 func house_fire_spacing_ok(c: Vector2i, ignore: House = null, fid: int = -1, workshop: bool = false) -> bool:
 	var gap := Cfg.PRIVILEGE_RADIUS + 1 if workshop else Cfg.PRIVILEGE_RADIUS * 2 + 1
-	for h in all_houses():
-		if h != ignore and not same_side(h.faction_id, fid) and cheb(h.fire_cell, c) < gap:
-			return false
+	for f in factions.values():
+		for h in f.houses:
+			if h != ignore and cheb(h.fire_cell, c) < gap and not same_side(h.faction_id, fid):
+				return false
 	for f in house_fires:
 		if (ignore == null or f.house != ignore) and not same_side(f.owner_id, fid) and cheb(f.cell, c) < gap:
 			return false
@@ -620,9 +631,10 @@ func house_fire_spacing_ok(c: Vector2i, ignore: House = null, fid: int = -1, wor
 ## True if the rect (grown by a 1-cell margin) overlaps any building footprint.
 func footprint_clash(outer: Rect2i, ignore: House = null) -> bool:
 	var r := outer.grow(1)
-	for h in all_houses():
-		if h != ignore and h.footprint().intersects(r):
-			return true
+	for f in factions.values():
+		for h in f.houses:
+			if h != ignore and h.footprint().intersects(r):
+				return true
 	return false
 
 

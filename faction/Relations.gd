@@ -2,7 +2,7 @@ class_name Relations
 ## Group-to-group relation scores (-100..100, agreed events) and group-level meetings.
 ## The v1 pairwise agent opinions are separate and unchanged.
 
-static var _cooldown := {} # "kind:a:b" -> sim time when allowed again
+static var _cooldown := {} # Vector3i(kind, low id, high id) -> sim time when allowed again
 
 
 static func score(fa: Faction, fb: Faction) -> float:
@@ -19,8 +19,8 @@ static func change(fa: Faction, fb: Faction, d: float) -> void:
 	fb.relations[fa.id] = s
 
 
-static func _key(kind: String, fa: Faction, fb: Faction) -> String:
-	return "%s:%d:%d" % [kind, min(fa.id, fb.id), max(fa.id, fb.id)]
+static func _key(kind: String, fa: Faction, fb: Faction) -> Vector3i:
+	return Vector3i(0 if kind == "meet" else 1, mini(fa.id, fb.id), maxi(fa.id, fb.id)) # no string keys (B5)
 
 
 ## True (and starts the cooldown) if this group pair may do `kind` again.

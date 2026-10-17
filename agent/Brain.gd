@@ -7,7 +7,7 @@ enum Obtain { WORKING, DONE, FAILED }
 const BLACKLIST_SECS := 60.0
 const NODE_SEARCH := 70.0
 
-static var _blacklist := {} # "agent_id:cell" -> expiry time
+static var _blacklist := {} # Vector3i(agent id, cell x, cell y) -> expiry time (no string keys: B5)
 static var _thinking: Agent = null # the agent inside think(), whose next think is set after it
 
 
@@ -35,6 +35,7 @@ static func update(a: Agent, dt: float) -> void:
 		if a.job == null or a.job.prio < Job.PRIO_CRITICAL:
 			var ts := Time.get_ticks_usec()
 			Relations.meet(a)
+			World.prof_add("social_meet", ts)
 			Social.scan(a)
 			World.prof_add("think_social", ts)
 	if a.job:
@@ -126,6 +127,7 @@ static func think(a: Agent) -> void:
 	# Social layer (may start fights).
 	var ts := Time.get_ticks_usec()
 	Relations.meet(a)
+	World.prof_add("social_meet", ts)
 	Social.scan(a)
 	World.prof_add("think_social", ts)
 	if not a.alive or (a.job and a.job.prio >= Job.PRIO_CRITICAL):
@@ -1050,7 +1052,7 @@ static func move_to(a: Agent, dest: Vector2i, dt: float) -> int:
 # --- Blacklist (unreachable targets) ---
 
 static func _blacklisted(a: Agent, c: Vector2i) -> bool:
-	var key := "%d:%d,%d" % [a.id, c.x, c.y]
+	var key := Vector3i(a.id, c.x, c.y)
 	var t = _blacklist.get(key)
 	if t == null:
 		return false
@@ -1061,4 +1063,4 @@ static func _blacklisted(a: Agent, c: Vector2i) -> bool:
 
 
 static func _blacklist_cell(a: Agent, c: Vector2i) -> void:
-	_blacklist["%d:%d,%d" % [a.id, c.x, c.y]] = SimClock.time + BLACKLIST_SECS
+	_blacklist[Vector3i(a.id, c.x, c.y)] = SimClock.time + BLACKLIST_SECS

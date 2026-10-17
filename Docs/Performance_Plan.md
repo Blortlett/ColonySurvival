@@ -193,3 +193,29 @@ All steps are **web-safe**: GDScript only, no threads, no C# or native code, not
 - **Bench:** 172.2 s (B3: 173.8 s, within noise), lines identical to B3.
 - **Profile:** `think_ladder` 6,576 → 5,568 ms, `path_doors` 4,475 → 3,651 ms, `run_CRAFT` 1,863 → 1,715 ms. Everything else is unchanged. These lookups weren't a big cost on their own: the time in `TASK.obtain` is the node search and the walking (B5).
 - **Web-safe:** yes.
+
+### B5. Smaller wins
+B0 and B4 showed where the remaining time went, so B5 took the items that mattered and skipped the rest. Everything here gives the same results as before, so bench lines are identical to B4.
+- **Node search** (a new item from B0, the biggest one): `World.nearest_node` visits only each ring's edge buckets (it used to loop the whole square and skip the inside), in the same order, and skips buckets that can't hold a closer node. `gather_node_search` 9,972 → 5,174 ms.
+- **House site search** (instead of the plan's "throttle `plan_house` harder", which would change behaviour): `_site_ok`'s checks are all pure, so the cheap per-cell ones now run first. `house_fire_spacing_ok` and `footprint_clash` loop the factions directly instead of building `all_houses()` for each of the 80–120 candidate sites. `plan_house_fail` 7,020 → 656 ms, `hk_workshop_goals` 5,729 → 2,122 ms, `hk_plan_house` 3,385 → 761 ms.
+- **No string keys:** the unreachable-cell blacklist, the failed-path memo and the group-pair cooldowns are keyed by `Vector3i` / `Vector4i` instead of formatted strings. They behave the same, and the formatting is no longer paid on every node, chest and machine check.
+- **Skipped, because they don't matter:**
+  - `TaskBoard.claim` / `_shell_done` index: the whole task pick (`think_raid_task`) is 2.5 s.
+  - `house_at` building index: timed at 2.2 s in total, so it isn't worth the bookkeeping.
+- **Bench:** 157.7 s, then 159.3 s with the `social_meet` split added to the profile (B4: 172.2 s). `housekeeping` 17.6 → 11.0 s, `run_TASK` 59.4 → 56.1 s.
+- **Web-safe:** yes.
+
+### Result
+- **60-minute bench:** 159 s, against 197 s in the plan and 203 s after Part A. That is **19% faster than the plan baseline (22% faster than Part A)**, short of the 30% goal (138 s).
+- **Windowed frames (minute 60, map view):**
+  - **1×:** 11.7 ms average (about 85 fps), 15 ms p95. It was 176 ms before B1.
+  - **16×:** 107 ms average, 82 ms of it sim (city view 128 / 100 ms). It was 463 ms.
+  - **60 fps at 16× is not met.**
+- **Remaining bottleneck, written down:**
+  - **The sim at 16×:** late in the game a sim step costs about 4.8 ms, so 16× (160 steps per real second) takes about 77% of a CPU core for the sim alone. Every frame also carries about 9 ms of drawing and engine overhead (at 1× the frame is 11.7 ms with 2.5 ms of sim).
+  - **Catch-up feedback:** the main loop catches up to the full speed every frame (up to 20 steps), so frames settle at about 100 ms. Short frames also run extra partial steps, because a step costs the same whatever its `dt`.
+  - **Biggest remaining sim costs (B5 profile):** `Social.scan` and `Relations.meet` 17 s, walking (`move_to` in tasks, gathering and wandering) about 25 s, A* 8.6 s plus 4 s of failed wander searches, house upkeep (`hk_houses`) 7 s.
+- **Next options, not built (behaviour or design decisions):**
+  1. **A frame time budget for the catch-up:** run sim steps until about 10 ms of the frame is used, and let the speed fall below 16× when the sim can't keep up. That gives smooth frames at any speed, but 16× is then a target, not a promise.
+  2. **Fixed 0.1 s steps with render interpolation of agent positions:** this stops the partial steps, so about 10 steps per second at 1× instead of 60.
+  3. **The plan's "Not now" items:** a sim thread separate from rendering (not web-safe without threads), or C# / C++ for the hot loops (not web-safe here), revisited now that B4 is done.

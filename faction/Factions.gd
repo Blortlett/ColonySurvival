@@ -226,12 +226,7 @@ static func _site_ok(interior: Rect2i, f: Faction, workshop: bool = false) -> bo
 	if outer.position.x < 1 or outer.position.y < 1 or outer.end.x > Cfg.MAP_W - 1 or outer.end.y > Cfg.MAP_H - 1:
 		return false
 	var fire_cell := interior.position + Vector2i(interior.size.x / 2, interior.size.y / 2)
-	if not World.house_fire_spacing_ok(fire_cell, null, f.id, workshop) or World.footprint_clash(outer):
-		return false
-	# Nobody settles on a foreign kingdom's land (v3 §1.3).
-	for k in World.kingdoms.values():
-		if k.has_city and f.kingdom != k and World.cheb(fire_cell, Cities.centre_cell(k)) <= Cfg.PUSH_RADIUS + 2:
-			return false
+	# All checks are pure, so the cheap per-cell ones go first (B5); the result is unchanged.
 	# The cell outside the door must stay open, or the house is sealed (diagonals past walls are blocked).
 	var outside := Vector2i(fire_cell.x + 1, outer.end.y)
 	if not World.is_walkable(outside):
@@ -244,6 +239,12 @@ static func _site_ok(interior: Rect2i, f: Faction, workshop: bool = false) -> bo
 			var po := World.privilege_owner(c)
 			if po != 0 and not World.same_side(po, f.id):
 				return false
+	# Nobody settles on a foreign kingdom's land (v3 §1.3).
+	for k in World.kingdoms.values():
+		if k.has_city and f.kingdom != k and World.cheb(fire_cell, Cities.centre_cell(k)) <= Cfg.PUSH_RADIUS + 2:
+			return false
+	if not World.house_fire_spacing_ok(fire_cell, null, f.id, workshop) or World.footprint_clash(outer):
+		return false
 	return World.nearest_node(ResourceNode.Type.TREE, fire_cell, Cfg.HOUSE_MAX_TREE_DIST) != null
 
 
