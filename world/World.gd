@@ -96,6 +96,7 @@ func step(dt: float) -> void:
 			_hk_index = (_hk_index + 1) % fl.size()
 			Factions.housekeeping(fl[_hk_index])
 	prof_add("housekeeping", t)
+	Raids.update(dt)
 	_kingdom_acc += dt
 	if _kingdom_acc >= 2.0:
 		_kingdom_acc = 0.0

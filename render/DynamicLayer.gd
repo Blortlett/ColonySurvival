@@ -73,6 +73,13 @@ func _draw() -> void:
 		draw_line(p + Vector2(0, s * 0.5), p + Vector2(s, s * 0.5), FLOOR_LINE, 1.0)
 	for fu in World.furniture.values():
 		_draw_furniture(fu, Vector2(fu.cell) * s, s)
+	# Raids: the target house outlined in red, a line from the rally point.
+	for r in Raids.active:
+		var fp := r.target.footprint()
+		var rect := Rect2(Vector2(fp.position) * s, Vector2(fp.size) * s).grow(3)
+		var pulse := 0.6 + 0.4 * sin(Time.get_ticks_msec() * 0.008)
+		draw_rect(rect, Color(1, 0.15, 0.1, pulse), false, 3.0)
+		draw_dashed_line(World.center(r.rally) * s, World.center(r.target.fire_cell) * s, Color(1, 0.2, 0.1, 0.5), 2.0, 8.0)
 	for b in World.bushes:
 		var p := Vector2(b.cell) * s
 		draw_circle(p + half, s * 0.42, BUSH)

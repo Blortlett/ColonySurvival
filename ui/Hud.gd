@@ -78,9 +78,9 @@ func _process(dt: float) -> void:
 	for h in World.all_houses():
 		if h.state == House.State.COMPLETE:
 			houses += 1
-	_top.text = "%s  %s  |  Agents %d (happy %d / neutral %d / angry %d)  |  Groups %d  Kingdoms %d  Wars %d  Servants %d  Houses %d  Deaths %d  |  [Space] pause [1-5] speed [Z] zones [L] labels  LMB inspect  RMB pan  Wheel zoom" % [
+	_top.text = "%s  %s  |  Agents %d (happy %d / neutral %d / angry %d)  |  Groups %d  Kingdoms %d  Wars %d  Raids %d  Servants %d  Houses %d  Deaths %d  |  [Space] pause [1-5] speed [Z] zones [L] labels  LMB inspect  RMB pan  Wheel zoom" % [
 		SimClock.time_string(), "PAUSED" if SimClock.paused else "x%d" % int(SimClock.speed),
-		World.agent_list.size(), happy, neutral, angry, Factions.real_count(), World.kingdoms.size(), Wars.wars.size(), servants, houses, World.deaths]
+		World.agent_list.size(), happy, neutral, angry, Factions.real_count(), World.kingdoms.size(), Wars.wars.size(), Raids.active.size(), servants, houses, World.deaths]
 	var lines := EventBus.lines.slice(max(0, EventBus.lines.size() - 12))
 	_log.text = "\n".join(lines)
 	_update_inspector()
@@ -114,6 +114,10 @@ func _update_inspector() -> void:
 		("   Kingdom: %s%s" % [f.kingdom.name, "  [KING]" if f.kingdom.king_id == a.id else ""]) if f.kingdom else ""])
 	if a.is_servant():
 		lines.append("Servant of #%d" % a.master_id)
+	if a.raid_id != -1:
+		lines.append("On a raid")
+	if a.defend_raid != -1:
+		lines.append("Defending home against a raid")
 	if a.servants.size() > 0:
 		lines.append("Servants: %s" % ", ".join(a.servants.map(func(i): return "#%d" % i)))
 	var h := a.home()
@@ -165,6 +169,13 @@ func _fire_text(f: Campfire) -> String:
 			lines.append("  City: %d plots   roads %d/%d (paved %d)" % [k.plots.size(), built, road_cells.size(), paved])
 	else:
 		lines.append("Kingdom: none%s" % ("  (gangs never ally)" if gang else ""))
+	var out_raid := Raids.of_attacker(g)
+	var in_raid := Raids.against(g)
+	if out_raid:
+		var tf := out_raid.target_faction()
+		lines.append("RAIDING %s: %s, %d/%d raiders, %ds" % [tf.name if tf else "?", out_raid.phase_name(), out_raid.party.size(), out_raid.size0, SimClock.time - out_raid.started])
+	if in_raid:
+		lines.append("UNDER ATTACK by %s (%s)" % [in_raid.attacker.name, in_raid.phase_name()])
 	var wars := Wars.enemies_of(g)
 	lines.append("Allies: %s   Wars: %s" % [g.kingdom.name if g.kingdom else "—", ", ".join(wars) if wars.size() > 0 else "none"])
 	var rel: Array[String] = []

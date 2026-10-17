@@ -346,6 +346,7 @@ static func housekeeping(f: Faction) -> void:
 		_workshop_goals(f)
 	if f.kingdom:
 		Cities.relocate(f)
+	Raids.consider(f)
 
 
 ## Group ladder steps 4-6 (agreed): build a workshop (or use the kingdom's), then reinforce

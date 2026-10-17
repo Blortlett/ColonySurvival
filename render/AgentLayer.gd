@@ -27,6 +27,10 @@ func _draw() -> void:
 			draw_circle(p, s * 0.12, Color(0.05, 0.05, 0.05))
 		elif not a.faction.solo and a.faction.leader_id == a.id:
 			draw_circle(p, s * 0.12, Color(1.0, 0.85, 0.2))
+		if a.raid_id != -1:
+			# Raiders carry a small red pennant.
+			draw_colored_polygon(PackedVector2Array([p + Vector2(0, -s * 0.9), p + Vector2(s * 0.45, -s * 0.75), p + Vector2(0, -s * 0.6)]), Color(1, 0.15, 0.1))
+			draw_line(p + Vector2(0, -s * 0.9), p + Vector2(0, -s * 0.4), Color(0.1, 0.1, 0.1), 1.0)
 		if a.job and a.job.kind == Job.Kind.FIGHT:
 			var t: Agent = World.agents.get(a.job.target_id)
 			if t:

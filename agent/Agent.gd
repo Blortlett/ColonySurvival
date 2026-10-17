@@ -33,6 +33,8 @@ var attack_cd := 0.0
 var last_attacker := -1
 var rebel_t := 0.0
 var meet_t := 0.0 # next group-level meeting check
+var raid_id := -1 # raid this agent is part of
+var defend_raid := -1 # raid this agent is defending against
 var kills := 0
 
 

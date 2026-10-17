@@ -2,7 +2,7 @@ class_name Job
 extends RefCounted
 ## What an agent is currently doing. Executed every sim step by Brain.
 
-enum Kind { WANDER, GATHER, WARM, PLACE_WILD_FIRE, TASK, FIGHT, FLEE, LOOT, DELIVER, FOLLOW, IDLE, CHEST, CRAFT }
+enum Kind { WANDER, GATHER, WARM, PLACE_WILD_FIRE, TASK, FIGHT, FLEE, LOOT, DELIVER, FOLLOW, IDLE, CHEST, CRAFT, RAID, DEFEND }
 
 # Priority layers (agreed decision order). Higher interrupts lower.
 const PRIO_IDLE := 0
@@ -31,6 +31,7 @@ var then_craft := "" # craft this after gathering
 var chest: Furniture = null # CHEST job, or a task fetching materials from a chest
 var transfer := {} # Stock transfer plan
 var machine: Furniture = null # workshop machine we're processing at
+var raid: Raid = null # RAID / DEFEND
 
 
 func _init(k: Kind, p: int = PRIO_LADDER) -> void:
@@ -44,6 +45,7 @@ func label() -> String:
 		Kind.GATHER: s += " " + item
 		Kind.TASK: s += " " + (task.label() if task else "?")
 		Kind.CRAFT: s += " " + then_craft
+		Kind.RAID: s += " %s (%s)" % [World.factions[raid.target_fid].name if raid and World.factions.has(raid.target_fid) else "?", raid.phase_name() if raid else "?"]
 		Kind.CHEST: s += " " + ("deposit" if transfer.values().any(func(v): return v > 0) else "take")
 		Kind.FIGHT, Kind.FOLLOW, Kind.DELIVER: s += " #%d" % target_id
 	if to_death:

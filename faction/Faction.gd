@@ -15,6 +15,7 @@ var board := TaskBoard.new()
 var houses: Array[House] = []
 var plan_retry_at := 0.0
 var kingdom: Kingdom = null
+var raid_check_at := 0.0
 var relations := {} # faction id -> -100..100 (agreed events)
 
 

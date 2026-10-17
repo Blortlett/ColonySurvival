@@ -39,8 +39,9 @@ static func next(a: Agent) -> Job:
 	var sj := _stock_job(a, ch)
 	if sj:
 		return sj
-	# Group step 7 (gangs only): raiding axes, crafted at a workshop (agreed).
-	if a.faction.is_gang() and not a.inv.has_tool("raiding_axe") and Factions.nearest_machine(a, Furniture.Kind.SAWMILL):
+	# Group step 7: gangs (and groups at war) craft raiding axes at a workshop (agreed).
+	var raiders := a.faction.is_gang() or (not a.faction.solo and not Wars.enemies_of(a.faction).is_empty())
+	if raiders and not a.inv.has_tool("raiding_axe") and Factions.nearest_machine(a, Furniture.Kind.SAWMILL):
 		if raid_axes(a.faction) < min(Cfg.RAID_AXES_PER_GANG, a.faction.members.size()):
 			var cj := Job.new(Job.Kind.CRAFT, Job.PRIO_LADDER)
 			cj.then_craft = "raiding_axe"

@@ -266,3 +266,75 @@ Each phase ends with something runnable and gets its own commit. Each is checked
 - **Map space:** a few 55 × 55 cities plus spacing between kingdoms on a 200 × 200 map. The map may need to grow.
 - **Gang strength:** gangs need their own workshop for raiding axes, so check they actually get one.
 - **Pathfinding cost:** raids path across the map and breach walls. Keep the failed-path cache in mind.
+
+---
+
+## 10. Implementation Notes (v2 build)
+
+Phases A–F are each one commit. Where the build differs from the plan above, or fills in something the plan left open:
+
+### New code
+- `entities/Floor.gd`, `entities/Furniture.gd` (chest, sawmill, stone cutter, kingdom board; a chest stores items in an `Inventory`).
+- `faction/Stock.gd` (chest stocking goal, surplus, transfers), `Kingdom.gd` / `Kingdoms.gd` (formation, joining, leadership, collapse), `Relations.gd` (group scores, meetings), `Wars.gd` (war registry and peace), `Cities.gd` (grid, plots, relocation, clearing, roads), `Raid.gd` / `Raids.gd` (raid parties, breaching, defence, outcome).
+- A `House` has a kind (HOUSE / WORKSHOP), so a workshop reuses the house code: fire, walls, floors, door, refuel tasks and decay.
+
+### Houses, chests and workshops (B, C)
+- **Furniture is walkable.** Agents stand on chests and machines to use them, so a furnished room is never blocked.
+- **House sites keep the cell outside the door clear.** A tree there sealed the house, because diagonal steps past walls are blocked.
+- **A basic chest can't hold the full stocking goal for a big group.** 8 members means 40 berries plus 3 tools, which is more than 30 slots. Stocking stops when the chest is full. The reinforced chest (60) fits it.
+- **Material order for tasks and crafting:** take it from a group chest, otherwise gather the raw material, then process it at the nearest working workshop.
+- **Workshop step trigger:** a group starts a workshop once its chest is half stocked.
+- **Machine costs (starting values):** sawmill 6 wood + 2 stone, stone cutter 4 wood + 4 stone.
+- **Workshop placement.** On a full map, the 17-cell fire spacing left no room for a second building next to most houses. A workshop fire only has to stay outside other sides' zones (R + 1 = 9 cells from their fires), and its zone only claims cells that no house zone claims. House-to-house spacing is unchanged.
+- **Decay.** Abandoned pieces, and pieces standing in another side's zone, now decay too. This lets old houses inside a city's territory clear away. The kingdom board never decays.
+
+### Relations and kingdoms (D)
+- **Positive events were too rare** (4 trades and 10 shared fires in 15 minutes, against 114 negative events), so no pair ever reached +40. Without changing the agreed values:
+  - A trade counts when either side hands over a surplus.
+  - Neutral agents take part in trades (they still never start one).
+  - Happy members of full groups go looking for other groups' members.
+  - Only a two-way swap gives the v1 +5 mood. One-way hand-overs inflated moods until almost everyone was happy.
+- **Allies don't rob each other.** Kingdom allies, and happy bystanders who like the victim, come to its defence. Defending another group's member gives the +10.
+- A group that joins or leaves a kingdom drops its own group-level wars. A dissolving kingdom ends its wars.
+- A kingdom group whose leader turns angry (a gang) leaves the kingdom.
+- **Kingdom workshops:** a kingdom builds one at a time until it reaches its target of 1, plus 1 per 4 groups.
+
+### Cities (E)
+- **Plots must** be in bounds and clear of buildings, other sides' zones and other cities, and must keep the agreed fire spacing from other sides. A failed plot search waits 30 s.
+- **The map is the limit.** On the 200 × 200 map, the spacing from neighbouring independent groups blocks most plots. Many kingdom groups never get a plot and keep their old house, so cities stay small: a centre house, the plaza and a few plots. Growing the map is the obvious knob (§9).
+- **Clearing.** `CLEAR_NODE` is also posted for nodes on any building cell, not just city plots. Tasks on a blocked cell wait until the cell is cleared.
+- **Paving starts** once the current road stage has nothing left to build and a kingdom workshop is working.
+
+### Raids (F), starting values
+- **Raid check:**
+  - A group with at least 1 raiding axe checks every 30 s.
+  - The chance is 30%, plus 15% for each extra axe.
+  - Gangs look for targets within 80 cells. With more axes, a gang can take on groups up to `party + axes` members.
+- **Party:**
+  - A party needs at least 2 raiders.
+  - The keeper is the weakest healthy member.
+  - The rally ends when 70% of the party is at the rally point, or after 25 s.
+  - The assault starts when a raider is within 3 cells of the target house.
+- **Breach:** raiders attack the door or the weakest non-corner wall (lowest HP; ties go to the door). A raiding axe hit does 62.5 damage (12.5 × 5).
+- **Defence:** a raid alert counts as a group-level meeting between the two groups, so the agreed ≤ −40 / 20% war roll can fire.
+- **Win:** a raider is inside with no defenders standing, or the target group collapses (every defender dead or made a servant) after the alert. Raiders within 12 cells of the chest take what they can carry.
+- **Groups at war craft raiding axes too,** because a raid needs at least one.
+
+### Test commands
+- `--bench=N` now also prints kingdoms, plots, roads (paved), wars, and raids (active / won / lost), plus walls (reinforced), floors, chests (items), workshops (working), processed goods and raiding axes.
+- `--shot=N` saves `shot_map`, `shot_zoom` (busiest house, preferring a kingdom, with its group panel), `shot_workshop`, `shot_city`, and `shot_raid` (if an assault starts within 3 more sim minutes).
+
+### First playtest observations (seed 12345)
+- **Performance:** about 2.5–3 s of real time per sim minute in bench mode (v1 was about 1.5 s), so 16× still runs in real time.
+- **Pacing:**
+  - First kingdoms at about minute 10.
+  - 7–8 kingdoms holding 20–24 groups by minute 30–60.
+  - Cities keep growing as old houses decay and plots free up: about 40 plots and about 1,900 paved road cells by minute 60.
+- **Raids:**
+  - Gangs get raiding axes by about minute 7 and raid from minute 8. About 6 sacks against 3 failures by minute 30.
+  - Wars are rarely declared on their own (2 in 30 min). A forced war showed a kingdom group raiding and sacking its enemy.
+- **The anarchy still settles:** angry agents fall from 20% to about 5% by minute 45, so gangs dissolve and raids stop after about minute 30. Most likely knobs:
+  - the v1 mood drift
+  - the trade frequency
+  - the kingdom no-robbery rule
+- **Exit-time leak warnings grew** (about 800 instances). They come from RefCounted reference cycles: house ↔ fire (from v1), house ↔ chest and machines, raid ↔ job. Destroyed buildings aren't freed during a run. Worth fixing with weak back-references if long runs matter.

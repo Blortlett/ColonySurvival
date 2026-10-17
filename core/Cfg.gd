@@ -91,6 +91,14 @@ const PEACE_SECS := 600.0 # war ends after 10 min without raids (agreed)
 const PEACE_RELATION := -20.0 # relation after peace (agreed)
 const BYSTANDER_DEFEND_OPINION := 30.0 # happy bystanders defend agents they like this much
 
+# --- Raids (Phase F) ---
+const RAID_CHECK_SECS := 30.0 # how often a group with raiding axes considers a raid
+const RAID_CHANCE := 0.3 # with 1 raiding axe
+const RAID_CHANCE_PER_AXE := 0.15 # each extra axe raises the chance (agreed concept)
+const RAID_RANGE := 80.0 # gangs look for targets this close to home
+const RAID_MAX_SECS := 180.0 # a raid is lost after 3 minutes (agreed)
+const KINGDOM_DEFEND_RANGE := 30 # same-kingdom groups this close send help (agreed)
+
 # --- Chests (Phase B) ---
 const STOCK_BERRIES_PER_MEMBER := 5 # (agreed)
 const HOME_RANGE := 40.0 # how far from home an agent still uses the chest

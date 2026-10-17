@@ -104,7 +104,13 @@ static func think(a: Agent) -> void:
 	if a.job:
 		return
 	var j: Job = null
-	if a.is_servant():
+	var raid := Raids.find(a.raid_id) if a.raid_id != -1 else null
+	var defend := Raids.find(a.defend_raid) if a.defend_raid != -1 else null
+	if defend:
+		j = Raids.defender_job(defend)
+	elif raid:
+		j = Raids.raider_job(raid)
+	if j == null and a.is_servant():
 		j = _servant_job(a)
 	if j == null:
 		j = _task_job(a)
@@ -311,6 +317,8 @@ static func _run(a: Agent, dt: float) -> void:
 			if _chest_step(a, j, dt):
 				_done(a)
 		Job.Kind.CRAFT: _run_craft(a, j, dt)
+		Job.Kind.RAID: Raids.run_raider(a, j, dt)
+		Job.Kind.DEFEND: Raids.run_defender(a, j, dt)
 
 
 static func _done(a: Agent) -> void:

@@ -29,9 +29,19 @@ func _ready() -> void:
 			_shot(int(arg.get_slice("=", 1)) if "=" in arg else 5)
 
 
-## Fast-forward N sim minutes, then save a full-map and a zoomed screenshot to user://.
+## Fast-forward N sim minutes, then save screenshots to user://: the full map, the busiest
+## house with its group panel, a workshop, the biggest city, and a raid in progress (if one
+## starts within 3 more sim minutes).
 func _shot(minutes: int) -> void:
 	for i in int(minutes * 60.0 / Cfg.MAX_SIM_STEP):
+		World.step(Cfg.MAX_SIM_STEP)
+	var raid_seen: Raid = null
+	for i in int(180.0 / Cfg.MAX_SIM_STEP):
+		for r in Raids.active:
+			if r.phase == Raid.Phase.ASSAULT:
+				raid_seen = r
+		if raid_seen:
+			break
 		World.step(Cfg.MAX_SIM_STEP)
 	# The busiest complete house, preferring one in a kingdom.
 	var busiest: House = null
@@ -75,6 +85,13 @@ func _shot(minutes: int) -> void:
 		for frame in 3:
 			await get_tree().process_frame
 		get_viewport().get_texture().get_image().save_png("user://shot_city.png")
+	if raid_seen and Raids.active.has(raid_seen):
+		_camera.position = World.center(raid_seen.target.fire_cell) * Cfg.CELL
+		_camera.zoom = Vector2.ONE * 2.0
+		_hud.selected_fire = raid_seen.target.fire
+		for frame in 3:
+			await get_tree().process_frame
+		get_viewport().get_texture().get_image().save_png("user://shot_raid.png")
 	print("shots saved to ", ProjectSettings.globalize_path("user://"))
 	get_tree().quit()
 
@@ -149,7 +166,7 @@ func _bench_line(minute: int, ms: int) -> String:
 	for c in World.roads:
 		if World.roads[c] >= 2:
 			paved += 1
-	return ("kingdoms %d (%d groups) plots %d roads %d (paved %d) wars %d | " % [World.kingdoms.size(), in_kingdoms, plots, World.roads.size(), paved, Wars.wars.size()]) + "min %3d | %4d ms | deaths %d | moods %s | factions %d servants %d | houses %s | fires %d walls %d (reinf %d) floors %d | chests %d (%d items) | workshops %d (working %d) | processed %d raid_axes %d | tools %d | warm %.2f hunger %.2f | jobs %s" % [
+	return ("kingdoms %d (%d groups) plots %d roads %d (paved %d) wars %d raids %d/%d won/%d lost | " % [World.kingdoms.size(), in_kingdoms, plots, World.roads.size(), paved, Wars.wars.size(), Raids.active.size(), Raids.won_count, Raids.lost_count]) + "min %3d | %4d ms | deaths %d | moods %s | factions %d servants %d | houses %s | fires %d walls %d (reinf %d) floors %d | chests %d (%d items) | workshops %d (working %d) | processed %d raid_axes %d | tools %d | warm %.2f hunger %.2f | jobs %s" % [
 		minute, ms, World.deaths, moods, Factions.real_count(), servants, houses,
 		World.fires.size(), World.walls.size(), reinforced, World.floors.size(), chests, stored, shops, working,
 		processed, raid_axes, tools, warmth / n, hunger / n, jobs]

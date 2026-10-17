@@ -51,17 +51,26 @@ static func meet(a: Agent) -> void:
 		var fb: Faction = b.faction
 		if fb == fa or fb.solo or not b.alive:
 			continue
-		if not ready("meet", fa, fb, Cfg.GROUP_MEET_COOLDOWN):
-			continue
-		var s := score(fa, fb)
-		if s >= Cfg.ALLY_AT and World.rng.randf() < Cfg.ALLY_CHANCE:
-			Kingdoms.try_ally(fa, fb)
-		elif s <= Cfg.WAR_AT and World.rng.randf() < Cfg.WAR_CHANCE and not Wars.at_war(fa, fb):
-			if not fa.is_gang():
-				Wars.declare(fa, fb)
-			elif not fb.is_gang():
-				Wars.declare(fb, fa)
-		return
+		if encounter(fa, fb):
+			return
+
+
+## Two groups meet (pair cooldown): ally or war roll by relation score (agreed).
+## False if the pair is still on cooldown.
+static func encounter(fa: Faction, fb: Faction) -> bool:
+	if fa == null or fb == null or fa == fb or fa.solo or fb.solo:
+		return false
+	if not ready("meet", fa, fb, Cfg.GROUP_MEET_COOLDOWN):
+		return false
+	var s := score(fa, fb)
+	if s >= Cfg.ALLY_AT and World.rng.randf() < Cfg.ALLY_CHANCE:
+		Kingdoms.try_ally(fa, fb)
+	elif s <= Cfg.WAR_AT and World.rng.randf() < Cfg.WAR_CHANCE and not Wars.at_war(fa, fb):
+		if not fa.is_gang():
+			Wars.declare(fa, fb)
+		elif not fb.is_gang():
+			Wars.declare(fb, fa)
+	return true
 
 
 ## The strongest relations of a group: up to n best (positive) and n worst (negative).

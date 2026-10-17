@@ -82,6 +82,28 @@ static func attack(a: Agent, t: Agent, weapon: String) -> bool:
 	return true
 
 
+## Hit a wall or door. Every melee weapon does its normal damage; the raiding axe does x5 (agreed).
+static func attack_wall(a: Agent, w: Wall) -> void:
+	if a.attack_cd > 0.0:
+		return
+	var weapon := "raiding_axe" if a.inv.has_tool("raiding_axe") else a.melee_weapon()
+	var dmg: float
+	if weapon == "raiding_axe":
+		dmg = Items.RAID_AXE_DAMAGE * Items.RAID_AXE_WALL_MULT
+		a.attack_cd = 1.2
+	else:
+		dmg = Items.WEAPONS[weapon].damage
+		a.attack_cd = Items.WEAPONS[weapon].cooldown
+	a.add_xp("str", Cfg.XP_MELEE_HIT)
+	if weapon != "unarmed" and a.inv.wear(weapon):
+		EventBus.log_event("%s's %s broke." % [a.short(), weapon.replace("_", " ")])
+	w.hp -= dmg
+	if w.hp <= 0.0:
+		var owner: Faction = World.factions.get(w.owner_id)
+		EventBus.log_event("%s breaks through %s's %s!" % [a.short(), owner.name if owner else "an old", "door" if w.is_door else "wall"])
+		World.remove_wall(w)
+
+
 static func apply_damage(t: Agent, dmg: float, a: Agent) -> void:
 	t.hp -= dmg
 	if t.hp <= 0.0:
