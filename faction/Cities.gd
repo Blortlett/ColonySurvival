@@ -398,7 +398,8 @@ static func update(k: Kingdom) -> void:
 		var fu: Furniture = World.furniture.get(bc)
 		if (fu == null or fu.kind != Furniture.Kind.BOARD) and not have.has(Vector3i(bc.x, bc.y, Task.Type.PLACE_BOARD)):
 			board.post(Task.new(Task.Type.PLACE_BOARD, bc, null))
-	# Roads for the current stage; once all are built, pave (needs a working workshop).
+	# Roads for the current stage; once all are built, pave the roads linking the city's
+	# buildings (needs a working workshop for the cut stone).
 	for c in targets:
 		if roads_open >= MAX_ROAD_TASKS:
 			break
@@ -406,7 +407,7 @@ static func update(k: Kingdom) -> void:
 			board.post(Task.new(Task.Type.BUILD_ROAD, c, null))
 			roads_open += 1
 	if targets.is_empty() and _kingdom_has_workshop(k):
-		for c in city_road_cells(k):
+		for c in paving_cells(k):
 			if roads_open >= MAX_ROAD_TASKS:
 				break
 			if World.roads.get(c, 0) == 1 and not have.has(Vector3i(c.x, c.y, Task.Type.UPGRADE_ROAD)):
@@ -520,6 +521,63 @@ static func city_road_cells(k: Kingdom) -> Array[Vector2i]:
 	out.append_array(_plaza_cells(k))
 	out.append_array(_ring_cells(k))
 	out.append_array(_spur_cells(k))
+	return out
+
+
+## Roads worth paving: the shortest stone-road links from the king's door to every other
+## finished building's door. The plaza and roads nobody needs to reach a building stay
+## unpaved, so cut stone goes to the smeltery and the stone tier first.
+static func paving_cells(k: Kingdom) -> Array[Vector2i]:
+	var out: Array[Vector2i] = []
+	var plaza := {}
+	for c in _plaza_cells(k):
+		plaza[c] = true
+	var net := {}
+	var order := city_road_cells(k)
+	for c in order:
+		if World.roads.has(c) and not plaza.has(c):
+			net[c] = true
+	var doors: Array[Vector2i] = []
+	var root := NONE
+	for idx in k.plots:
+		var h: House = k.plots[idx].house
+		if h == null or h.state != House.State.COMPLETE:
+			continue
+		var d := h.door_outside()
+		if not net.has(d):
+			continue
+		if idx == Vector2i.ZERO:
+			root = d
+		doors.append(d)
+	if doors.is_empty():
+		return out
+	if root == NONE:
+		root = doors[0]
+	var parent := {root: root}
+	var queue: Array[Vector2i] = [root]
+	var qi := 0
+	while qi < queue.size():
+		var c := queue[qi]
+		qi += 1
+		for dir in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+			var n: Vector2i = c + dir
+			if net.has(n) and not parent.has(n):
+				parent[n] = c
+				queue.append(n)
+	var keep := {}
+	for d in doors:
+		if not parent.has(d):
+			continue
+		var c := d
+		while not keep.has(c):
+			keep[c] = true
+			if c == root:
+				break
+			c = parent[c]
+	for c in order:
+		if keep.has(c):
+			out.append(c)
+			keep.erase(c)
 	return out
 
 

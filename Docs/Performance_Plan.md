@@ -14,17 +14,15 @@
 - Today the house fire cell has no floor tile: the v2 rule is "every interior cell except the fire (agreed)", so grass shows around the fire.
 - **Fix: render only.** Draw a floor tile under every house, workshop and smeltery fire. Leave `floor_cells`, wood costs and decay alone, so the agreed rule doesn't change.
 
-### A2. Paving waits for the smeltery
-- Today paving (`UPGRADE_ROAD`) starts once the road stage is done and a kingdom workshop is working.
-- **Fix:** paving also needs a working kingdom smeltery.
+### A2. Pave only the roads that link buildings
+- Today paving (`UPGRADE_ROAD`) starts once the road stage is done and a kingdom workshop is working, and then paves every city road, the plaza around the kingdom board included. That spends the cut stone the smeltery and the stone tier need.
+- **Fix (agreed):** paving can still start at any time (no smeltery needed), but only the roads that connect buildings are paved: the shortest road links from the king's door to every other finished building's door. The plaza and other roads stay stone.
 
-### A3. Smeltery before joining a kingdom
-- **Fix:** a group must have a working smeltery (its own) before an alliance roll can make it form or join a kingdom (`Kingdoms.try_ally`).
-- Kingdom **invitations** (the v3 push-out ladder) still work without one, because the kingdom already has a smeltery to share.
-- Record this in the v3 doc's §10 as a deviation: a group's ladder step order changes.
-- **Watch:** metal, and so armour, arrives earlier. Kingdoms may form later.
+### A3. Dropped (agreed)
+- The first draft made groups wait for their own smeltery before an alliance roll could form or join a kingdom. A bench showed kingdoms then formed only near minute 52.
+- **User decision:** groups ally before they have a smeltery. They relocate into the city anyway, so building a smeltery each first is wasted work. `Kingdoms.try_ally` is unchanged.
 
-**Done when:** a bench shows no script errors, kingdoms still form, and paving starts only after a kingdom smeltery is working. A screenshot shows floor under the fires.
+**Done when:** a bench shows no script errors, kingdoms still form, and only building links get paved. A screenshot shows floor under the fires.
 
 ---
 

@@ -78,6 +78,12 @@ func _draw() -> void:
 		var p := Vector2(fl.cell) * s
 		draw_rect(Rect2(p, Vector2(s, s)), FLOOR.darkened(0.4 * (1.0 - fl.hp / fl.max_hp)))
 		draw_line(p + Vector2(0, s * 0.5), p + Vector2(s, s * 0.5), FLOOR_LINE, 1.0)
+	# Render only: building fires sit on a floor tile (the fire cell has no Floor piece).
+	for f in World.house_fires:
+		if f.house != null:
+			var p := Vector2(f.cell) * s
+			draw_rect(Rect2(p, Vector2(s, s)), FLOOR)
+			draw_line(p + Vector2(0, s * 0.5), p + Vector2(s, s * 0.5), FLOOR_LINE, 1.0)
 	for fu in World.furniture.values():
 		_draw_furniture(fu, Vector2(fu.cell) * s, s)
 	# Raids: the target house outlined in red, a line from the rally point.

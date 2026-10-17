@@ -308,6 +308,9 @@ Phases 0–5 are each one commit (`4f1b956`, `947408f`, `8c2ec05`, `b841f77`, `e
   - push-out counts and demolitions
 - **`--shot`** adds `shot_smeltery` and `shot_gear`.
 
+### Later change: paving (Performance Plan A2)
+- **Deviation from v2 Phase E:** a city no longer paves every road. It paves only the shortest road links from the king's door to each other finished building's door (`Cities.paving_cells`). The plaza and the rest of the roads stay stone, so cut stone is left for the smeltery and the stone tier.
+
 ### First playtest observations (seed 12345, 60-minute bench)
 - **Performance:**
   - Real time per sim minute in bench mode: about 2.8 s after Phase 1, 3.3 s on average after Phase 5, with peaks of 4–5.5 s per minute after minute 50.
