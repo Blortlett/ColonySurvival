@@ -46,10 +46,10 @@ func _draw_body() -> void:
 	# Raids: the target house outlined in red, a line from the rally point.
 	for r in Raids.active:
 		var fp := r.target.footprint()
-		var rect := Rect2(Vector2(fp.position) * s, Vector2(fp.size) * s).grow(3)
+		var rect := Rect2(Vector2(fp.position) * s, Vector2(fp.size) * s).grow(3.0 * Cfg.PX)
 		var pulse := 0.6 + 0.4 * sin(Time.get_ticks_msec() * 0.008)
-		draw_rect(rect, Color(1, 0.15, 0.1, pulse), false, 3.0)
-		draw_dashed_line(World.center(r.rally) * s, World.center(r.target.fire_cell) * s, Color(1, 0.2, 0.1, 0.5), 2.0, 8.0)
+		draw_rect(rect, Color(1, 0.15, 0.1, pulse), false, 3.0 * Cfg.PX)
+		draw_dashed_line(World.center(r.rally) * s, World.center(r.target.fire_cell) * s, Color(1, 0.2, 0.1, 0.5), 2.0 * Cfg.PX, 8.0 * Cfg.PX)
 	for f in World.fires.values():
 		var p := Vector2(f.cell) * s
 		if f.burning():

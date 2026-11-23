@@ -10,6 +10,7 @@ var _sim_usec := 0 # time spent stepping the sim in _process (--frames)
 
 func _ready() -> void:
 	World.setup()
+	add_child(preload("res://render/GroundLayer.gd").new())
 	add_child(preload("res://render/StaticLayer.gd").new())
 	_dynamic = preload("res://render/DynamicLayer.gd").new()
 	add_child(_dynamic)
@@ -45,7 +46,7 @@ func _frames(minutes: int) -> void:
 		if k.has_city and (city == null or k.plots.size() > city.plots.size()):
 			city = k
 	if city:
-		views["city"] = [Vector2(Cities.plot_rect(city, Vector2i.ZERO).end) * Cfg.CELL, Vector2.ONE * 1.1]
+		views["city"] = [Vector2(Cities.plot_rect(city, Vector2i.ZERO).end) * Cfg.CELL, Vector2.ONE * 0.55]
 	for v in views:
 		_camera.position = views[v][0]
 		_camera.zoom = views[v][1]
@@ -105,7 +106,7 @@ func _shot(minutes: int) -> void:
 	get_viewport().get_texture().get_image().save_png("user://shot_map.png")
 	if busiest:
 		_camera.position = World.center(busiest.fire_cell) * Cfg.CELL
-		_camera.zoom = Vector2.ONE * 2.5
+		_camera.zoom = Vector2.ONE * 1.25
 		_agents.selected_id = -1
 		_hud.selected_fire = busiest.fire # show the group panel
 	for frame in 3:
@@ -127,7 +128,7 @@ func _shot(minutes: int) -> void:
 			city = k
 	if city:
 		_camera.position = Vector2(Cities.plot_rect(city, Vector2i.ZERO).end) * Cfg.CELL
-		_camera.zoom = Vector2.ONE * 1.1
+		_camera.zoom = Vector2.ONE * 0.55
 		var centre: House = city.plots[Vector2i.ZERO].house
 		_hud.selected_fire = centre.fire if centre and centre.fire else null
 		for frame in 3:
@@ -140,7 +141,7 @@ func _shot(minutes: int) -> void:
 			smelt = h
 	if smelt:
 		_camera.position = World.center(smelt.fire_cell) * Cfg.CELL
-		_camera.zoom = Vector2.ONE * 3.0
+		_camera.zoom = Vector2.ONE * 1.5
 		_hud.selected_fire = smelt.fire
 		for frame in 3:
 			await get_tree().process_frame
@@ -152,7 +153,7 @@ func _shot(minutes: int) -> void:
 			geared = a
 	if geared:
 		_camera.position = geared.pos * Cfg.CELL
-		_camera.zoom = Vector2.ONE * 3.0
+		_camera.zoom = Vector2.ONE * 1.5
 		_hud.selected_fire = null
 		_agents.selected_id = geared.id
 		for frame in 3:
@@ -161,7 +162,7 @@ func _shot(minutes: int) -> void:
 		_agents.selected_id = -1
 	if raid_seen and Raids.active.has(raid_seen):
 		_camera.position = World.center(raid_seen.target.fire_cell) * Cfg.CELL
-		_camera.zoom = Vector2.ONE * 2.0
+		_camera.zoom = Vector2.ONE * 1.0
 		_hud.selected_fire = raid_seen.target.fire
 		for frame in 3:
 			await get_tree().process_frame

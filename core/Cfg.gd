@@ -5,7 +5,8 @@ class_name Cfg
 # --- World ---
 const MAP_W := 200
 const MAP_H := 200
-const CELL := 16
+const CELL := 32 # screen pixels per cell; sized for the 48 px sprite frames (body ~20 px)
+const PX := CELL / 16.0 # one pixel of the old 16 px placeholder art, keeps line weights in proportion
 const START_AGENTS := 120
 const SEED := 12345 # set to 0 for a random seed each run
 

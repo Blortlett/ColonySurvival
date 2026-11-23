@@ -41,20 +41,20 @@ func _draw_body() -> void:
 		if a.raid_id != -1:
 			# Raiders carry a small red pennant.
 			draw_colored_polygon(PackedVector2Array([p + Vector2(0, -s * 0.9), p + Vector2(s * 0.45, -s * 0.75), p + Vector2(0, -s * 0.6)]), Color(1, 0.15, 0.1))
-			draw_line(p + Vector2(0, -s * 0.9), p + Vector2(0, -s * 0.4), Color(0.1, 0.1, 0.1), 1.0)
+			draw_line(p + Vector2(0, -s * 0.9), p + Vector2(0, -s * 0.4), Color(0.1, 0.1, 0.1), 1.0 * Cfg.PX)
 		if a.job and a.job.kind == Job.Kind.FIGHT:
 			var t: Agent = World.agents.get(a.job.target_id)
 			if t:
-				draw_line(p, t.pos * s, Color(1, 0.1, 0.1, 0.6), 1.0)
+				draw_line(p, t.pos * s, Color(1, 0.1, 0.1, 0.6), 1.0 * Cfg.PX)
 		if show_labels:
-			draw_string(_font, p + Vector2(-s, -s * 0.6), a.short(), HORIZONTAL_ALIGNMENT_CENTER, s * 2, 8)
+			draw_string(_font, p + Vector2(-s, -s * 0.6), a.short(), HORIZONTAL_ALIGNMENT_CENTER, s * 2, int(8 * Cfg.PX))
 	var sel: Agent = World.agents.get(selected_id)
 	if sel:
 		var p := sel.pos * s
-		draw_arc(p, s * 0.7, 0, TAU, 24, Color(1, 1, 0), 2.0)
+		draw_arc(p, s * 0.7, 0, TAU, 24, Color(1, 1, 0), 2.0 * Cfg.PX)
 		if sel.path.size() > 1:
 			var pts := PackedVector2Array([p])
 			for i in range(sel.path_i, sel.path.size()):
 				pts.append(World.center(sel.path[i]) * s)
 			if pts.size() > 1:
-				draw_polyline(pts, Color(1, 1, 0, 0.5), 1.0)
+				draw_polyline(pts, Color(1, 1, 0, 0.5), 1.0 * Cfg.PX)

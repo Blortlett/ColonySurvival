@@ -1,7 +1,7 @@
 extends Camera2D
 ## Scroll to zoom toward the cursor, hold right mouse to pan.
 
-const ZOOM_MIN := 0.15
+const ZOOM_MIN := 0.08
 const ZOOM_MAX := 4.0
 const ZOOM_STEP := 1.15
 
