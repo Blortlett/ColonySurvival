@@ -1,10 +1,14 @@
 extends Node2D
-## Builds the scene, steps the sim on sim time, handles observer input.
+## Builds the scene, steps the sim on sim time, starts the player, handles inspect clicks
+## in free camera mode. Observer controls (speed, pause, overlays) live in the F1 debug menu.
 
 var _agents: Node2D
 var _dynamic: Node2D
 var _camera: Camera2D
 var _hud: CanvasLayer
+var _debug: CanvasLayer
+var _player: PlayerController = null
+var _playtest: RefCounted = null
 var _sim_usec := 0 # time spent stepping the sim in _process (--frames)
 
 
@@ -16,6 +20,8 @@ func _ready() -> void:
 	add_child(_dynamic)
 	_agents = preload("res://render/AgentLayer.gd").new()
 	add_child(_agents)
+	var player_layer := preload("res://render/PlayerLayer.gd").new()
+	add_child(player_layer)
 	_camera = preload("res://ui/CameraController.gd").new()
 	add_child(_camera)
 	_camera.make_current()
@@ -23,14 +29,54 @@ func _ready() -> void:
 	_hud.agent_layer = _agents
 	_hud.dynamic_layer = _dynamic
 	add_child(_hud)
+	var player_hud := preload("res://ui/PlayerHud.gd").new()
+	add_child(player_hud)
+	_debug = preload("res://ui/DebugMenu.gd").new()
+	_debug.camera = _camera
+	_debug.agent_layer = _agents
+	_debug.dynamic_layer = _dynamic
+	add_child(_debug)
 	# Headless fast-forward for testing/tuning: godot --headless -- --bench=30
+	# These modes watch the sim without a player, so --bench matches the AI-only numbers.
+	var observe := false
 	for arg in OS.get_cmdline_user_args():
 		if arg.begins_with("--bench"):
+			observe = true
 			_bench(int(arg.get_slice("=", 1)) if "=" in arg else 30)
 		elif arg.begins_with("--shot"):
+			observe = true
 			_shot(int(arg.get_slice("=", 1)) if "=" in arg else 5)
 		elif arg.begins_with("--frames"):
+			observe = true
 			_frames(int(arg.get_slice("=", 1)) if "=" in arg else 30)
+	if observe:
+		return
+	_player = PlayerController.new()
+	add_child(_player)
+	player_layer.player = _player
+	player_hud.player = _player
+	_debug.player = _player
+	_player.hit_landed.connect(func(): _camera.shake())
+	_player.hurt.connect(func(): _camera.shake(Cfg.PLAYER_SHAKE * 0.6))
+	_player.possess(_start_agent())
+	_camera.follow(_player)
+	for arg in OS.get_cmdline_user_args():
+		if arg == "--playtest":
+			_playtest = preload("res://player/PlayTest.gd").new() # kept: its coroutine runs for a while
+			_playtest.run(self, _player, _camera)
+		elif arg == "--inputtest":
+			_playtest = preload("res://player/PlayTest.gd").new()
+			_playtest.run_input(self, _player, _camera)
+
+
+## The player starts as the solo agent nearest the map centre.
+func _start_agent() -> Agent:
+	var mid := Vector2(Cfg.MAP_W, Cfg.MAP_H) * 0.5
+	var best: Agent = null
+	for a in World.agent_list:
+		if a.faction.solo and (best == null or World.dist(a.pos, mid) < World.dist(best.pos, mid)):
+			best = a
+	return best
 
 
 ## Windowed frame times (Performance Plan B0): fast-forward N sim minutes, then time 300
@@ -167,6 +213,25 @@ func _shot(minutes: int) -> void:
 		for frame in 3:
 			await get_tree().process_frame
 		get_viewport().get_texture().get_image().save_png("user://shot_raid.png")
+	# A fight close-up (sprites: swings, hit flashes, bodies). Waits up to 2 sim minutes for
+	# one, then lets it play for a moment so the animations are mid-swing.
+	var fighter: Agent = null
+	for i in int(120.0 / Cfg.MAX_SIM_STEP):
+		for a in World.agent_list:
+			if a.job and a.job.kind == Job.Kind.FIGHT and World.agents.has(a.job.target_id):
+				fighter = a
+				break
+		if fighter:
+			break
+		World.step(Cfg.MAX_SIM_STEP)
+	if fighter:
+		_hud.selected_fire = null
+		_agents.selected_id = -1
+		_camera.zoom = Vector2.ONE * 2.5
+		for frame in 40:
+			_camera.position = fighter.pos * Cfg.CELL
+			await get_tree().process_frame
+		get_viewport().get_texture().get_image().save_png("user://shot_fight.png")
 	print("shots saved to ", ProjectSettings.globalize_path("user://"))
 	get_tree().quit()
 
@@ -188,6 +253,7 @@ func _bench(minutes: int) -> void:
 	print("deaths by cause: %s" % World.death_causes)
 	print("social: %s" % World.social_counts)
 	print("fight sources: %s" % World.fight_sources)
+	print("swings: %s" % World.swing_stats)
 	print("--- %d sim minutes in %.1f s real ---" % [minutes, (Time.get_ticks_msec() - t0) / 1000.0])
 	var keys := World.prof.keys()
 	keys.sort_custom(func(x, y): return World.prof[x] > World.prof[y])
@@ -338,16 +404,15 @@ func _process(delta: float) -> void:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
-		match event.keycode:
-			KEY_SPACE: SimClock.toggle_pause()
-			KEY_1: SimClock.set_speed(SimClock.SPEEDS[0])
-			KEY_2: SimClock.set_speed(SimClock.SPEEDS[1])
-			KEY_3: SimClock.set_speed(SimClock.SPEEDS[2])
-			KEY_4: SimClock.set_speed(SimClock.SPEEDS[3])
-			KEY_5: SimClock.set_speed(SimClock.SPEEDS[4])
-			KEY_Z: _dynamic.show_zones = not _dynamic.show_zones
-			KEY_L: _agents.show_labels = not _agents.show_labels
+		# Placeholder for death (phase 6 brings takeover / respawn choices): carry on as the
+		# newcomer who just wandered in (every death spawns one).
+		if event.physical_keycode == KEY_R and _player and _player.body and not _player.body.alive and not World.agent_list.is_empty():
+			_player.possess(World.agent_list.back())
+			_camera.follow(_player)
+			EventBus.log_event("You carry on as %s." % _player.body.short())
 	elif event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+		if not _camera.free_camera and _player and _player.alive():
+			return # playing: the left button swings (PlayerController)
 		var p := get_global_mouse_position() / Cfg.CELL
 		# Priority: agent -> fire -> loot bag -> furniture.
 		var a := World.agent_at_point(p, 1.5)

@@ -84,7 +84,7 @@ func _update(dt: float) -> void:
 	for h in World.all_houses():
 		if h.state == House.State.COMPLETE:
 			houses += 1
-	_top.text = "%s  %s  |  Agents %d (happy %d / neutral %d / angry %d)  |  Groups %d  Kingdoms %d  Wars %d  Raids %d  Servants %d  Houses %d  Deaths %d  |  [Space] pause [1-5] speed [Z] zones [L] labels  LMB inspect  RMB pan  Wheel zoom" % [
+	_top.text = "%s  %s  |  Agents %d (happy %d / neutral %d / angry %d)  |  Groups %d  Kingdoms %d  Wars %d  Raids %d  Servants %d  Houses %d  Deaths %d  |  [F1] debug menu: speed, pause, watch, overlays, sprites/discs  |  Wheel zoom" % [
 		SimClock.time_string(), "PAUSED" if SimClock.paused else "x%d" % int(SimClock.speed),
 		World.agent_list.size(), happy, neutral, angry, Factions.real_count(), World.kingdoms.size(), Wars.wars.size(), Raids.active.size(), servants, houses, World.deaths]
 	var lines := EventBus.lines.slice(max(0, EventBus.lines.size() - 12))

@@ -486,7 +486,7 @@ static func _win(r: Raid) -> void:
 			for t in ch.store.tools:
 				plan["tool:" + t.type] = plan.get("tool:" + t.type, 0) - 1
 			var before: Dictionary = m.inv.stacks.duplicate()
-			taken += Stock.transfer(m, ch, plan)
+			taken += Actions.use_chest(m, ch, plan)
 			if r.kingdom:
 				var got: Dictionary = r.loot.get(m.id, {})
 				for k in m.inv.stacks:
@@ -585,7 +585,7 @@ static func run_raider(a: Agent, j: Job, dt: float) -> void:
 				var inside := Vector2i(clamp(r.breach.x, h.interior.position.x, h.interior.end.x - 1), clamp(r.breach.y, h.interior.position.y, h.interior.end.y - 1))
 				if inside == h.fire_cell:
 					inside += Vector2i(1, 0)
-				if Brain.move_to(a, inside, dt) == Brain.Move.FAILED:
+				if Brain.move_to(a, inside, dt) == Actions.Move.FAILED:
 					a.path.clear()
 				return
 			if World.cheb(a.cell(), r.breach) <= 1 and a.pos.distance_to(World.center(r.breach)) <= 1.6:
@@ -602,7 +602,7 @@ static func _walk(a: Agent, j: Job, target: Vector2i, radius: int, dt: float, ou
 		j.repath_t = 2.0
 		j.cell = _approach_outside(a, target, radius, outside_of)
 		a.path.clear()
-	if j.cell != World.NO_CELL and Brain.move_to(a, j.cell, dt) == Brain.Move.FAILED:
+	if j.cell != World.NO_CELL and Brain.move_to(a, j.cell, dt) == Actions.Move.FAILED:
 		j.repath_t = 0.0
 		j.cell = World.approach_cell(a, target, radius + 2) # try another spot next step
 

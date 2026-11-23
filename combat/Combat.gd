@@ -59,8 +59,8 @@ static func call_defenders(vic: Agent, att: Agent) -> void:
 	if vic.faction == att.faction:
 		return
 	for m in World.agents_near(vic.pos, Cfg.DEFEND_RADIUS):
-		if m == vic or m == att or m.in_combat() or m.hp < 30.0 or m.faction == att.faction:
-			continue
+		if m == vic or m == att or m.in_combat() or m.hp < 30.0 or m.faction == att.faction or m.is_player():
+			continue # the player chooses their own fights
 		var ally: bool = not vic.faction.solo and World.same_side(m.faction.id, vic.faction.id)
 		var friend: bool = m.is_happy() and m.opinion_of(vic.id) >= Cfg.BYSTANDER_DEFEND_OPINION
 		if not ally and not friend:
@@ -103,6 +103,21 @@ static func attack(a: Agent, t: Agent, weapon: String) -> bool:
 	return true
 
 
+## One melee swing landing on every agent in `hit` (Actions.swing picks them by arc and
+## reach). Costs the swinger one cooldown, one point of weapon durability and one STR XP
+## grant, like a single attack; each agent hit takes full damage.
+static func melee_swing(a: Agent, hit: Array[Agent], weapon: String) -> void:
+	var w: Dictionary = Items.WEAPONS[weapon]
+	var dmg: float = w.damage * a.melee_mult()
+	a.add_xp("str", Cfg.XP_MELEE_HIT)
+	if weapon != "unarmed" and a.inv.wear(weapon):
+		EventBus.log_event("%s's %s broke." % [a.short(), weapon])
+	a.attack_cd = w.cooldown
+	for t in hit:
+		if t.alive:
+			apply_damage(t, dmg, a)
+
+
 ## Hit a wall or door. Every melee weapon does its normal damage; the raiding axe does x5 (agreed).
 static func attack_wall(a: Agent, w: Wall) -> void:
 	if a.attack_cd > 0.0:
@@ -139,7 +154,8 @@ static func apply_damage(t: Agent, dmg: float, a: Agent) -> void:
 		World.kill_agent(t, a)
 		return
 	on_attacked(t, a)
-	if t.hp <= Cfg.PLEAD_HP * Cfg.MAX_HP and not t.pleaded.has(a.id) and not t.death_match.has(a.id) and not KingdomWars.enemies(t, a):
+	if t.hp <= Cfg.PLEAD_HP * Cfg.MAX_HP and not t.pleaded.has(a.id) and not t.death_match.has(a.id) and not KingdomWars.enemies(t, a) \
+			and not t.is_player(): # the player fights back instead of pleading (default rule, §5)
 		plead(t, a)
 
 

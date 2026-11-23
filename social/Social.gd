@@ -36,6 +36,10 @@ static func _happy_meets(a: Agent, b: Agent) -> bool:
 		return false
 	var fa := a.faction
 	var fb := b.faction
+	if b.is_player() and fb.solo and (fa.solo or fa.has_room()):
+		# Player Controller Plan §5 placeholder: the player refuses to join (default rule).
+		EventBus.log_event("%s invites %s to join %s; they refuse." % [a.short(), b.short(), "them" if fa.solo else fa.name])
+		return true
 	if b.is_happy():
 		if fa.solo and fb.solo:
 			if a.opinion_of(b.id) >= 0.0 and b.opinion_of(a.id) >= 0.0:
@@ -96,7 +100,7 @@ static func _surplus_for(giver: Agent, taker: Agent) -> String:
 
 
 static func _angry_meets(a: Agent, b: Agent) -> void:
-	if b.is_angry():
+	if b.is_angry() and not b.is_player(): # the player never joins a gang (default rule, §5)
 		if cha_roll(a, b):
 			if b.faction.solo and (a.faction.solo or a.faction.has_room()):
 				if a.faction.solo:
@@ -137,6 +141,11 @@ static func _attack_chance(a: Agent, b: Agent) -> float:
 
 ## Target responds to an angry initiator: comply, flee or fight.
 static func _demand(a: Agent, b: Agent, attack: bool) -> void:
+	if b.is_player():
+		# Default rule (Player Controller Plan §5): the player refuses and fights back.
+		EventBus.log_event("%s demands %s's goods and is refused." % [a.short(), b.short()])
+		Combat.start_fight(a, b)
+		return
 	var mine := b.power()
 	var theirs := a.power()
 	if mine >= theirs * 1.2:

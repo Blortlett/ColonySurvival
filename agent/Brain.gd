@@ -1,7 +1,6 @@
 class_name Brain
 ## Agent decision making (priority layers) and job execution.
 
-enum Move { ARRIVED, MOVING, FAILED }
 enum Obtain { WORKING, DONE, FAILED }
 
 const BLACKLIST_SECS := 60.0
@@ -11,11 +10,8 @@ static var _blacklist := {} # Vector3i(agent id, cell x, cell y) -> expiry time 
 static var _thinking: Agent = null # the agent inside think(), whose next think is set after it
 
 
+## The AI controller's step. Needs and the attack cooldown run first, in Scheduler.update.
 static func update(a: Agent, dt: float) -> void:
-	_needs(a, dt)
-	if not a.alive:
-		return
-	a.attack_cd -= dt
 	a.think_t -= dt
 	a.social_t -= dt
 	if a.think_t <= 0.0:
@@ -46,18 +42,6 @@ static func update(a: Agent, dt: float) -> void:
 			World.prof_add("run_" + Job.Kind.keys()[k], t2)
 		else:
 			_run(a, dt)
-
-
-static func _needs(a: Agent, dt: float) -> void:
-	a.warmth = max(0.0, a.warmth - dt / Cfg.WARMTH_DRAIN_SECS)
-	a.hunger = max(0.0, a.hunger - dt / Cfg.HUNGER_DRAIN_SECS)
-	var empty := int(a.warmth <= 0.0) + int(a.hunger <= 0.0)
-	if empty > 0:
-		a.hp -= Cfg.HP_DRAIN_PER_NEED * empty * dt
-		if a.hp <= 0.0:
-			World.kill_agent(a, null)
-	elif a.warmth > 0.5 and a.hunger > 0.5:
-		a.hp = min(Cfg.MAX_HP, a.hp + Cfg.HP_REGEN * dt)
 
 
 static func set_job(a: Agent, j: Job) -> void:
@@ -110,8 +94,7 @@ static func think(a: Agent) -> void:
 	a.auto_equip()
 	# Needs layer.
 	if a.hunger < Cfg.HUNGER_EAT and a.inv.count("berry") > 0:
-		a.inv.remove("berry", 1)
-		a.hunger = min(1.0, a.hunger + Cfg.BERRY_FOOD)
+		Actions.eat(a)
 	var busy_prio := a.job.prio if a.job else -1
 	if busy_prio < Job.PRIO_NEEDS:
 		if a.warmth < Cfg.WARMTH_SEEK:
@@ -368,7 +351,7 @@ static func _done(a: Agent) -> void:
 
 static func _run_wander(a: Agent, j: Job, dt: float) -> void:
 	j.timer -= dt
-	if j.timer <= 0.0 or move_to(a, j.cell, dt) != Move.MOVING:
+	if j.timer <= 0.0 or move_to(a, j.cell, dt) != Actions.Move.MOVING:
 		_done(a)
 
 
@@ -396,32 +379,22 @@ static func _gather_step(a: Agent, j: Job, dt: float) -> bool:
 			return false
 	if not j.arrived:
 		var m := move_to(a, j.cell, dt)
-		if m == Move.FAILED:
+		if m == Actions.Move.FAILED:
 			_blacklist_cell(a, j.node.cell)
 			j.node = null
 			return false
-		if m == Move.MOVING:
+		if m == Actions.Move.MOVING:
 			return false
 		j.arrived = true
 	# Gathering at the node.
-	var g := _gather_secs(a, j.node)
+	var g := Actions.harvest_secs(a, j.node)
 	var secs: float = g[0]
-	var tool: String = g[1]
 	j.timer += dt
 	if j.timer >= secs:
 		j.timer -= secs
-		j.node.amount -= 1
-		if j.node.type == ResourceNode.Type.BUSH:
-			World.static_dirty = true # berries are drawn in StaticLayer
-		a.inv.add(j.item, 1)
-		if j.node.type != ResourceNode.Type.BUSH:
-			a.add_xp("str", Cfg.XP_GATHER)
-		if tool != "" and a.inv.has_tool(tool) and a.inv.wear(tool):
-			EventBus.log_event("%s's %s broke." % [a.short(), tool])
 		if j.task:
 			j.task.claim_time = SimClock.time
-		if j.node.amount <= 0 and j.node.type != ResourceNode.Type.BUSH:
-			World.remove_node(j.node)
+		if Actions.harvest_unit(a, j.node, g[1], true, j.node.type != ResourceNode.Type.BUSH):
 			j.node = null
 	return false
 
@@ -537,10 +510,10 @@ static func _process_step(a: Agent, j: Job, dt: float) -> int:
 	if m == null or World.furniture.get(m.cell) != m or m.house == null or not m.house.operational():
 		return Obtain.FAILED
 	var mv := move_to(a, m.cell, dt)
-	if mv == Move.FAILED:
+	if mv == Actions.Move.FAILED:
 		_blacklist_cell(a, m.cell)
 		return Obtain.FAILED
-	if mv == Move.MOVING:
+	if mv == Actions.Move.MOVING:
 		return Obtain.WORKING
 	var p: Dictionary = Items.PROCESS[j.item]
 	if a.inv.count(j.item) >= j.amount or not a.inv.has_cost(p["in"]):
@@ -578,10 +551,10 @@ static func _run_craft(a: Agent, j: Job, dt: float) -> void:
 		_done(a)
 		return
 	var mv := move_to(a, m.cell, dt)
-	if mv == Move.FAILED:
+	if mv == Actions.Move.FAILED:
 		_blacklist_cell(a, m.cell)
 		_done(a)
-	elif mv == Move.ARRIVED:
+	elif mv == Actions.Move.ARRIVED:
 		a.inv.pay(cost)
 		a.inv.add_tool(j.then_craft)
 		EventBus.log_event("%s crafts a %s%s." % [a.short(), Items.label(j.then_craft), " at the anvil" if j.then_craft in Items.ANVIL_RECIPES else ""])
@@ -606,37 +579,13 @@ static func _chest_step(a: Agent, j: Job, dt: float) -> bool:
 	if ch == null or World.furniture.get(ch.cell) != ch:
 		return true
 	var m := move_to(a, ch.cell, dt)
-	if m == Move.FAILED:
+	if m == Actions.Move.FAILED:
 		_blacklist_cell(a, ch.cell)
 		return true
-	if m == Move.MOVING:
+	if m == Actions.Move.MOVING:
 		return false
-	Stock.transfer(a, ch, j.transfer)
+	Actions.use_chest(a, ch, j.transfer)
 	return true
-
-
-## [seconds per unit, tool used] for harvesting this node.
-static func _gather_secs(a: Agent, n: ResourceNode) -> Array:
-	var secs: float
-	var tool := ""
-	match n.type:
-		ResourceNode.Type.TREE:
-			secs = Cfg.GATHER_WOOD
-			tool = "axe"
-		ResourceNode.Type.ROCK:
-			secs = Cfg.GATHER_STONE
-			tool = "pickaxe" if a.inv.has_tool("pickaxe") or not a.inv.has_tool("pickaxe_t2") else "pickaxe_t2"
-		ResourceNode.Type.METAL:
-			secs = Cfg.GATHER_METAL
-			tool = "pickaxe_t2" # the only tool that mines metal (agreed)
-		ResourceNode.Type.HEMP:
-			secs = Cfg.GATHER_HEMP
-		_:
-			secs = Cfg.GATHER_BERRY
-	secs /= a.gather_mult()
-	if tool != "" and a.inv.has_tool(tool):
-		secs /= Cfg.TOOL_GATHER_MULT
-	return [secs, tool]
 
 
 static func _run_warm(a: Agent, j: Job, dt: float) -> void:
@@ -652,24 +601,16 @@ static func _run_warm(a: Agent, j: Job, dt: float) -> void:
 				_done(a)
 				return
 		var m := move_to(a, j.cell, dt)
-		if m == Move.FAILED:
+		if m == Actions.Move.FAILED:
 			_blacklist_cell(a, f.cell)
 			_done(a)
 			return
-		if m == Move.MOVING:
+		if m == Actions.Move.MOVING:
 			return
 		j.arrived = true
 	j.timer += dt
 	if j.timer >= Cfg.WARM_SIT_SECS:
-		a.warmth = 1.0
-		for o in World.agents_near(World.center(f.cell), Cfg.WARM_RADIUS + 1):
-			if o.faction != a.faction and not o.faction.solo and not a.faction.solo:
-				Relations.shared_fire(a.faction, o.faction)
-		if a.is_happy():
-			for o in World.agents_near(World.center(f.cell), Cfg.WARM_RADIUS + 1):
-				if o != a and o.is_happy() and o.faction != a.faction:
-					a.change_opinion(o.id, 5.0)
-					o.change_opinion(a.id, 5.0)
+		Actions.finish_warming(a, f)
 		_done(a)
 
 
@@ -682,9 +623,7 @@ static func _run_place_wild_fire(a: Agent) -> void:
 	for d in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1), Vector2i(1, 1), Vector2i(-1, -1), Vector2i(1, -1), Vector2i(-1, 1)]:
 		var c: Vector2i = here + d
 		if World.can_build(c, a.faction.id):
-			a.inv.pay(cost)
-			var f := World.place_fire(c, false, a.faction.id)
-			f.placed_by = a.id
+			var f: Campfire = Actions.place(a, "wild_fire", c, cost)
 			var j := Job.new(Job.Kind.WARM, Job.PRIO_NEEDS)
 			j.fire = f
 			set_job(a, j)
@@ -733,11 +672,11 @@ static func _run_task(a: Agent, j: Job, dt: float) -> void:
 				return
 		var m := move_to(a, j.cell, dt)
 		World.prof_add("TASK.move", tm)
-		if m == Move.FAILED:
+		if m == Actions.Move.FAILED:
 			_blacklist_cell(a, t.cell)
 			_done(a)
 			return
-		if m == Move.MOVING:
+		if m == Actions.Move.MOVING:
 			return
 		j.arrived = true
 	tm = Time.get_ticks_usec()
@@ -763,8 +702,7 @@ static func _perform_task(a: Agent, j: Job, t: Task, cost: Dictionary, dt: float
 				if j.timer > 20.0:
 					_done(a)
 				return
-			a.inv.pay(cost)
-			World.place_floor(t.cell, fid)
+			Actions.place(a, "floor", t.cell, cost)
 			board.complete(t)
 			_done(a)
 		Task.Type.PLACE_CHEST:
@@ -788,21 +726,15 @@ static func _perform_task(a: Agent, j: Job, t: Task, cost: Dictionary, dt: float
 				_done(a)
 				return
 			# Chop or mine it down to nothing; keep what fits.
-			var g := _gather_secs(a, n)
+			var g := Actions.harvest_secs(a, n)
 			j.timer += dt
 			if j.timer >= g[0]:
 				j.timer = 0.0
-				n.amount -= 1
-				if n.type == ResourceNode.Type.BUSH:
-					World.static_dirty = true
-				if a.free_space() > 0 and (n.type != ResourceNode.Type.METAL or a.inv.has_tool("pickaxe_t2")):
-					a.inv.add(n.item(), 1)
-				a.add_xp("str", Cfg.XP_GATHER)
-				if g[1] != "" and a.inv.has_tool(g[1]) and a.inv.wear(g[1]):
-					EventBus.log_event("%s's %s broke." % [a.short(), g[1]])
+				var keep: bool = a.free_space() > 0 and (n.type != ResourceNode.Type.METAL or a.inv.has_tool("pickaxe_t2"))
+				Actions.harvest_unit(a, n, g[1], keep, true)
 				t.claim_time = SimClock.time
 				if n.amount <= 0:
-					World.remove_node(n)
+					World.remove_node(n) # bushes too: the site needs clearing
 					board.complete(t)
 					_done(a)
 		Task.Type.DEMOLISH:
@@ -861,9 +793,8 @@ static func _perform_task(a: Agent, j: Job, t: Task, cost: Dictionary, dt: float
 			# Break the old piece (no refund), then place the reinforced one (agreed).
 			if w:
 				World.remove_wall(w)
-			a.inv.pay(cost)
 			var door := t.type == Task.Type.UPGRADE_DOOR
-			World.place_wall(t.cell, door, fid, t.tier, door and t.house != null and not t.house.is_home())
+			Actions.place(a, "door" if door else "wall", t.cell, cost, t.tier, door and t.house != null and not t.house.is_home())
 			board.complete(t)
 			_done(a)
 		Task.Type.UPGRADE_CHEST:
@@ -910,9 +841,8 @@ static func _perform_task(a: Agent, j: Job, t: Task, cost: Dictionary, dt: float
 				Factions.destroy_house(t.house)
 				_done(a)
 				return
-			a.inv.pay(cost)
 			if t.type == Task.Type.PLACE_HOUSE_FIRE:
-				var f := World.place_fire(t.cell, true, fid)
+				var f: Campfire = Actions.place(a, "house_fire", t.cell, cost)
 				board.complete(t)
 				Factions.on_house_fire_placed(t.house, f)
 				if not a.faction.solo:
@@ -920,7 +850,7 @@ static func _perform_task(a: Agent, j: Job, t: Task, cost: Dictionary, dt: float
 			else:
 				var door := t.type == Task.Type.BUILD_DOOR
 				var tier: int = 0 if door or t.house == null else t.house.base_wall_tier()
-				World.place_wall(t.cell, door, fid, tier, door and t.house != null and not t.house.is_home())
+				Actions.place(a, "door" if door else "wall", t.cell, cost, tier, door and t.house != null and not t.house.is_home())
 				board.complete(t)
 			_done(a)
 
@@ -939,11 +869,14 @@ static func _run_fight(a: Agent, j: Job, dt: float) -> void:
 		return
 	if a.attack_cd <= 0.0:
 		if a.has_bow_ready() and d > 1.6 and d <= a.bow_range():
-			if Combat.attack(a, t, "bow"):
+			if Actions.shoot(a, t):
 				return
 		var w := a.melee_weapon()
 		if d <= Items.WEAPONS[w].reach:
-			Combat.attack(a, t, w)
+			# Directional melee (Player Controller Plan §3): turn to the target and swing;
+			# anyone else hostile in the arc is hit too.
+			Actions.face(a, t.pos)
+			Actions.swing(a, a.facing, w)
 			return
 	elif d <= Items.WEAPONS[a.melee_weapon()].reach or (a.has_bow_ready() and d <= a.bow_range() and d > 1.6):
 		return # in range, waiting for cooldown
@@ -959,7 +892,7 @@ static func _run_fight(a: Agent, j: Job, dt: float) -> void:
 
 static func _run_flee(a: Agent, j: Job, dt: float) -> void:
 	j.timer -= dt
-	if j.timer <= 0.0 or move_to(a, j.cell, dt) != Move.MOVING:
+	if j.timer <= 0.0 or move_to(a, j.cell, dt) != Actions.Move.MOVING:
 		_done(a)
 
 
@@ -969,10 +902,10 @@ static func _run_loot(a: Agent, j: Job, dt: float) -> void:
 		_done(a)
 		return
 	var m := move_to(a, j.cell, dt)
-	if m == Move.FAILED:
+	if m == Actions.Move.FAILED:
 		_blacklist_cell(a, j.cell)
 		_done(a)
-	elif m == Move.ARRIVED:
+	elif m == Actions.Move.ARRIVED:
 		World.take_loot(a, bag)
 		_done(a)
 
@@ -998,7 +931,7 @@ static func _run_deliver(a: Agent, j: Job, dt: float) -> void:
 		j.repath_t = 1.0
 		j.cell = World.approach_cell(a, m.cell())
 		a.path.clear()
-	if j.cell == World.NO_CELL or move_to(a, j.cell, dt) == Move.FAILED:
+	if j.cell == World.NO_CELL or move_to(a, j.cell, dt) == Actions.Move.FAILED:
 		_done(a)
 
 
@@ -1021,37 +954,9 @@ static func _run_follow(a: Agent, j: Job, dt: float) -> void:
 
 # --- Movement ---
 
+## Path movement lives in Actions (shared verbs); the job runners call it through here.
 static func move_to(a: Agent, dest: Vector2i, dt: float) -> int:
-	if dest == World.NO_CELL:
-		return Move.FAILED
-	var goal := World.center(dest)
-	if a.cell() == dest and a.pos.distance_to(goal) < 0.15:
-		return Move.ARRIVED
-	if a.path.is_empty() or a.path[a.path.size() - 1] != dest:
-		a.path = World.find_path(a, dest)
-		a.path_i = 1
-		if a.path.is_empty():
-			return Move.FAILED
-	var step := a.speed() * dt
-	while step > 0.0:
-		var next: Vector2i = a.path[a.path_i] if a.path_i < a.path.size() else dest
-		if next != a.cell() and not World.passable(a, next):
-			a.path.clear() # blocked; repath next step
-			return Move.MOVING
-		var target := World.center(next)
-		var to := target - a.pos
-		var dist := to.length()
-		if dist <= step:
-			a.pos = target
-			step -= dist
-			a.add_xp("agi", Cfg.XP_PER_CELL)
-			if a.path_i >= a.path.size():
-				return Move.ARRIVED
-			a.path_i += 1
-		else:
-			a.pos += to / dist * step
-			step = 0.0
-	return Move.MOVING
+	return Actions.move_path(a, dest, dt)
 
 
 # --- Blacklist (unreachable targets) ---

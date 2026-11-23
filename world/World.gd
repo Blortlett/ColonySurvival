@@ -31,6 +31,7 @@ var deaths := 0
 var death_causes := {"killed": 0, "cold": 0, "hunger": 0}
 var social_counts := {"trades": 0, "robberies": 0, "group_meetings": 0, "fights": 0, "thinks": 0} # bench rates (B3)
 var fight_sources := {} # caller of Combat.start_fight -> count (bench diagnostics)
+var swing_stats := {"swings": 0, "hits": 0, "extra_hits": 0} # directional melee: hits beyond the intended target (bench)
 var gear_fights := {"armoured_won": 0, "armoured_lost": 0} # kills between armoured and unarmoured agents (v3)
 
 # Cached privilege-zone owner per cell, rebuilt when a house fire starts/stops burning.
@@ -98,9 +99,7 @@ func step(dt: float) -> void:
 	spatial.rebuild(agent_list)
 	prof_add("spatial", t)
 	t = Time.get_ticks_usec()
-	for a in agent_list.duplicate():
-		if a.alive:
-			Brain.update(a, dt)
+	Scheduler.update_agents(dt)
 	prof_add("agents", t)
 	t = Time.get_ticks_usec()
 	_update_fires(dt)
@@ -240,6 +239,21 @@ func is_solid(c: Vector2i) -> bool:
 
 func is_walkable(c: Vector2i) -> bool:
 	return in_bounds(c) and not is_solid(c)
+
+
+## Wrap-aware geometry (Summer Roadmap §2): the shortest offset from a to b. The map doesn't
+## wrap yet, so this is plain subtraction; in phase 5 it picks the shortest way round.
+## All new code measures distance and direction through these.
+static func delta(a: Vector2, b: Vector2) -> Vector2:
+	return b - a
+
+
+static func dist(a: Vector2, b: Vector2) -> float:
+	return a.distance_to(b)
+
+
+static func dist_sq(a: Vector2, b: Vector2) -> float:
+	return a.distance_squared_to(b)
 
 
 static func cheb(a: Vector2i, b: Vector2i) -> int:

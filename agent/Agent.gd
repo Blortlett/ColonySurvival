@@ -39,10 +39,34 @@ var meet_t := 0.0 # next group-level meeting check
 var raid_id := -1 # raid this agent is part of
 var defend_raid := -1 # raid this agent is defending against
 var kills := 0
+var facing := Vector2.RIGHT # aim / swing direction (torso); NPCs turn to face their target
+var move_dir := Vector2.RIGHT # last direction of travel (legs)
+var last_swing := -1.0 # sim time of the last melee swing (renderers flash the arc)
+## Who drives this body: null = the AI (Brain); otherwise an object with
+## control(a: Agent, dt: float), e.g. the PlayerController (Player Controller Plan §1).
+var controller: Object = null
 
 
 func cell() -> Vector2i:
 	return Vector2i(int(floor(pos.x)), int(floor(pos.y)))
+
+
+func is_player() -> bool:
+	return controller != null
+
+
+## Needs drain, starving or freezing hurts, being fed and warm heals. Runs for every body,
+## whoever controls it.
+func tick_needs(dt: float) -> void:
+	warmth = max(0.0, warmth - dt / Cfg.WARMTH_DRAIN_SECS)
+	hunger = max(0.0, hunger - dt / Cfg.HUNGER_DRAIN_SECS)
+	var empty := int(warmth <= 0.0) + int(hunger <= 0.0)
+	if empty > 0:
+		hp -= Cfg.HP_DRAIN_PER_NEED * empty * dt
+		if hp <= 0.0:
+			World.kill_agent(self, null)
+	elif warmth > 0.5 and hunger > 0.5:
+		hp = min(Cfg.MAX_HP, hp + Cfg.HP_REGEN * dt)
 
 
 # --- Mood ---

@@ -39,7 +39,7 @@
 
 - Today combat is target-based: attack one chosen agent within reach.
 - **New shared action: a swing** in a facing direction. It hits every hostile agent inside an arc (start: 90°, reach from the weapon's reach).
-- **NPCs use the same swing:** the AI turns to face its target and swings. That keeps one combat system, and NPCs can now hit bystanders by accident.
+- **NPCs use the same swing:** the AI turns to face its target and swings. That keeps one combat system. **NPC swings only hit agents they are fighting (agreed)**; the player's swing hits everyone in the arc.
 - Damage, cooldown, durability, armour and the plead / surrender hooks all stay in `Combat` and are reused.
 - **Bows:** they fire towards the aim point (line of sight as today). NPCs aim at their target.
 - **Feel:** short hit-stop, a knock-back nudge and a screen-shake hook. Purely visual, so the sim isn't affected.
@@ -121,3 +121,65 @@ Phase 1 also adds `World.delta` / `World.dist` (roadmap §2), since `Brain` code
 ## 8. Open questions
 - Leader and king controls: how a player ruler gives orders. That's roadmap phase 3.
 - Sprite scale and layering: roadmap phase 2. Until then the player is drawn as a disc with a facing marker.
+
+## 9. Implementation notes (phases 1–3)
+
+Phases 1–3 are built. New modules:
+- `agent/Actions.gd`: the shared verbs.
+- `agent/Scheduler.gd`: the one agent update entry point.
+- `player/PlayerController.gd`
+- `render/PlayerLayer.gd`
+- `ui/PlayerHud.gd`
+- `ui/DebugMenu.gd`
+- `player/PlayTest.gd`: scripted checks.
+
+**Where things plug in:**
+- **Controllers:** `Agent.controller` is null for the AI. Otherwise it is an object with `control(a, dt)`. `Scheduler.update` runs needs (`Agent.tick_needs`, moved out of `Brain`) and the attack cooldown for every body, then the AI (`Brain.update`) or the controller. `World.step` calls `Scheduler.update_agents`.
+- **Actions:**
+  - `move_path` is the NPC A* movement (`Brain.move_to` forwards to it).
+  - `move_free` is the player's box-against-grid movement. It slides along walls and treats cells already overlapped as free, so a body is never stuck inside a new piece.
+  - `swing` and `shoot` for combat.
+  - `harvest_secs`, `harvest_unit` and `can_harvest` for gathering.
+  - `place` and `can_place` for pieces.
+  - `use_chest`, `finish_warming` and `eat`.
+  - `Brain`'s gather, CLEAR_NODE, wild fire and task placements all call these, and so does the raid sack's chest transfer.
+- **Wrap-aware helpers:** `World.delta`, `World.dist` and `World.dist_sq` are plain subtraction for now. All new and moved code uses them.
+- **Facing:** `Agent.facing` (unit Vector2, aim / torso direction) and `Agent.move_dir` (legs). `Agent.last_swing` holds the sim time of the last swing. NPCs face their target before a swing or a shot. The player's facing follows the mouse.
+- **Input:** read per frame into intents (move, aim, swing, harvest, place, eat). They are used only inside the sim step, so the sim never depends on rendering. The player's AGI XP is per cell walked, like path movement.
+- **Test modes:**
+  - `-- --playtest` (headless or windowed) drives the intents and checks walk, accelerate, stop, wall stop and slide, placing (and refusals), harvesting, the swing arc hitting and missing, a fight, the social defaults and watch mode.
+  - `-- --inputtest` (windowed) does the same through injected key and mouse events: WASD, mouse facing, 1 + LMB placing, X, F1, menu keys and watch mode.
+  - Both pass. `--bench`, `--shot` and `--frames` run without a player.
+
+**Bench:**
+- **Phase 1** (40 min, seed 12345): every per-minute stat line is **identical** to the build before, and the sim is deterministic. Time was +3% (101.6 s against 99.6 s and 98.9 s for two baseline runs), from the extra call layers.
+- **Phase 2:** the sim diverges, so it was compared over 8 seeds (12345, 1–7) at 40 min:
+
+  | | before | directional swing |
+  |---|---|---|
+  | deaths (mean) | 110 (range 52–162) | 128 (range 86–163) |
+  | fights started (mean) | 263 | 277 |
+  | kingdom wars declared (total) | 14 | 19 |
+
+  - About 15% of hits land on someone other than the swinger's target: other enemies bunched on nearby cells, and bystanders.
+  - A 60° arc made no difference (4 seeds).
+  - **`Cfg.NPC_SWING_HITS_BYSTANDERS`** (off, agreed with the user 2026-11-24; §3 originally had it on) limits NPC swings to agents they're already fighting. The player's swing always hits everyone in the arc. With it off, 4 seeds still averaged 134 deaths, so bystander hits aren't the main driver; one swing landing on several fighters is.
+
+**Deviations and clarifications:**
+- **Speed-up works in watch mode only.** The debug menu holds pause, 1–5 speed, watch / free camera (V), and the zones (Z) and labels (L) overlays; the shortcuts work while it's open. While playing, the speed keys are refused ("the player always runs at 1×"). Leaving watch mode resets to 1×.
+- **Who a swing hits:** anyone not on the swinger's side (group or kingdom), plus anyone the two are already fighting, so a servant's rebellion still lands. Allies are never hit.
+- **A swing at nothing** still costs the cooldown. If no agent is in the arc, a wall or door in front that isn't the swinger's own takes the blow (`Combat.attack_wall`, raiding axes ×5).
+- **Bows:** RMB fires at the hostile agent nearest the aim point, within bow range and line of sight. NPC bows are unchanged, except that they now face the target.
+- **Player controls:** WASD, mouse aim, LMB swing, RMB bow, hold E harvest (the node in reach most in front), 1–4 pick wall / door / floor / wild fire (LMB place, RMB or X stop), F eat a berry. Walking onto a loot bag picks it up. Standing within `WARM_RADIUS` of a burning fire for 10 s warms the body, like the NPC WARM job.
+- **Player build rules:** `can_build` / `can_floor` (zones, no agents, no loot), reach `PLAYER_BUILD_REACH`, and not on the player's own collision box. Solo player pieces decay outside a house zone like anyone's.
+- **Jobs on the player's body:** other systems still set jobs on it (fight back, flee). On the player those jobs are only markers, so it counts as in combat and isn't drafted or chatted to mid-fight. They never run, and the controller drops them when the fight ends.
+- **Placeholder social rules (§5), now in code:**
+  - The player refuses happy invites and gang joins (logged).
+  - A robbery demand on the player is refused, and the NPC attacks.
+  - The player never pleads.
+  - The player isn't drafted as a defender.
+  - The player doesn't start social encounters, since it never runs `Social.scan`.
+- **Death (until phase 6):** the HUD offers R to carry on as the newcomer who just wandered in (every death spawns one).
+- **Feel:** screen shake on landing or taking a hit is in (`PLAYER_SHAKE`). Hit-stop and knock-back are not in yet. Hit-stop would pause the sim, so it needs a rule-1-safe design (for example freezing only the renderers).
+- **Starting agent:** the solo agent nearest the map centre.
+- **New tunables (start values):** `SWING_ARC_DEG` 90, `NPC_SWING_HITS_BYSTANDERS` false (agreed), `PLAYER_ACCEL_SECS` 0.05, `PLAYER_HARVEST_REACH` 1.6, `PLAYER_BUILD_REACH` 3.5, `PLAYER_LOOK_AHEAD` 0.25 (capped at `PLAYER_LOOK_MAX` 6 cells), `PLAYER_ZOOM` 1.5, `PLAYER_SHAKE` 6 px.

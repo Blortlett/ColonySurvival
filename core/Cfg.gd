@@ -181,6 +181,21 @@ const REBEL_STR_RATIO := 1.5
 const REBEL_CHECK_SECS := 120.0
 const REBEL_CHANCE := 0.1
 
+# --- Directional melee (Player Controller Plan §3) ---
+const SWING_ARC_DEG := 90.0 # a swing hits everyone not on the swinger's side in this arc (start)
+## NPC swings also hit bystanders (anyone not on their side) in the arc, not just agents
+## they're fighting. On, kills rose about 40% on the bench (see Player_Controller_Plan notes).
+const NPC_SWING_HITS_BYSTANDERS := false # (agreed) NPCs only hit agents they are fighting
+
+# --- Player (Player Controller Plan §2, §6) ---
+const PLAYER_ACCEL_SECS := 0.05 # time to full speed, and to stop (start)
+const PLAYER_HARVEST_REACH := 1.6 # nodes this close (centre to centre) can be harvested
+const PLAYER_BUILD_REACH := 3.5 # pieces can be placed this far away
+const PLAYER_LOOK_AHEAD := 0.25 # camera leans this share of the way towards the mouse
+const PLAYER_LOOK_MAX := 6.0 # ...but at most this many cells
+const PLAYER_ZOOM := 1.5 # camera zoom when play starts
+const PLAYER_SHAKE := 6.0 # screen shake in px when the player lands or takes a hit (visual only)
+
 # --- AI ---
 const THINK_INTERVAL := 0.25
 # Per-job think intervals (Performance Plan B3, start): fights, flight and raids keep 0.25 s.
