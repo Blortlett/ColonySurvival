@@ -1,10 +1,9 @@
 extends CanvasLayer
-## Chest and machine panels (Player Controller Plan §4, phase 4). Shows the player's open
+## Machine panels (Player Controller Plan §4, phase 4). Shows the player's open
 ## station (player/Station.gd) and turns button presses into requests; the sim step applies
 ## them through Actions. Nothing here changes the sim directly, and nothing pauses.
 ##
-## Chest / crate: your pack on the left, the chest on the right; "1" moves one, "All" the
-## whole stack (tools: the freshest copy first, as the AI deposits spares).
+## Chests and crates are shown by the slot UI instead (ui/InventoryUI.gd).
 ## Machine (sawmill, stone cutter, furnace, anvil): process batches (1 or until the input
 ## runs out, with a progress bar) and craft the machine's recipes.
 ## Buttons have keys ("put:wood:all", "process:plank:1", "craft:pickaxe_t2") so the
@@ -46,7 +45,7 @@ func _station():
 
 func _process(dt: float) -> void:
 	var st = _station()
-	visible = st != null and st.open != null and player.alive() and not player.watching
+	visible = st != null and st.open != null and st.is_machine() and player.alive() and not player.watching
 	if not visible:
 		_sig = ""
 		return
@@ -75,9 +74,7 @@ func refresh() -> void:
 	for c in _box.get_children():
 		_box.remove_child(c)
 		c.queue_free()
-	if st.is_chest():
-		_build_chest(a, st)
-	else:
+	if st.is_machine():
 		_build_machine(a, st)
 
 
@@ -97,62 +94,6 @@ func has_button(key: String, enabled := true) -> bool:
 	refresh()
 	var b: Button = _buttons.get(key)
 	return b != null and (not enabled or not b.disabled)
-
-
-# --- Chest ---
-
-func _build_chest(a: Agent, st) -> void:
-	var ch: Furniture = st.open
-	var slots := ch.slots()
-	var room := "no limit" if slots >= 1 << 20 else "%d/%d" % [ch.store.total(), slots]
-	_header("%s  (%s)" % [ch.label().capitalize(), room])
-	var cols := HBoxContainer.new()
-	cols.add_theme_constant_override("separation", 14)
-	_box.add_child(cols)
-	_column(cols, "Your pack %d/%d" % [a.inv.total(), a.capacity()], a.inv, "put", 1)
-	_column(cols, "In the %s" % ch.label(), ch.store, "take", -1)
-	var row := HBoxContainer.new()
-	_box.add_child(row)
-	_button(row, "Put everything in", "put:everything", func(): st.request_transfer(_all_plan(a.inv, 1)), a.inv.total() > 0)
-	_button(row, "Take everything", "take:everything", func(): st.request_transfer(_all_plan(ch.store, -1)), ch.store.total() > 0)
-	_hint("Walking away, or a hard hit, closes this.  E / Esc close.")
-
-
-func _column(parent: Control, title: String, inv: Inventory, verb: String, sign: int) -> void:
-	var col := VBoxContainer.new()
-	col.custom_minimum_size.x = 210
-	parent.add_child(col)
-	var t := _label(col, title, 13)
-	t.add_theme_color_override("font_color", Color(1, 0.9, 0.55))
-	var st = _station()
-	var keys: Array = inv.stacks.keys()
-	keys.sort()
-	for k in keys:
-		var n: int = inv.stacks[k]
-		var row := _row(col, "%s x%d" % [Items.label(k), n])
-		_button(row, "1", "%s:%s:1" % [verb, k], func(): st.request_transfer({k: sign}))
-		_button(row, "All", "%s:%s:all" % [verb, k], func(): st.request_transfer({k: sign * n}))
-	var tools := {}
-	for tool in inv.tools:
-		if not tools.has(tool.type):
-			tools[tool.type] = []
-		tools[tool.type].append(str(tool.dur))
-	for k in tools:
-		var n: int = tools[k].size()
-		var row := _row(col, "%s x%d (%s)" % [Items.label(k), n, ", ".join(tools[k])])
-		_button(row, "1", "%s:tool:%s:1" % [verb, k], func(): st.request_transfer({"tool:" + k: sign}))
-		_button(row, "All", "%s:tool:%s:all" % [verb, k], func(): st.request_transfer({"tool:" + k: sign * n}))
-	if inv.total() == 0:
-		_label(col, "(empty)", 12).modulate = Color(0.6, 0.6, 0.6)
-
-
-static func _all_plan(inv: Inventory, sign: int) -> Dictionary:
-	var plan := {}
-	for k in inv.stacks:
-		plan[k] = sign * inv.stacks[k]
-	for tool in inv.tools:
-		plan["tool:" + tool.type] = plan.get("tool:" + tool.type, 0) + sign
-	return plan
 
 
 # --- Machine ---
@@ -192,7 +133,7 @@ func _build_machine(a: Agent, st) -> void:
 		var cost: Dictionary = Items.RECIPES[k]
 		var row := _row(_box, "%s: %s   have %s" % [Items.label(k), Actions.cost_text(cost), _have(a, cost)])
 		_button(row, "Craft", "craft:" + k, func(): st.request_craft(k), why == "" and a.inv.has_cost(cost))
-	_label(_box, "Pack %d/%d: %s" % [a.inv.total(), a.capacity(), a.inv.summary()], 11).autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_label(_box, "Pack (%d/%d slots): %s" % [a.inv.used_slots(), a.capacity(), a.inv.summary()], 11).autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_hint("Same recipes and times as everyone.  Walking away, or a hard hit, closes this.  E / Esc close.")
 
 

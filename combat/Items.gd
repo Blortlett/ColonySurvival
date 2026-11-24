@@ -60,8 +60,8 @@ const WALL_HP := [100.0, 250.0, 400.0] # basic, reinforced (agreed), stone (v3, 
 const DOOR_HP := [80.0, 200.0, 500.0] # basic, reinforced (agreed), metal (v3, start)
 const FLOOR_HP := 50.0
 const FURNITURE_HP := 60.0
-const CHEST_SLOTS := [30, 60, 90] # basic, reinforced (agreed), iron-bound (v3, start)
-const CRATE_SLOTS := 60 # smeltery storage crate (v3, start)
+const CHEST_SLOTS := [12, 24, 36] # slots (6 wide): basic, reinforced, iron-bound. Were item counts 30 / 60 / 90 before slots (start)
+const CRATE_SLOTS := 24 # slots: smeltery storage crate. Was 60 items before slots (start)
 const UPGRADE_COSTS := {
 	"wall": ["wall", "wall_r", "wall_s"],
 	"door": ["door", "door_r", "door_m"],

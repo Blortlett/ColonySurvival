@@ -219,7 +219,7 @@ static func _servant_job(a: Agent) -> Job:
 		var d := Job.new(Job.Kind.DELIVER, Job.PRIO_ORDER)
 		d.target_id = m.id
 		d.item = "wood" if m.inv.count("wood") <= m.inv.count("stone") else "stone"
-		d.amount = min(8, a.free_space())
+		d.amount = min(8, a.free_space(d.item))
 		return d
 	var fj := Job.new(Job.Kind.FOLLOW, Job.PRIO_ORDER)
 	fj.target_id = m.id
@@ -359,7 +359,7 @@ static func _run_wander(a: Agent, j: Job, dt: float) -> void:
 static func _gather_step(a: Agent, j: Job, dt: float) -> bool:
 	if a.inv.count(j.item) >= j.amount:
 		return true
-	if a.free_space() <= 0:
+	if a.free_space(j.item) <= 0:
 		return true
 	if j.item == "raw_iron" and not a.inv.has_tool("pickaxe_t2"):
 		return true # nobody mines metal without a tier-2 pickaxe (agreed)
@@ -448,7 +448,7 @@ static func _pick_material(a: Agent, j: Job, cost: Dictionary, bulk: int) -> boo
 		var have := a.inv.count(k)
 		if have >= cost[k]:
 			continue
-		var want: int = max(min(cost[k] * bulk, have + a.free_space()), cost[k])
+		var want: int = max(min(cost[k] * bulk, have + a.free_space(k)), cost[k])
 		return _pick_for(a, j, k, want)
 	return true
 
@@ -484,7 +484,7 @@ static func _pick_for(a: Agent, j: Job, k: String, want: int) -> bool:
 		j.timer = 0.0
 		return true
 	var batches := int(ceil(float(want - have) / p.out))
-	var raw_want: int = max(min(p["in"][raw_missing] * batches, a.inv.count(raw_missing) + a.free_space()), p["in"][raw_missing])
+	var raw_want: int = max(min(p["in"][raw_missing] * batches, a.inv.count(raw_missing) + a.free_space(raw_missing)), p["in"][raw_missing])
 	return _pick_for(a, j, raw_missing, raw_want)
 
 
@@ -645,7 +645,7 @@ static func _run_task(a: Agent, j: Job, dt: float) -> void:
 			t.board.complete(t)
 			_done(a)
 			return
-		cost = {"wood": max(1, min(fire.wood_space(), a.capacity() / 2))}
+		cost = {"wood": max(1, min(fire.wood_space(), Inventory.stack_of("wood")))}
 	if not a.inv.has_cost(cost):
 		# Gather a bit extra for walls/floors so one trip covers several tasks.
 		var bulk := 4 if t.type in [Task.Type.BUILD_WALL, Task.Type.BUILD_FLOOR, Task.Type.UPGRADE_WALL] else 1
@@ -804,7 +804,7 @@ static func _perform_task(a: Agent, j: Job, t: Task, cost: Dictionary, dt: float
 			a.inv.pay(cost)
 			World.furniture.erase(old.cell)
 			var nc := World.place_furniture(old.cell, Furniture.Kind.CHEST, fid, t.house, t.tier)
-			nc.store = old.store # contents carry over
+			nc.set_store(old.store) # contents carry over
 			t.house.chest = nc
 			board.complete(t)
 			_done(a)
@@ -919,7 +919,7 @@ static func _run_deliver(a: Agent, j: Job, dt: float) -> void:
 			a.path.clear()
 		return
 	if a.pos.distance_to(m.pos) <= 1.6:
-		var n: int = min(a.inv.count(j.item), m.free_space())
+		var n: int = min(a.inv.count(j.item), m.free_space(j.item))
 		a.inv.remove(j.item, n)
 		m.inv.add(j.item, n)
 		_done(a)

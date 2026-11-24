@@ -220,7 +220,7 @@ static func _stop_fight(a: Agent, v: Agent) -> void:
 static func rob(robber: Agent, victim: Agent, frac: float) -> int:
 	var moved := 0
 	for k in victim.inv.stacks.keys():
-		var n: int = min(int(floor(victim.inv.count(k) * frac)), robber.free_space())
+		var n: int = min(int(floor(victim.inv.count(k) * frac)), robber.free_space(k))
 		if n <= 0:
 			continue
 		victim.inv.remove(k, n)

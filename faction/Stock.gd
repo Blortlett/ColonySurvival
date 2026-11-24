@@ -121,7 +121,7 @@ static func surplus(a: Agent) -> Dictionary:
 
 ## Deposit plan: stocking needs first, then other surplus once the agent is getting full.
 static func deposit_plan(a: Agent, ch: Furniture) -> Dictionary:
-	var room := ch.free_slots()
+	var room := ch.free_units()
 	var sur := surplus(a)
 	var need := shortfall(ch, a.faction)
 	var plan := {}
@@ -143,7 +143,7 @@ static func deposit_plan(a: Agent, ch: Furniture) -> Dictionary:
 			plan[k] = n
 			room -= n
 			reserve -= n
-	if a.inv.total() >= a.capacity() * 0.6:
+	if a.inv.used_slots() >= a.capacity() * 0.6:
 		var extra: int = room - max(0, reserve)
 		for k in sur:
 			var n: int = min(sur[k] - plan.get(k, 0), extra)
@@ -165,22 +165,22 @@ static func transfer(a: Agent, ch: Furniture, plan: Dictionary) -> int:
 					var tool = _spare_tool(a.inv, t)
 					if tool == null or ch.free_slots() <= 0:
 						break
-					a.inv.tools.erase(tool)
-					ch.store.tools.append(tool)
+					a.inv.take_tool(tool)
+					ch.store.put_tool(tool)
 				else:
 					var tool = ch.store.get_tool(t)
-					if tool == null or a.free_space() <= 0:
+					if tool == null or a.inv.free_slots() <= 0:
 						break
-					ch.store.tools.erase(tool)
-					a.inv.tools.append(tool)
+					ch.store.take_tool(tool)
+					a.inv.put_tool(tool)
 				moved += 1
 		elif n > 0:
-			var m: int = min(n, min(a.inv.count(k), ch.free_slots()))
+			var m: int = min(n, min(a.inv.count(k), ch.free_for(k)))
 			a.inv.remove(k, m)
 			ch.store.add(k, m)
 			moved += m
 		else:
-			var m: int = min(-n, min(ch.store.count(k), a.free_space()))
+			var m: int = min(-n, min(ch.store.count(k), a.free_space(k)))
 			ch.store.remove(k, m)
 			a.inv.add(k, m)
 			moved += m

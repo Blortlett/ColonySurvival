@@ -20,9 +20,9 @@ func _ready() -> void:
 	_panel.anchor_bottom = 1.0
 	_panel.anchor_left = 0.5
 	_panel.anchor_right = 0.5
-	_panel.offset_left = -340
-	_panel.offset_right = -60
-	_panel.offset_bottom = -190
+	_panel.offset_left = -470 # left of the hotbar and pack (ui/InventoryUI.gd)
+	_panel.offset_right = -175
+	_panel.offset_bottom = -82
 	_panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = Color(0.06, 0.06, 0.09, 0.92)

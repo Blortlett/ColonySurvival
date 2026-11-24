@@ -606,7 +606,7 @@ func remove_furniture(fu: Furniture, reason: String = "chest destroyed") -> void
 	buildings_version += 1
 	if fu.is_storage() and fu.store.total() > 0:
 		drop_loot(fu.cell, fu.store.stacks.duplicate(), fu.store.tools.duplicate(), -1, reason)
-		fu.store = Inventory.new()
+		fu.set_store(Inventory.new())
 
 
 func place_fire(c: Vector2i, house_fire: bool, fid: int) -> Campfire:
@@ -682,15 +682,14 @@ func drop_loot(c: Vector2i, stacks: Dictionary, tools: Array, dropper_id: int = 
 
 func take_loot(a: Agent, bag: LootBag) -> void:
 	for t in bag.tools.duplicate():
-		if a.free_space() <= 0:
+		if not a.inv.put_tool(t):
 			break
-		a.inv.tools.append(t)
 		bag.tools.erase(t)
 	for k in bag.stacks.keys():
-		var n: int = min(bag.stacks[k], a.free_space())
+		var n: int = min(bag.stacks[k], a.free_space(k))
 		if n <= 0:
-			break
-		a.inv.add(k, n)
+			continue
+		n = a.inv.add(k, n)
 		bag.stacks[k] -= n
 		if bag.stacks[k] <= 0:
 			bag.stacks.erase(k)

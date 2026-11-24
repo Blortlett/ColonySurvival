@@ -5,9 +5,11 @@ extends Node2D
 ## (Scheduler -> control()), through the same Actions the AI uses. So the sim never
 ## depends on rendering, and every rule (costs, durability, damage, zones) is shared.
 ##
-## Controls: WASD move, mouse aims, LMB swing (or place, with a piece picked), RMB shoot a
-## bow, hold E harvest, E on a chest or machine opens its panel (E / Esc close it), B opens
-## the build menu (ui/BuildMenu.gd sets build_piece), X / Esc stop building, F eat a berry.
+## Controls: WASD move, mouse aims, 1-6 pick the held hotbar slot, LMB uses what's held
+## (swing a weapon or tool, punch empty-handed, eat food, shoot a held bow; with a build
+## piece picked it places it), RMB shoot a bow, hold E harvest, E on a chest or machine opens
+## it (a chest opens the inventory too; E / Esc close), Tab inventory, B the build menu
+## (ui/BuildMenu.gd sets build_piece), X / Esc stop building, F eat a berry.
 ## Movement keeps working while a panel is open; walking out of reach closes it. Social choices use the default rules for now (§5): refuse to join,
 ## fight back when attacked.
 
@@ -17,6 +19,7 @@ signal died # the controlled body died; the death panel offers takeover or respa
 signal body_changed # the controller now drives another body (takeover, respawn, debug)
 
 const Station := preload("res://player/Station.gd")
+const InvMoves := preload("res://player/InvMoves.gd")
 
 var body: Agent = null
 var watching := false # debug watch mode: the AI drives the body (§6a)
@@ -34,6 +37,10 @@ var warm_t := 0.0
 var station := Station.new() # the open chest or machine panel (phase 4)
 var use_target: Furniture = null # what E would open right now (HUD hint)
 var message := ""
+var held := 0 # hotbar slot in hand (0-5); copied to body.held while the player drives it
+var inv_open := false # Tab inventory (pack grid, armour, stats); a chest opens it too
+var _inv_auto := false # the inventory was opened by a chest: close it with the chest
+var _inv_reqs: Array = [] # inventory moves queued by the UI, applied in the sim step
 var message_t := 0.0
 ## Set when the controlled body dies, cleared when the player picks a new body (§5a):
 ## {cause, pos, fids (groups it could pass to), kingdom, newcomer_id}.
@@ -59,7 +66,12 @@ func _ready() -> void:
 func possess(a: Agent) -> void:
 	if body and body.controller == self:
 		body.controller = null
+	if body:
+		body.held = -1 # back to the AI's "best weapon carried"
 	body = a
+	inv_open = false
+	_inv_auto = false
+	_inv_reqs.clear()
 	vel = Vector2.ZERO
 	harvest_node = null
 	station.close("")
@@ -82,6 +94,7 @@ func possess(a: Agent) -> void:
 
 func _take(a: Agent) -> void:
 	a.controller = self
+	a.held = held
 	Brain.set_job(a, null) # drops any task claim too
 	a.path.clear()
 
@@ -94,6 +107,8 @@ func set_watching(on: bool) -> void:
 		return
 	if on:
 		body.controller = null
+		body.held = -1
+		inv_open = false
 		Brain.set_job(body, null)
 		body.think_t = 0.0
 	else:
@@ -108,6 +123,61 @@ func alive() -> bool:
 func say(text: String, secs := 2.5) -> void:
 	message = text
 	message_t = secs
+
+
+## Pick the hotbar slot in hand (keys 1-6).
+func select_slot(i: int) -> void:
+	held = clampi(i, 0, Cfg.HOTBAR_SLOTS - 1)
+	if body and body.controller == self:
+		body.held = held
+
+
+## What's in hand: the hotbar entry (null if empty).
+func held_entry():
+	return body.inv.entry(held) if body else null
+
+
+func toggle_inventory() -> void:
+	set_inventory(not inv_open)
+
+
+func set_inventory(on: bool) -> void:
+	inv_open = on and alive() and not watching
+	_inv_auto = false
+	if not inv_open and station.is_chest():
+		_use = -1 # closing the inventory closes the chest with it
+
+
+## Inventory UI requests (applied in the next sim step): drag (src, si) onto (dst, di).
+func request_move(src: String, si: int, dst: String, di: int) -> void:
+	_inv_reqs.append(["move", src, si, dst, di])
+
+
+## Right click: the whole stack across.
+func request_quick(src: String, si: int) -> void:
+	_inv_reqs.append(["quick", src, si])
+
+
+## Hand crafting (Tab inventory): the recipes anyone can make from their pack, anywhere,
+## instantly, as the AI does (GoalLadder). Workshop and anvil recipes need their machine.
+static func hand_recipes() -> Array[String]:
+	var out: Array[String] = []
+	for k in Items.RECIPES:
+		if not k in Items.WORKSHOP_RECIPES and not k in Items.ANVIL_RECIPES:
+			out.append(k)
+	return out
+
+
+func request_craft(item: String) -> void:
+	_inv_reqs.append(["craft", item])
+
+
+func request_put_all() -> void:
+	_inv_reqs.append(["put_all"])
+
+
+func request_take_all() -> void:
+	_inv_reqs.append(["take_all"])
 
 
 # --- Death and takeover (Player Controller Plan §5a) ---
@@ -285,6 +355,14 @@ func _unhandled_input(event: InputEvent) -> void:
 		elif k == KEY_ESCAPE and station.open != null:
 			_use = -1
 			get_viewport().set_input_as_handled()
+		elif k == KEY_TAB:
+			toggle_inventory()
+			get_viewport().set_input_as_handled()
+		elif k == KEY_ESCAPE and inv_open:
+			set_inventory(false)
+			get_viewport().set_input_as_handled()
+		elif k >= KEY_1 and k < KEY_1 + Cfg.HOTBAR_SLOTS and not keys_blocked:
+			select_slot(k - KEY_1)
 		elif k == KEY_X or k == KEY_ESCAPE:
 			build_piece = ""
 		elif k == KEY_F:
@@ -299,10 +377,11 @@ func control(a: Agent, dt: float) -> void:
 	a.facing = _aim_dir(a)
 	_swing_t -= dt
 	_shoot_t -= dt
+	a.held = held
+	_apply_inv(a)
 	if _swing_t > 0.0 and a.attack_cd <= 0.0:
 		_swing_t = 0.0
-		if Actions.swing(a, a.facing, a.melee_weapon()) > 0:
-			hit_landed.emit()
+		_use_held(a)
 	if _shoot_t > 0.0 and a.attack_cd <= 0.0:
 		_shoot_t = 0.0
 		_shoot(a)
@@ -314,11 +393,69 @@ func control(a: Agent, dt: float) -> void:
 		if not Actions.eat(a):
 			say("No berries to eat.")
 	_use_station(a, dt)
+	_follow_chest()
 	_harvest(a, dt)
 	_warm(a, dt)
 	var bag: LootBag = World.loot.get(a.cell())
 	if bag:
 		World.take_loot(a, bag)
+
+
+## LMB with what's in hand: food is eaten, a bow shoots at the aim, anything else swings
+## (weapons as their weapon, everything else is a punch).
+func _use_held(a: Agent) -> void:
+	var e = a.inv.entry(held)
+	if e != null and not Inventory.is_tool_entry(e) and e.item == "berry":
+		if not Actions.eat(a):
+			say("No berries to eat.")
+		return
+	if Inventory.is_tool_entry(e) and e.type == "bow":
+		_shoot(a)
+		return
+	if Actions.swing(a, a.facing, a.melee_weapon()) > 0:
+		hit_landed.emit()
+
+
+func _apply_inv(a: Agent) -> void:
+	var reqs := _inv_reqs
+	_inv_reqs = []
+	for r in reqs:
+		match r[0]:
+			"move":
+				InvMoves.move(a, station, r[1], r[2], r[3], r[4])
+			"quick":
+				InvMoves.quick(a, station, r[1], r[2])
+			"put_all":
+				InvMoves.put_all(a, station)
+			"take_all":
+				InvMoves.take_all(a, station)
+			"craft":
+				_hand_craft(a, r[1])
+
+
+func _hand_craft(a: Agent, item: String) -> void:
+	if not item in hand_recipes():
+		return
+	var cost: Dictionary = Items.RECIPES[item]
+	if not a.inv.has_cost(cost):
+		say("Can't craft a %s: needs %s." % [Items.label(item), Actions.cost_text(cost)])
+	elif not Actions.craft(a, item):
+		say("No room in your pack for a %s." % Items.label(item))
+	else:
+		var n := Items.ARROWS_PER_CRAFT if item == "arrow" else 1
+		say("Crafted %s." % (("%d arrows" % n) if item == "arrow" else "a " + Items.label(item)))
+		EventBus.log_event("%s crafts a %s." % [a.short(), Items.label(item)])
+
+
+## A chest being open opens the inventory with it (agreed); when that chest closes (E, Esc,
+## walking away, a hard hit) the inventory closes again, unless Tab opened it first.
+func _follow_chest() -> void:
+	if station.is_chest() and not inv_open:
+		inv_open = true
+		_inv_auto = true
+	elif _inv_auto and not station.is_chest():
+		inv_open = false
+		_inv_auto = false
 
 
 func _aim_dir(a: Agent) -> Vector2:
@@ -408,7 +545,7 @@ func _harvest(a: Agent, dt: float) -> void:
 		say("Metal needs a tier-2 pickaxe.")
 		harvest_node = null
 		return
-	if a.free_space() <= 0:
+	if a.free_space(n.item()) <= 0:
 		say("Your pack is full.")
 		return
 	var g := Actions.harvest_secs(a, n)

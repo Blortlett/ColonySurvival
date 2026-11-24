@@ -15,7 +15,7 @@ var _house: WeakRef = null
 var house = null:
 	get: return _house.get_ref() if _house else null
 	set(v): _house = weakref(v) if v else null
-var store := Inventory.new() # chest contents
+var store := Inventory.new() # chest contents (slots: see slots())
 var hp: float
 var max_hp: float
 
@@ -27,6 +27,7 @@ func _init(c: Vector2i, k: Kind, owner: int, t: int = 0) -> void:
 	tier = t
 	max_hp = Items.FURNITURE_HP * [1.0, 2.5, 4.0][t]
 	hp = max_hp
+	store.cap_fn = slots
 
 
 func slots() -> int:
@@ -48,7 +49,22 @@ func is_storage() -> bool:
 
 
 func free_slots() -> int:
-	return max(0, slots() - store.total())
+	return store.free_slots()
+
+
+## Room in units for a fresh 20-stack per free slot (AI budgets).
+func free_units() -> int:
+	return store.free_units()
+
+
+func free_for(item: String) -> int:
+	return store.room_for(item)
+
+
+## Swap in a store (chest upgrade, emptied chest); its slot count follows this furniture.
+func set_store(inv: Inventory) -> void:
+	store = inv
+	store.cap_fn = slots
 
 
 func label() -> String:

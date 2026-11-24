@@ -24,7 +24,10 @@ var cooldowns := {} # agent id -> sim time when interaction is allowed again
 var death_match := {} # agent ids we're fighting to the death with
 var pleaded := {} # attacker ids we've already pleaded to
 
-var inv := Inventory.new()
+var inv := Inventory.new(Cfg.AGENT_SLOTS)
+## Hotbar slot the body holds (0-5), set by the player's controller. -1: the AI, which
+## always fights with its best weapon.
+var held := -1
 var worn := {} # armour slot (helmet / chest_armor / leg_armor) -> {type, dur}; takes no inventory slots (v3)
 var job: Job = null
 var path: Array[Vector2i] = []
@@ -105,12 +108,14 @@ func melee_mult() -> float:
 	return 1.0 + (stats.str - 5) * 0.06
 
 
+## Slots (the slot inventory replaced the old 20 + STR x 2 item count).
 func capacity() -> int:
-	return 20 + stats.str * 2
+	return inv.cap()
 
 
-func free_space() -> int:
-	return max(0, capacity() - inv.total())
+## How many of `item` still fit; without an item, the room for a fresh 20-stack per free slot.
+func free_space(item := "") -> int:
+	return inv.free_units() if item == "" else inv.room_for(item)
 
 
 func speed() -> float:
@@ -150,6 +155,11 @@ func gain_authority() -> void:
 # --- Combat helpers ---
 
 func melee_weapon() -> String:
+	if held >= 0:
+		var e = inv.entry(held) # the player fights with what is in hand
+		if Inventory.is_tool_entry(e) and Items.WEAPONS.has(e.type) and e.type != "bow":
+			return e.type
+		return "unarmed"
 	if inv.has_tool("sword"):
 		return "sword" # preferred when owned (v3)
 	if inv.has_tool("club"):
@@ -201,7 +211,7 @@ func is_armoured() -> bool:
 func auto_equip() -> void:
 	for t in inv.tools.duplicate():
 		if t.type in Items.ARMOR and not worn.has(t.type):
-			inv.tools.erase(t)
+			inv.take_tool(t)
 			worn[t.type] = t
 
 

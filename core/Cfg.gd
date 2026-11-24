@@ -187,6 +187,10 @@ const SWING_ARC_DEG := 90.0 # a swing hits everyone not on the swinger's side in
 ## they're fighting. On, kills rose about 40% on the bench (see Player_Controller_Plan notes).
 const NPC_SWING_HITS_BYSTANDERS := false # (agreed) NPCs only hit agents they are fighting
 
+# --- Slot inventory (agreed with the user 2026-11-24) ---
+const AGENT_SLOTS := 30 # every agent: 6 hotbar + 24 pack (6 x 4); stack sizes in Inventory.STACK
+const HOTBAR_SLOTS := 6 # slots 0-5; the player holds one of them (keys 1-6)
+
 # --- Player (Player Controller Plan §2, §6) ---
 const PLAYER_ACCEL_SECS := 0.05 # time to full speed, and to stop (start)
 const PLAYER_HARVEST_REACH := 1.6 # nodes this close (centre to centre) can be harvested

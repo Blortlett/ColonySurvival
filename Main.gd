@@ -13,6 +13,7 @@ var _feed: CanvasLayer # ui/SocialFeed.gd (Player Controller Plan §5.1)
 var _playtest: RefCounted = null
 var _panels: CanvasLayer = null # chest / machine panels (ui/StationPanel.gd)
 var _build: CanvasLayer = null # build menu (ui/BuildMenu.gd)
+var _inv_ui: CanvasLayer = null # hotbar, pack, armour and chest slots (ui/InventoryUI.gd)
 var _sim_usec := 0 # time spent stepping the sim in _process (--frames)
 
 
@@ -35,6 +36,9 @@ func _ready() -> void:
 	add_child(_hud)
 	var player_hud := preload("res://ui/PlayerHud.gd").new()
 	add_child(player_hud)
+	var inv_ui := preload("res://ui/InventoryUI.gd").new()
+	add_child(inv_ui)
+	player_hud.inv_ui = inv_ui
 	_debug = preload("res://ui/DebugMenu.gd").new()
 	_debug.camera = _camera
 	_debug.agent_layer = _agents
@@ -59,6 +63,9 @@ func _ready() -> void:
 	add_child(_player)
 	player_layer.player = _player
 	player_hud.player = _player
+	inv_ui.player = _player
+	_inv_ui = inv_ui
+	_hud.show_log = false # the player's feed replaces the world log (agreed)
 	_debug.player = _player
 	_feed = preload("res://ui/SocialFeed.gd").new()
 	add_child(_feed)

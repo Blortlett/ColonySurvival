@@ -76,11 +76,11 @@ static func _stock_job(a: Agent, ch: Furniture) -> Job:
 	var plan := Stock.deposit_plan(a, ch)
 	if not plan.is_empty():
 		return Brain.chest_job(ch, plan)
-	var room := ch.free_slots()
+	var room := ch.free_units()
 	if room <= 0:
 		return null # chest full (a basic chest can't hold the whole goal for a big group)
 	var need := Stock.shortfall(ch, a.faction)
-	if need.has("berry") and a.free_space() > 2:
+	if need.has("berry") and a.free_space("berry") > 2:
 		return Brain._gather_job("berry", Cfg.KEEP_BERRIES + min(min(need.berry, room), 10))
 	for t in Stock.SPARE_TOOLS:
 		if need.has("tool:" + t):
@@ -105,9 +105,9 @@ static func _metal_job(a: Agent, ch: Furniture) -> Job:
 		var cj := Job.new(Job.Kind.CRAFT, Job.PRIO_LADDER)
 		cj.then_craft = "pickaxe_t2"
 		return cj
-	if group_stock(f, "raw_iron") >= Cfg.IRON_STOCK_GOAL or a.free_space() < 4:
+	if group_stock(f, "raw_iron") >= Cfg.IRON_STOCK_GOAL or a.free_space("raw_iron") < 4:
 		return null
-	return Brain._gather_job("raw_iron", a.inv.count("raw_iron") + min(10, a.free_space()))
+	return Brain._gather_job("raw_iron", a.inv.count("raw_iron") + min(10, a.free_space("raw_iron")))
 
 
 ## Smeltery work (v3 Phase 4): keep the side's crates stocked with iron bars, then one

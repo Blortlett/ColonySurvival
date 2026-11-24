@@ -48,12 +48,12 @@ func _ready() -> void:
 	_label.scroll_active = false
 	_label.fit_content = true
 	_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_label.anchor_left = 1.0
-	_label.anchor_right = 1.0
+	_label.anchor_left = 0.0 # bottom left, where the whole-world log was (agreed)
+	_label.anchor_right = 0.0
 	_label.anchor_top = 1.0
 	_label.anchor_bottom = 1.0
-	_label.offset_left = -430
-	_label.offset_right = -10
+	_label.offset_left = 10
+	_label.offset_right = 450
 	_label.offset_top = -260
 	_label.offset_bottom = -10
 	_label.grow_vertical = Control.GROW_DIRECTION_BEGIN

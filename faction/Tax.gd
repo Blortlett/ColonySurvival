@@ -123,7 +123,7 @@ static func _collect(k: Kingdom, lead: Faction, g: Faction, ch: Furniture) -> in
 
 
 static func _take(from: Furniture, to: Furniture, item: String, n: int) -> int:
-	var m: int = min(n, min(from.store.count(item), to.free_slots()))
+	var m: int = min(n, min(from.store.count(item), to.free_for(item)))
 	if m <= 0:
 		return 0
 	from.store.remove(item, m)
@@ -133,8 +133,8 @@ static func _take(from: Furniture, to: Furniture, item: String, n: int) -> int:
 
 static func _take_tool(from: Furniture, to: Furniture, t: String) -> int:
 	var tool = from.store.get_tool(t)
-	if tool == null:
+	if tool == null or to.free_slots() <= 0:
 		return 0
-	from.store.tools.erase(tool)
-	to.store.tools.append(tool)
+	from.store.take_tool(tool)
+	to.store.put_tool(tool)
 	return 1

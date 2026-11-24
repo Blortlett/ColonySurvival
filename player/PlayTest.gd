@@ -99,7 +99,11 @@ func run(main: Node, pc: PlayerController, cam: Node) -> void:
 
 	# 5. Fight: swing at an NPC in front; it fights back. The player gets a sword so the
 	# rest of the test usually survives (an unarmed player tends to lose).
+	_slots(a)
 	a.inv.add_tool("sword")
+	pc.select_slot(a.inv.slot_of(a.inv.get_tool("sword")))
+	_steps(1)
+	_check(a.melee_weapon() == "sword", "the sword is in hand (hotbar slot %d)" % (pc.held + 1))
 	var foe: Agent = null
 	for o in World.agent_list:
 		if o != a and not World.same_side(o.faction.id, a.faction.id) and (foe == null or World.dist(o.pos, a.pos) < World.dist(foe.pos, a.pos)):
@@ -341,24 +345,30 @@ func _panels(a: Agent, cam: Node) -> void:
 	_steps(1)
 	_check(pc.station.open == null, "a hard hit closed the panel (%s)" % pc.message)
 	a.hp = Cfg.MAX_HP
-	# Chest: stock it with the pickaxe and the spare handle, take the handle back.
+	# Chest (slot UI): opening it opens the inventory; right click moves the pickaxe and the
+	# spare handle across; dragging takes the handle back into a chosen pack slot.
 	a.pos = World.center(p0 + Vector2i(1, 2))
 	pc.aim_point = World.center(chest.cell)
+	pc.set_inventory(false)
 	pc._use = 1
 	_steps(1)
-	_check(pc.station.open == chest, "E opens the chest panel")
-	panels.click("put:tool:pickaxe_t2:1")
-	_steps(1)
-	panels.click("put:handle:all")
+	_check(pc.station.open == chest and pc.inv_open, "E opens the chest, and the inventory with it")
+	pc.request_quick("inv", a.inv.slot_of(a.inv.get_tool("pickaxe_t2")))
+	pc.request_quick("inv", _slot_with(a.inv, "handle"))
 	_steps(1)
 	await _shot("playtest_chest")
-	_check(chest.store.has_tool("pickaxe_t2") and chest.store.count("handle") == 1 and not a.inv.has_tool("pickaxe_t2") and a.inv.count("handle") == 0, "stocked the chest by hand (%s)" % chest.store.summary())
-	panels.click("take:handle:1")
+	_check(chest.store.has_tool("pickaxe_t2") and chest.store.count("handle") == 1 and not a.inv.has_tool("pickaxe_t2") and a.inv.count("handle") == 0, "right click stocked the chest (%s)" % chest.store.summary())
+	var free_slot := -1
+	for i in range(Cfg.HOTBAR_SLOTS, Cfg.AGENT_SLOTS):
+		if a.inv.entry(i) == null:
+			free_slot = i
+			break
+	pc.request_move("chest", _slot_with(chest.store, "handle"), "inv", free_slot)
 	_steps(1)
-	_check(chest.store.count("handle") == 0 and a.inv.count("handle") == 1, "took one handle back out")
+	_check(chest.store.count("handle") == 0 and a.inv.count("handle") == 1 and a.inv.entry(free_slot) != null, "dragged the handle back into pack slot %d" % free_slot)
 	pc._use = -1
 	_steps(1)
-	_check(pc.station.open == null, "E closes the panel")
+	_check(pc.station.open == null and not pc.inv_open, "E closes the chest, and the inventory it opened")
 	# Someone else's chest is refused.
 	var other_fid := -1
 	for o in World.agent_list:
@@ -380,6 +390,117 @@ func _panels(a: Agent, cam: Node) -> void:
 	menu._update()
 	_check(menu.pick("wall") and pc.build_piece == "wall" and not menu.visible, "build menu picks the wall and closes")
 	pc.build_piece = ""
+
+
+## The first slot holding a stack of `item`, or -1.
+static func _slot_with(inv: Inventory, item: String) -> int:
+	for i in inv.slots.size():
+		var e = inv.slots[i]
+		if e != null and not Inventory.is_tool_entry(e) and e.item == item:
+			return i
+	return -1
+
+
+## The slot inventory (agreed 2026-11-24): 30 slots, the hotbar slot in hand decides the
+## weapon, LMB eats held berries, drag merges and swaps, right click moves stacks between
+## hotbar and pack, armour goes on and off, a full pack refuses more.
+func _slots(a: Agent) -> void:
+	var pc := _pc
+	_check(a.inv.cap() == 30, "every agent has 30 slots (%d)" % a.inv.cap())
+	# A club in the hotbar: in hand only when its slot is picked.
+	a.inv.add_tool("club")
+	var club := a.inv.slot_of(a.inv.get_tool("club"))
+	_check(club >= 0 and club < Cfg.HOTBAR_SLOTS, "a new tool lands in the hotbar (slot %d)" % (club + 1))
+	var empty := -1
+	for i in Cfg.HOTBAR_SLOTS:
+		if a.inv.entry(i) == null:
+			empty = i
+			break
+	pc.select_slot(empty)
+	_steps(1)
+	var bare := a.melee_weapon()
+	pc.select_slot(club)
+	_steps(1)
+	_check(bare == "unarmed" and a.melee_weapon() == "club", "the weapon is the one in hand (empty slot: %s, club slot: %s)" % [bare, a.melee_weapon()])
+	# Berries in hand: LMB eats one.
+	a.inv.remove("berry", a.inv.count("berry"))
+	a.inv.add("berry", 3)
+	var b := _slot_with(a.inv, "berry")
+	pc.request_move("inv", b, "inv", empty)
+	_steps(1)
+	pc.select_slot(empty)
+	a.hunger = 0.3
+	a.attack_cd = 0.0
+	pc._swing_t = 0.25
+	_steps(1)
+	_check(a.inv.count("berry") == 2 and a.hunger > 0.3, "LMB with berries in hand eats one")
+	# Right click: hotbar <-> pack.
+	pc.request_quick("inv", empty)
+	_steps(1)
+	var moved := _slot_with(a.inv, "berry")
+	_check(moved >= Cfg.HOTBAR_SLOTS and a.inv.entry(empty) == null, "right click moves a hotbar stack into the pack (slot %d)" % moved)
+	# Drag: same item merges, different items swap.
+	a.inv.remove("stone", a.inv.count("stone"))
+	var s1 := _first_free(a.inv, Cfg.HOTBAR_SLOTS)
+	a.inv.put_slot(s1, {"item": "stone", "n": 5})
+	var s2 := _first_free(a.inv, s1 + 1)
+	a.inv.put_slot(s2, {"item": "stone", "n": 4})
+	pc.request_move("inv", s2, "inv", s1)
+	_steps(1)
+	_check(a.inv.entry(s2) == null and a.inv.entry(s1) != null and a.inv.entry(s1).n == 9, "dragging stone onto stone merges the stacks")
+	pc.request_move("inv", s1, "inv", moved)
+	_steps(1)
+	var at_moved = a.inv.entry(moved)
+	var at_s1 = a.inv.entry(s1)
+	_check(at_moved != null and at_moved.item == "stone" and at_s1 != null and at_s1.item == "berry", "dragging stone onto berries swaps them")
+	a.inv.remove("stone", 9)
+	# Armour: right click puts a helmet on and takes it off again.
+	a.inv.add_tool("helmet")
+	pc.request_quick("inv", a.inv.slot_of(a.inv.get_tool("helmet")))
+	_steps(1)
+	var on := a.worn.has("helmet") and not a.inv.has_tool("helmet")
+	pc.request_quick("worn", Items.ARMOR.find("helmet"))
+	_steps(1)
+	_check(on and not a.worn.has("helmet") and a.inv.has_tool("helmet"), "right click puts armour on, and takes it off")
+	a.inv.take_tool(a.inv.get_tool("helmet"))
+	a.inv.take_tool(a.inv.get_tool("club"))
+	# Hand crafting (Tab inventory): an axe from the pack, anywhere; a workshop recipe isn't
+	# offered by hand.
+	for k in ["wood", "stone", "hemp"]:
+		a.inv.remove(k, a.inv.count(k))
+	a.inv.add("wood", 3)
+	a.inv.add("stone", 2)
+	a.inv.add("hemp", 1)
+	var axes := 0
+	for t in a.inv.tools:
+		if t.type == "axe":
+			axes += 1
+	pc.request_craft("axe")
+	pc.request_craft("raiding_axe")
+	_steps(1)
+	var axes_now := 0
+	for t in a.inv.tools:
+		if t.type == "axe":
+			axes_now += 1
+	_check(axes_now == axes + 1 and a.inv.count("wood") == 0 and not a.inv.has_tool("raiding_axe"), "hand-crafted an axe from the pack (workshop recipes aren't offered by hand)")
+	for t in a.inv.tools.duplicate():
+		if t.type == "axe" and axes_now > axes:
+			a.inv.take_tool(t)
+			axes_now -= 1
+	# A full pack refuses more, and nothing is lost.
+	var before := a.inv.used_slots()
+	var got := a.inv.add("hemp", 30 * 20)
+	var full := a.inv.free_slots() == 0
+	var more := a.inv.add("hemp", 5)
+	_check(full and more == 0 and a.inv.count("hemp") == got, "a full pack refuses more (%d hemp in %d free slots)" % [got, 30 - before])
+	a.inv.remove("hemp", got)
+
+
+static func _first_free(inv: Inventory, from: int) -> int:
+	for i in range(from, inv.cap()):
+		if inv.entry(i) == null:
+			return i
+	return -1
 
 
 ## `-- --inputtest`: the same controller driven through Godot's real input path (key and
@@ -423,28 +544,53 @@ func run_input(main: Node, pc: PlayerController, cam: Node) -> void:
 	_key(KEY_X, false)
 	await _frames(2)
 	_check(pc.build_piece == "", "X stops building")
-	# E opens a chest beside the body; a mouse click on its panel moves items (and doesn't
-	# swing); Esc closes it.
+	# Tab opens the inventory; 2 picks hotbar slot 2.
+	var inv_ui: CanvasLayer = main._inv_ui
+	_key(KEY_TAB, true)
+	_key(KEY_TAB, false)
+	await _frames(2)
+	_check(pc.inv_open and inv_ui._pack.visible and inv_ui._equip.visible, "Tab opens the inventory (pack, armour, stats)")
+	_key(KEY_2, true)
+	_key(KEY_2, false)
+	await _frames(2)
+	_check(pc.held == 1, "2 picks hotbar slot 2")
+	_key(KEY_TAB, true)
+	_key(KEY_TAB, false)
+	await _frames(2)
+	_check(not pc.inv_open and not inv_ui._pack.visible and inv_ui._hotbar.visible, "Tab closes it; the hotbar stays")
+	# E opens a chest beside the body, and the inventory with it. Right click on the wood's
+	# slot moves the stack into the chest (and doesn't swing); a drag brings it back into a
+	# chosen pack slot; Esc closes both.
 	var ch := World.place_furniture(a.cell() + Vector2i(-1, 0), Furniture.Kind.CHEST, a.faction.id, null)
 	_key(KEY_E, true)
 	_key(KEY_E, false)
 	await _frames(3)
-	var panels: CanvasLayer = main._panels
-	_check(pc.station.open == ch and panels.visible, "E opens the chest panel")
+	_check(pc.station.open == ch and pc.inv_open and inv_ui._chest.visible, "E opens the chest on the right, and the inventory")
 	await _frames(8)
 	await _shot("inputtest_chest")
-	var b: Button = panels._buttons.get("put:wood:1")
-	if b:
+	var wood_slot := _slot_with(a.inv, "wood")
+	var wood_n := a.inv.count("wood")
+	var src: Control = inv_ui.box("inv", wood_slot)
+	if src:
 		var cd := a.last_swing
-		_click(MOUSE_BUTTON_LEFT, b.get_global_rect().get_center())
+		_click(MOUSE_BUTTON_RIGHT, src.get_global_rect().get_center())
 		await _frames(3)
-		_check(ch.store.count("wood") == 1 and a.last_swing == cd, "a click on the panel's button moved 1 wood (no swing)")
+		_check(ch.store.count("wood") == wood_n and a.inv.count("wood") == 0 and a.last_swing == cd, "right click on the slot moved %d wood into the chest (no swing)" % wood_n)
+		var from: Control = inv_ui.box("chest", _slot_with(ch.store, "wood"))
+		var to: Control = inv_ui.box("inv", Cfg.AGENT_SLOTS - 1)
+		if from and to:
+			_drag(from.get_global_rect().get_center(), to.get_global_rect().get_center())
+			await _frames(3)
+			var e = a.inv.entry(Cfg.AGENT_SLOTS - 1)
+			_check(e != null and e.item == "wood" and ch.store.count("wood") == 0, "dragged the wood back into the last pack slot")
+		else:
+			_check(false, "the chest and pack slots are on screen")
 	else:
-		_check(false, "the chest panel has a put-wood button")
+		_check(false, "the pack slot with the wood is on screen")
 	_key(KEY_ESCAPE, true)
 	_key(KEY_ESCAPE, false)
 	await _frames(3)
-	_check(pc.station.open == null and not panels.visible, "Esc closes the panel")
+	_check(pc.station.open == null and not inv_ui._chest.visible and not pc.inv_open, "Esc closes the chest and the inventory")
 	World.remove_furniture(ch)
 	# F1 opens the menu; while open, 2 is a speed key (refused: not watching), V watches.
 	_key(KEY_F1, true)
@@ -664,6 +810,24 @@ func _click(b: MouseButton, p: Vector2) -> void:
 		e.global_position = p
 		e.pressed = down
 		Input.parse_input_event(e)
+
+
+## Press at p1, move to p2, release there (a drag and drop).
+func _drag(p1: Vector2, p2: Vector2) -> void:
+	_mouse_move(p1)
+	var e := InputEventMouseButton.new()
+	e.button_index = MOUSE_BUTTON_LEFT
+	e.position = p1
+	e.global_position = p1
+	e.pressed = true
+	Input.parse_input_event(e)
+	_mouse_move(p2)
+	var u := InputEventMouseButton.new()
+	u.button_index = MOUSE_BUTTON_LEFT
+	u.position = p2
+	u.global_position = p2
+	u.pressed = false
+	Input.parse_input_event(u)
 
 
 func _frames(n: int) -> void:

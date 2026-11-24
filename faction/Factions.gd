@@ -427,7 +427,7 @@ static func _workshop_goals(f: Faction) -> void:
 	var ch := main.live_chest()
 	if main.state != House.State.COMPLETE or ch == null:
 		return
-	if ch.store.total() < min(ch.slots(), Cfg.STOCK_BERRIES_PER_MEMBER * f.members.size()) / 2:
+	if ch.store.total() < min(ch.slots() * Inventory.stack_of("berry"), Cfg.STOCK_BERRIES_PER_MEMBER * f.members.size()) / 2:
 		return # stock the chest first
 	var shops := shared_workshops(f)
 	var want := 1 if f.kingdom == null else Kingdoms.workshop_target(f.kingdom)

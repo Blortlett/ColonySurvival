@@ -6,6 +6,9 @@ var dynamic_layer: Node2D
 var selected_fire: Campfire = null
 var selected_loot: LootBag = null
 var selected_furniture: Furniture = null
+## The whole-world event log, bottom left. Off while playing (agreed): the player's own
+## feed (ui/SocialFeed.gd) takes its place. The watch-only modes (--bench, --shot) keep it.
+var show_log := true
 
 var _top: Label
 var _log: Label
@@ -87,8 +90,10 @@ func _update(dt: float) -> void:
 	_top.text = "%s  %s  |  Agents %d (happy %d / neutral %d / angry %d)  |  Groups %d  Kingdoms %d  Wars %d  Raids %d  Servants %d  Houses %d  Deaths %d  |  [F1] debug menu: speed, pause, watch, overlays, sprites/discs  |  Wheel zoom" % [
 		SimClock.time_string(), "PAUSED" if SimClock.paused else "x%d" % int(SimClock.speed),
 		World.agent_list.size(), happy, neutral, angry, Factions.real_count(), World.kingdoms.size(), Wars.wars.size(), Raids.active.size(), servants, houses, World.deaths]
-	var lines := EventBus.lines.slice(max(0, EventBus.lines.size() - 12))
-	_log.text = "\n".join(lines)
+	_log.visible = show_log
+	if show_log:
+		var lines := EventBus.lines.slice(max(0, EventBus.lines.size() - 12))
+		_log.text = "\n".join(lines)
 	_update_inspector()
 
 

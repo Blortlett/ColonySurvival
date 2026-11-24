@@ -94,7 +94,7 @@ static func _trade(a: Agent, b: Agent) -> void:
 static func _surplus_for(giver: Agent, taker: Agent) -> String:
 	for k in Items.STACKABLES:
 		var have := giver.inv.count(k)
-		if have >= 4 and taker.inv.count(k) * 2 < have and taker.free_space() >= 2:
+		if have >= 4 and taker.inv.count(k) * 2 < have and taker.free_space(k) >= 2:
 			return k
 	return ""
 

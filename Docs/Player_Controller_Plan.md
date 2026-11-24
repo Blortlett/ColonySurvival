@@ -306,3 +306,34 @@ Phase 6 is built. The "press R" stopgap is gone.
 
 **Open:**
 - When the player takes over a king, the AI's kingdom decisions (wars, tax, raids) still run, because they are kingdom-level systems rather than the king's brain. How a player ruler gives orders is roadmap phase 3.
+
+## 10. Slot inventory and HUD layout (agreed with the user 2026-11-24)
+
+**Agreed:**
+- **Real slots for every agent**, not just the player: 30 slots (slots 0–5 the hotbar, 6–29 the pack, shown 6 × 4). The old "20 + STR × 2 items" carry limit is gone.
+- **Hotbar:** 6 slots, bottom centre, always shown. **1–6** pick the slot in hand. **LMB uses what's held:** a weapon swings as that weapon, a held bow shoots at the aim, berries are eaten, anything else (or an empty hand) is a punch. With a build piece picked (B menu) LMB still places it.
+- **Inventory (Tab):** the pack grid just above the hotbar, and on the left the armour slots (head, body, legs) with the body's stats (group, STR / AGI / CHA / AUTH, kills, armour, what's in hand, slots used). Stats are only shown here.
+- **Chests:** shown on the right only while one is open. Opening a chest opens the inventory too; closing the chest (E, Esc, walking away, a hard hit) closes the inventory it opened.
+- **Moving items:** drag and drop between hotbar, pack, chest and armour slots (same item merges, anything else swaps). **Right click** moves a whole stack across: pack or hotbar → chest, chest → pack; with no chest open, hotbar ↔ pack; armour on and off. "Take all" and "Put pack in" buttons on the chest.
+- **Layout:** the world event log (bottom left) is off while playing; the player's social feed moved there. HP / food / warmth have their own panel at the bottom right. The top bar stays.
+
+**Built:**
+- `agent/Inventory.gd`: slot inventory. Stack sizes start at 20 (wood, stone, hemp, arrows) and 10 (berries, planks, handles, cut stone, raw iron, iron bars); tools take one slot each. `stacks` and `tools` stay as read-only caches, so most AI code reads as before. Tools fill the hotbar first, stacks the pack first. `Inventory.is_tool_entry` (not `is_tool`, which clashes with Godot's `Script.is_tool()`).
+- Chests and crates are slot grids: 12 / 24 / 36 slots by chest tier, 24 for a smeltery crate; the capital's chest has no limit. `Furniture.free_units()` / `free_for(item)` replace item counts in the AI's budgets.
+- Full packs: harvesting, processing and crafting check for room and undo themselves, so nothing is lost.
+- `Agent.held`: the hotbar slot in hand. Set only while the player drives the body; −1 (the AI) keeps "best weapon carried".
+- `player/InvMoves.gd`: the move rules (drag, right click, armour, put / take all), queued by the UI and applied in the sim step.
+- `ui/InventoryUI.gd`: hotbar, pack, equipment + stats, chest. Items are placeholder coloured tiles with a short name, a count, and a durability bar for tools, until there is item art. Tooltips give the full name.
+- `ui/PlayerHud.gd`: the vitals panel (bottom right) and the hint / message lines above the hotbar or pack. `ui/StationPanel.gd` now only shows machines. The build menu moved left of the hotbar.
+
+**Tests:**
+- `--playtest` (84 checks) gained: 30 slots; a new tool lands in the hotbar; the weapon is the one in hand; LMB eats held berries; right click hotbar → pack; drag merges and swaps; armour on and off; a full pack refuses more; the chest opens the inventory, right click stocks it, a drag takes an item back into a chosen slot, and closing the chest closes the inventory.
+- `--inputtest` gained: Tab opens and closes the inventory (the hotbar stays), 2 picks slot 2, E opens the chest on the right with the inventory, a real right click moves the wood across with no swing, a real drag brings it back, Esc closes both. The old wall-placing check is still flaky (the real mouse over the window).
+- `--bench=20` on 4 seeds (11, 22, 33, 44) against the build before slots, means: deaths 57.0 vs 55.8, complete houses 57.5 vs 59.8, chest stock 850 vs 806 items, workshops 20.5 vs 20.0 (19.8 vs 19.0 working), tier-2 picks 12.0 vs 14.8, walls 1562 vs 1486. All within the spread between seeds, so the AI's carrying was left untuned. (A first single-seed run looked worse; that was noise.)
+
+**Hand crafting:** the Tab inventory has a Craft panel right of the pack with the recipes anyone can make anywhere (axe, pickaxe, spear, club, bow, 5 arrows), instantly from the pack, as the AI does (`PlayerController.hand_recipes()`). Greyed out when you can't afford it. Workshop and anvil recipes still need their machine. `--playtest` checks an axe is crafted by hand and a raiding axe is not.
+
+**Open:**
+- The deposit trigger (`Stock.deposit_plan`) now fires at 18 of 30 slots, which can be far more items than before. The bench shows no harm, but watch it if chests look empty in play.
+- Splitting a stack (for example shift-drag for half) and dropping items on the ground.
+- Item icons instead of the coloured tiles.

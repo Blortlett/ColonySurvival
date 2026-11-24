@@ -215,8 +215,8 @@ static func harvest_unit(a: Agent, n: ResourceNode, tool: String, give: bool, xp
 	n.amount -= 1
 	if n.type == ResourceNode.Type.BUSH:
 		World.static_dirty = true # berries are drawn in StaticLayer
-	if give:
-		a.inv.add(n.item(), 1)
+	if give and a.inv.add(n.item(), 1) == 0:
+		n.amount += 1 # no room for it (slot inventory): it stays on the node
 	if xp:
 		a.add_xp("str", Cfg.XP_GATHER)
 	if tool != "" and a.inv.has_tool(tool) and a.inv.wear(tool):
@@ -332,7 +332,12 @@ static func process_batch(a: Agent, item: String) -> bool:
 	if not a.inv.has_cost(p["in"]):
 		return false
 	a.inv.pay(p["in"])
-	a.inv.add(item, p.out)
+	var got := a.inv.add(item, p.out)
+	if got < p.out: # no room for the output: undo
+		a.inv.remove(item, got)
+		for k in p["in"]:
+			a.inv.add(k, p["in"][k])
+		return false
 	return true
 
 
@@ -343,11 +348,18 @@ static func craft(a: Agent, item: String) -> bool:
 	if not a.inv.has_cost(cost):
 		return false
 	a.inv.pay(cost)
+	var ok := true
 	if item == "arrow":
-		a.inv.add("arrow", Items.ARROWS_PER_CRAFT)
+		var got := a.inv.add("arrow", Items.ARROWS_PER_CRAFT)
+		ok = got == Items.ARROWS_PER_CRAFT
+		if not ok:
+			a.inv.remove("arrow", got)
 	else:
-		a.inv.add_tool(item)
-	return true
+		ok = a.inv.add_tool(item)
+	if not ok: # no room for it (slot inventory): undo
+		for k in cost:
+			a.inv.add(k, cost[k])
+	return ok
 
 
 static func cost_text(cost: Dictionary) -> String:
