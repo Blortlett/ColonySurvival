@@ -146,17 +146,10 @@ func run(main: Node, pc: PlayerController, cam: Node) -> void:
 	print("    fight result: %s (player HP %.0f, kills %d)" % ["NPC killed" if killed else ("player died" if not a.alive else "no kill in 40 s"), a.hp, a.kills])
 
 	if a.alive:
-		# 6. Social defaults (§5): refuse to join, refuse demands and fight.
-		var other: Agent = null
-		for o in World.agent_list:
-			if o != a and o.faction.solo and o.alive:
-				other = o
-				break
+		# 6. Social prompts (Player Social Plan §3), then the demand default (§5, until phase 4).
+		await _social_checks(a)
+		var other := _free_npc(a)
 		if other:
-			a.mood = 60.0
-			other.mood = 60.0
-			Social._happy_meets(other, a)
-			_check(a.faction.solo, "refused a happy invite (still solo)")
 			Social._demand(other, a, false)
 			_check(other.job != null and other.job.kind == Job.Kind.FIGHT and other.job.target_id == a.id, "refused a demand: the NPC attacks")
 			Brain.set_job(other, null)
@@ -187,10 +180,6 @@ func _feed_checks(a: Agent) -> void:
 			other = o
 			break
 	if other:
-		a.mood = 60.0
-		other.mood = 60.0
-		Social._happy_meets(other, a)
-		_check(_has(feed, 1, "invites you to join them. You refuse"), "feed: the refused invite is tier 1 (gold): %s" % _last(feed))
 		Social._demand(other, a, false)
 		_check(_has(feed, 1, "demands your goods"), "feed: the refused demand is tier 1: %s" % _last(feed))
 		Brain.set_job(other, null)
@@ -263,6 +252,112 @@ func _last(feed) -> String:
 
 
 ## Two living, idle NPCs (not the player) that pass `ok`.
+## A solo NPC free to talk: alive, not fighting, not a servant.
+func _free_npc(a: Agent, skip: Agent = null) -> Agent:
+	for o in World.agent_list:
+		if o != a and o != skip and o.alive and o.faction.solo and not o.in_combat() and not o.is_servant() and o.controller == null:
+			return o
+	return null
+
+
+## Player Social Plan §3 and §5: invites and gang offers ask the player through the prompt;
+## decline, timeout and accept (by clicking the button) each do the right thing; groupmates
+## defend the player; the hover pick finds the character under the mouse.
+func _social_checks(a: Agent) -> void:
+	var pc := _pc
+	var feed = _main._feed
+	var prompt = _main._prompt
+	# Start solo: the fight test may have left the player with a servant (which makes a group).
+	for sid in a.servants.duplicate():
+		var s: Agent = World.agents.get(sid)
+		if s:
+			Factions.free_agent(s)
+	if not a.faction.solo:
+		Factions.leave(a)
+		Factions.make_solo(a)
+	var other := _free_npc(a)
+	_check(other != null, "found a solo NPC to talk to")
+	if other == null:
+		return
+	other.pos = a.pos + Vector2(2, 0)
+	a.mood = 60.0
+	other.mood = 60.0
+	# Decline.
+	Social._happy_meets(other, a)
+	var o: Dictionary = pc.offers.current()
+	_check(o.get("kind", &"") == &"invite" and o.get("from_id", -1) == other.id, "a happy invite asks the player instead of refusing")
+	_check(other.job != null and other.job.kind == Job.Kind.IDLE and other.job.item == Social.WAIT_ANSWER, "the inviter waits for the answer")
+	await _main.get_tree().process_frame
+	_check(prompt._panel.visible and prompt._yes.text == "[F1] Join" and other.short() in prompt._text.text, "the prompt card shows the invite: %s" % prompt._text.get_parsed_text())
+	pc.hover_id = other.id
+	if _shots:
+		await _seconds(0.3) # let the card fade in
+	await _shot("playtest_prompt")
+	pc.hover_id = -1
+	pc.offers.answer(false)
+	_steps(1)
+	_check(a.faction.solo and not pc.offers.has_from(other.id), "declining keeps the player solo")
+	_check(_has(feed, 1, "You turn down %s's invite" % other.short()), "feed: the declined invite is tier 1: %s" % _last(feed))
+	_check(other.job == null or other.job.item != Social.WAIT_ANSWER, "the inviter stops waiting")
+	# Timeout: the default rule (refuse).
+	other.mood = 60.0
+	Social._happy_meets(other, a)
+	_check(pc.offers.has_from(other.id), "a second invite is queued")
+	_steps(int(Cfg.OFFER_SECS_INVITE * 60.0) + 5)
+	_check(a.faction.solo and not pc.offers.has_from(other.id) and _has(feed, 1, "invite runs out"),
+		"an unanswered invite runs out and is refused: %s" % _last(feed))
+	# Accept by clicking the Join button.
+	if not other.alive or other.in_combat() or not other.faction.solo:
+		other = _free_npc(a)
+	if other:
+		other.pos = a.pos + Vector2(2, 0)
+		other.mood = 60.0
+		a.mood = 60.0
+		Social._happy_meets(other, a)
+		await _main.get_tree().process_frame
+		prompt._yes.pressed.emit()
+		_steps(1)
+		_check(not a.faction.solo and a.faction == other.faction, "clicking Join forms a group with %s (%s)" % [other.short(), pc.message])
+		# Groupmates defend the player (agreed 2026-11-24).
+		var foe := _free_npc(a, other)
+		if foe and not a.faction.solo:
+			Brain.set_job(other, null)
+			other.hp = Cfg.MAX_HP
+			other.pos = a.pos + Vector2(1, 0)
+			foe.pos = a.pos + Vector2(0, 2)
+			Combat.start_fight(foe, a)
+			_check(other.job != null and other.job.kind == Job.Kind.FIGHT and other.job.target_id == foe.id, "a groupmate defends the player")
+			Brain.set_job(foe, null)
+			Brain.set_job(other, null)
+			Brain.set_job(a, null)
+		Factions.leave(a)
+		Factions.make_solo(a)
+	# Gang offer (angry player), accepted.
+	var g := _free_npc(a)
+	if g:
+		g.pos = a.pos + Vector2(-2, 0)
+		g.mood = -60.0
+		a.mood = -60.0
+		Social._angry_meets(g, a)
+		_check(pc.offers.current().get("kind", &"") == &"gang", "an angry NPC asks the angry player to run as a gang")
+		pc.offers.answer(true)
+		_steps(1)
+		_check(not a.faction.solo and a.faction == g.faction, "accepting the gang offer joins %s (%s)" % [g.short(), pc.message])
+		Factions.leave(a)
+		Factions.make_solo(a)
+		a.mood = 60.0
+		# Hover: the character nearest the mouse within reach, never the player's own body.
+		g.pos = a.pos + Vector2(3, 0)
+		_check(pc.pick_agent(g.pos + Vector2(0.3, 0.2)) == g, "the hover pick finds the character under the mouse")
+		_check(pc.pick_agent(a.pos) != a, "the hover pick skips the player's own body")
+	_check(_overlay_words(), "hover card words: mood and opinion")
+
+
+static func _overlay_words() -> bool:
+	var ov = preload("res://ui/SocialOverlay.gd")
+	return ov.opinion_word(-60.0) == "Hostile" and ov.opinion_word(-20.0) == "Wary" and ov.opinion_word(0.0) == "Indifferent" 		and ov.opinion_word(40.0) == "Friendly"
+
+
 func _two_npcs(a: Agent, ok: Callable) -> Array[Agent]:
 	var out: Array[Agent] = []
 	for o in World.agent_list:
@@ -505,7 +600,7 @@ static func _first_free(inv: Inventory, from: int) -> int:
 
 ## `-- --inputtest`: the same controller driven through Godot's real input path (key and
 ## mouse events injected with Input.parse_input_event, sim stepped by Main at 1x), so the
-## per-frame input reading, LMB / E / number keys and the F1 menu are covered too.
+## per-frame input reading, LMB / E / number keys and the F3 menu are covered too.
 func run_input(main: Node, pc: PlayerController, cam: Node) -> void:
 	_main = main
 	_pc = pc
@@ -592,12 +687,12 @@ func run_input(main: Node, pc: PlayerController, cam: Node) -> void:
 	await _frames(3)
 	_check(pc.station.open == null and not inv_ui._chest.visible and not pc.inv_open, "Esc closes the chest and the inventory")
 	World.remove_furniture(ch)
-	# F1 opens the menu; while open, 2 is a speed key (refused: not watching), V watches.
-	_key(KEY_F1, true)
-	_key(KEY_F1, false)
+	# F3 opens the menu; while open, 2 is a speed key (refused: not watching), V watches.
+	_key(KEY_F3, true)
+	_key(KEY_F3, false)
 	await _frames(2)
 	var menu: CanvasLayer = main._debug
-	_check(menu.visible and pc.keys_blocked, "F1 opens the debug menu")
+	_check(menu.visible and pc.keys_blocked, "F3 opens the debug menu")
 	_key(KEY_2, true)
 	_key(KEY_2, false)
 	await _frames(2)
@@ -614,10 +709,39 @@ func run_input(main: Node, pc: PlayerController, cam: Node) -> void:
 	_key(KEY_V, false)
 	await _frames(2)
 	_check(not pc.watching and a.controller == pc and SimClock.speed == 1.0, "back to playing at 1x")
-	_key(KEY_F1, true)
-	_key(KEY_F1, false)
+	_key(KEY_F3, true)
+	_key(KEY_F3, false)
 	await _frames(2)
-	_check(not menu.visible and not pc.keys_blocked, "F1 closes the menu")
+	_check(not menu.visible and not pc.keys_blocked, "F3 closes the menu")
+	# Social prompt keys (Player Social Plan §3): F2 declines an invite, F1 accepts one.
+	var npc := _free_npc(a)
+	if npc:
+		npc.pos = a.pos + Vector2(2, 0)
+		a.mood = 60.0
+		npc.mood = 60.0
+		Social._happy_meets(npc, a)
+		_check(pc.offers.has_from(npc.id), "an invite shows a prompt")
+		_key(KEY_F2, true)
+		_key(KEY_F2, false)
+		await _frames(4)
+		_check(not pc.offers.has_from(npc.id) and a.faction.solo, "F2 declines the invite")
+		# The sim runs in real time here, so the NPC may join someone else before F1 lands
+		# (accepting then fails its re-check, as it should): try a fresh NPC if so.
+		for attempt in 3:
+			npc.pos = a.pos + Vector2(2, 0)
+			npc.mood = 60.0
+			Social._happy_meets(npc, a)
+			_key(KEY_F1, true)
+			_key(KEY_F1, false)
+			await _frames(4)
+			if not a.faction.solo:
+				break
+			npc = _free_npc(a, npc)
+			if npc == null:
+				break
+		_check(npc != null and not a.faction.solo and a.faction == npc.faction, "F1 accepts the invite (%s)" % pc.message)
+		Factions.leave(a)
+		Factions.make_solo(a)
 	# Death (§5a): the panel shows; N starts fresh as a solo agent, which WASD then moves.
 	var old := pc.body
 	World.kill_agent(old, null)

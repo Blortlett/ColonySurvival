@@ -86,7 +86,7 @@ func _hint_text() -> String:
 	if not a.alive:
 		return "You died. Choose how to carry on in the panel above (T take over, N start fresh)."
 	if player.watching:
-		return "WATCHING: the AI drives your body (F1 to return)"
+		return "WATCHING: the AI drives your body (F3 to return)"
 	if player.build_piece != "":
 		return "Building %s (%s): LMB place, RMB / X stop" % [Items.label(player.build_piece), Actions.cost_text(Items.BUILD_COSTS[player.build_piece])]
 	var e = player.held_entry()
@@ -97,7 +97,7 @@ func _hint_text() -> String:
 		elif e.item == "berry":
 			hand = "eat a berry"
 	var use: String = ("E open %s   " % player.use_target.label()) if player.use_target else ""
-	return "%sLMB %s   1-6 hand   hold E harvest   Tab inventory   B build   F eat   F1 debug" % [use, hand]
+	return "%sLMB %s   1-6 hand   hold E harvest   Tab inventory   B build   F3 debug" % [use, hand]
 
 
 func _draw_bars() -> void:

@@ -37,8 +37,10 @@ static func _happy_meets(a: Agent, b: Agent) -> bool:
 	var fa := a.faction
 	var fb := b.faction
 	if b.is_player() and fb.solo and (fa.solo or fa.has_room()):
-		# Player Controller Plan §5 placeholder: the player refuses to join (default rule).
-		EventBus.social(&"invite", "%s invites %s to join %s; they refuse." % [a.short(), b.short(), "them" if fa.solo else fa.name], [a, b], [fa])
+		# Player Social Plan §3: ask the player; with nobody to ask, the default rule refuses.
+		var what := " invites you to form a group." if fa.solo else " invites you to join %s (%d members)." % [fa.display_name(), fa.members.size()]
+		if not ask_player(b, &"invite", a, what, "Join", "Refuse", Cfg.OFFER_SECS_INVITE):
+			_refuse_invite(a, b, false)
 		return true
 	if b.is_happy():
 		if fa.solo and fb.solo:
@@ -100,6 +102,12 @@ static func _surplus_for(giver: Agent, taker: Agent) -> String:
 
 
 static func _angry_meets(a: Agent, b: Agent) -> void:
+	if b.is_angry() and b.is_player() and b.faction.solo and (a.faction.solo or a.faction.has_room()):
+		# Player Social Plan §3: an angry player is asked to run with them.
+		var what := " wants you to run with them as a gang." if a.faction.solo else " wants you in their gang %s." % a.faction.display_name()
+		if ask_player(b, &"gang", a, what, "Join", "Refuse", Cfg.OFFER_SECS_GANG):
+			return
+		# Nobody to ask: the default rule (the player never joins a gang) falls through.
 	if b.is_angry() and not b.is_player(): # the player never joins a gang (default rule, §5)
 		if cha_roll(a, b):
 			if b.faction.solo and (a.faction.solo or a.faction.has_room()):
@@ -166,3 +174,98 @@ static func _demand(a: Agent, b: Agent, attack: bool) -> void:
 		if n > 0:
 			EventBus.social(&"robbed", "%s hands %d items to %s." % [b.short(), n, a.short()], [a, b], [], b.pos, n)
 			Relations.change(a.faction, b.faction, Cfg.REL_ROB)
+
+
+# --- The player's answers (Player Social Plan §3) ---
+
+## Asks the player instead of applying a default rule: queues a prompt on their controller
+## and has the asker wait nearby for the answer. False if nobody can be asked (no player
+## controller, the queue is full, or this NPC already has a prompt open).
+static func ask_player(p: Agent, kind: StringName, npc: Agent, text: String, yes: String, no: String, secs: float) -> bool:
+	var pc = p.controller
+	if pc == null or not ("offers" in pc):
+		return false
+	var f := npc.faction
+	var col: Color = f.color.lightened(0.35) if f and not f.solo else Color.WHITE
+	if not pc.offers.add({"kind": kind, "from_id": npc.id, "fid": f.id if f else -1, "secs": secs,
+			"who": npc.short(), "text": text, "yes": yes, "no": no, "color": col}):
+		return false
+	if not npc.in_combat():
+		var j := Job.new(Job.Kind.IDLE, Job.PRIO_TASK) # linger for the answer; needs still come first
+		j.timer = secs
+		j.item = WAIT_ANSWER
+		Brain.set_job(npc, j)
+	return true
+
+
+const WAIT_ANSWER := "await answer" # Job.item marking an NPC that waits for the player
+
+
+## The asker stops waiting (answered, timed out, or the player's body changed hands).
+static func release_asker(npc_id: int) -> void:
+	var npc: Agent = World.agents.get(npc_id)
+	if npc and npc.job and npc.job.kind == Job.Kind.IDLE and npc.job.item == WAIT_ANSWER:
+		Brain.set_job(npc, null)
+
+
+## Applies the player's answer to an offer (Offers.step, inside the sim step). A timeout
+## is a refusal, the default rule.
+static func answer_offer(p: Agent, o: Dictionary, yes: bool, timed_out: bool) -> void:
+	release_asker(o.from_id)
+	var npc: Agent = World.agents.get(o.from_id)
+	if npc == null or not npc.alive or not p.alive:
+		return
+	if yes:
+		var why := offer_blocked(p, o)
+		if why != "":
+			if p.controller:
+				p.controller.say("The offer is no longer open: %s." % why)
+			return
+	match o.kind:
+		&"invite":
+			if not yes:
+				_refuse_invite(npc, p, timed_out)
+			elif npc.faction.solo:
+				Factions.form(npc, p)
+			else:
+				Factions.join(p, npc.faction)
+		&"gang":
+			if not yes:
+				npc.change_opinion(p.id, Cfg.OFFER_DECLINE_OPINION)
+				EventBus.social(&"gang_refused", "%s refuses to run with %s." % [p.short(), npc.short()], [npc, p], [], EventBus.NO_POS, 1 if timed_out else 0)
+				if World.rng.randf() < _attack_chance(npc, p):
+					Combat.start_fight(npc, p)
+			elif npc.faction.solo:
+				Factions.form(npc, p)
+				EventBus.log_event("%s and %s run together as a gang." % [npc.short(), p.short()])
+			else:
+				Factions.join(p, npc.faction)
+
+
+## Why accepting no longer works ("" if it still does): checked again on the answer, since
+## things change while the prompt is up.
+static func offer_blocked(p: Agent, o: Dictionary) -> String:
+	var npc: Agent = World.agents.get(o.from_id)
+	if npc == null or not npc.alive:
+		return "they are gone"
+	if World.dist(npc.pos, p.pos) > Cfg.OFFER_RANGE:
+		return "%s is too far away" % npc.short()
+	if npc.in_combat() or p.in_combat():
+		return "there's a fight on"
+	match o.kind:
+		&"invite", &"gang":
+			if not p.faction.solo:
+				return "you're already in a group"
+			if npc.faction.id != o.fid:
+				return "%s's group changed" % npc.short()
+			if not npc.faction.solo and not npc.faction.has_room():
+				return "their group is full"
+	return ""
+
+
+static func _refuse_invite(a: Agent, p: Agent, timed_out: bool) -> void:
+	var fa := a.faction
+	if p.is_player():
+		a.change_opinion(p.id, Cfg.OFFER_DECLINE_OPINION)
+	EventBus.social(&"invite", "%s invites %s to join %s; they refuse." % [a.short(), p.short(), "them" if fa.solo else fa.name],
+		[a, p], [fa], EventBus.NO_POS, 1 if timed_out else 0)

@@ -1,6 +1,6 @@
 extends Node2D
 ## Builds the scene, steps the sim on sim time, starts the player, handles inspect clicks
-## in free camera mode. Observer controls (speed, pause, overlays) live in the F1 debug menu.
+## in free camera mode. Observer controls (speed, pause, overlays) live in the F3 debug menu.
 
 var _agents: Node2D
 var _dynamic: Node2D
@@ -14,6 +14,8 @@ var _playtest: RefCounted = null
 var _panels: CanvasLayer = null # chest / machine panels (ui/StationPanel.gd)
 var _build: CanvasLayer = null # build menu (ui/BuildMenu.gd)
 var _inv_ui: CanvasLayer = null # hotbar, pack, armour and chest slots (ui/InventoryUI.gd)
+var _prompt: CanvasLayer = null # incoming social prompt (ui/OfferPrompt.gd)
+var _overlay: CanvasLayer = null # hover card and mood icons (ui/SocialOverlay.gd)
 var _sim_usec := 0 # time spent stepping the sim in _process (--frames)
 
 
@@ -77,6 +79,17 @@ func _ready() -> void:
 	_build = preload("res://ui/BuildMenu.gd").new()
 	_build.player = _player
 	add_child(_build)
+	# Player social (Player Social Plan §3, §5): the prompt card and the social overlay
+	# (hover card, mood icons). The overlay sits under the HUD panels.
+	_prompt = preload("res://ui/OfferPrompt.gd").new()
+	_prompt.player = _player
+	_prompt.layer = 2
+	add_child(_prompt)
+	_overlay = preload("res://ui/SocialOverlay.gd").new()
+	_overlay.player = _player
+	_overlay.prompt = _prompt
+	add_child(_overlay)
+	move_child(_overlay, _hud.get_index())
 	_player.hit_landed.connect(func(): _camera.shake())
 	_player.hurt.connect(func(): _camera.shake(Cfg.PLAYER_SHAKE * 0.6))
 	_player.possess(_start_agent())

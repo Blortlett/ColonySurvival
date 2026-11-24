@@ -9,9 +9,9 @@ extends Node2D
 ## (swing a weapon or tool, punch empty-handed, eat food, shoot a held bow; with a build
 ## piece picked it places it), RMB shoot a bow, hold E harvest, E on a chest or machine opens
 ## it (a chest opens the inventory too; E / Esc close), Tab inventory, B the build menu
-## (ui/BuildMenu.gd sets build_piece), X / Esc stop building, F eat a berry.
-## Movement keeps working while a panel is open; walking out of reach closes it. Social choices use the default rules for now (§5): refuse to join,
-## fight back when attacked.
+## (ui/BuildMenu.gd sets build_piece), X / Esc stop building. Eating is LMB with food in hand.
+## F1 / F2 (or the prompt's buttons) accept / decline what an NPC asks (Player Social Plan §3).
+## Movement keeps working while a panel is open; walking out of reach closes it.
 
 signal hit_landed # the player's swing or shot hit someone (camera shake)
 signal hurt # the player took damage
@@ -20,6 +20,7 @@ signal body_changed # the controller now drives another body (takeover, respawn,
 
 const Station := preload("res://player/Station.gd")
 const InvMoves := preload("res://player/InvMoves.gd")
+const Offers := preload("res://player/Offers.gd")
 
 var body: Agent = null
 var watching := false # debug watch mode: the AI drives the body (§6a)
@@ -35,6 +36,8 @@ var harvest_t := 0.0
 var harvest_secs := 0.0
 var warm_t := 0.0
 var station := Station.new() # the open chest or machine panel (phase 4)
+var offers := Offers.new() # what NPCs are asking the player (Player Social Plan §3)
+var hover_id := -1 # the character under the mouse (Player Social Plan §5), -1 if none
 var use_target: Furniture = null # what E would open right now (HUD hint)
 var message := ""
 var held := 0 # hotbar slot in hand (0-5); copied to body.held while the player drives it
@@ -52,7 +55,6 @@ var _swing_t := 0.0 # a click is buffered this long if the weapon is still cooli
 var _shoot_t := 0.0
 var _place := false
 var _harvest_held := false
-var _eat := false
 var _use := 0 # 1 open what's in reach, -1 close the panel
 var _e_latch := false # this E press opened or closed a panel: don't harvest until it's released
 var _xp_dist := 0.0
@@ -68,7 +70,10 @@ func possess(a: Agent) -> void:
 		body.controller = null
 	if body:
 		body.held = -1 # back to the AI's "best weapon carried"
+	if a != body:
+		offers.clear() # asks were for the old body
 	body = a
+	hover_id = -1
 	inv_open = false
 	_inv_auto = false
 	_inv_reqs.clear()
@@ -82,7 +87,6 @@ func possess(a: Agent) -> void:
 	_swing_t = 0.0
 	_shoot_t = 0.0
 	_place = false
-	_eat = false
 	_xp_dist = 0.0
 	if a == null:
 		return
@@ -103,6 +107,8 @@ func _take(a: Agent) -> void:
 func set_watching(on: bool) -> void:
 	watching = on
 	station.close("")
+	offers.clear()
+	hover_id = -1
 	if body == null or not body.alive:
 		return
 	if on:
@@ -114,6 +120,25 @@ func set_watching(on: bool) -> void:
 	else:
 		_take(body)
 	vel = Vector2.ZERO
+
+
+## The living character nearest `p` (cells) within Cfg.HOVER_PICK, not the player's own
+## body; null if none. Shared by the hover card and (later) the radial menu.
+func pick_agent(p: Vector2) -> Agent:
+	var best: Agent = null
+	var bd := Cfg.HOVER_PICK
+	for o in World.agents_near(p, Cfg.HOVER_PICK):
+		if o == body or not o.alive:
+			continue
+		var d := World.dist(o.pos, p)
+		if d <= bd:
+			best = o
+			bd = d
+	return best
+
+
+func hover_agent() -> Agent:
+	return World.agents.get(hover_id) if hover_id != -1 else null
 
 
 func alive() -> bool:
@@ -205,6 +230,7 @@ func _on_agent_died(a: Agent, killer: Agent, group: Faction, kingdom: Kingdom, n
 		"newcomer_id": newcomer.id if newcomer else -1,
 	}
 	watching = false # the body is gone: nothing to hand back
+	offers.clear()
 	SimClock.set_speed(1.0) # the sim keeps running at 1x behind the death panel (agreed)
 	build_piece = ""
 	died.emit()
@@ -308,6 +334,7 @@ func _process(dt: float) -> void:
 	if not alive() or watching:
 		_move_in = Vector2.ZERO
 		_harvest_held = false
+		hover_id = -1
 		return
 	var m := Vector2.ZERO
 	if Input.is_physical_key_pressed(KEY_W): m.y -= 1.0
@@ -322,6 +349,8 @@ func _process(dt: float) -> void:
 	use_target = Station.target(body) if station.open == null else null
 	aim_point = get_global_mouse_position() / Cfg.CELL
 	hover_cell = Vector2i(aim_point.floor())
+	var h := pick_agent(aim_point)
+	hover_id = h.id if h else -1
 	if body.hp < _last_hp - 0.01:
 		hurt.emit()
 	_last_hp = body.hp
@@ -363,10 +392,11 @@ func _unhandled_input(event: InputEvent) -> void:
 			get_viewport().set_input_as_handled()
 		elif k >= KEY_1 and k < KEY_1 + Cfg.HOTBAR_SLOTS and not keys_blocked:
 			select_slot(k - KEY_1)
+		elif (k == KEY_F1 or k == KEY_F2) and not offers.queue.is_empty():
+			offers.answer(k == KEY_F1)
+			get_viewport().set_input_as_handled()
 		elif k == KEY_X or k == KEY_ESCAPE:
 			build_piece = ""
-		elif k == KEY_F:
-			_eat = true
 
 
 # --- Sim step (called by Scheduler.update instead of Brain) ---
@@ -388,10 +418,7 @@ func control(a: Agent, dt: float) -> void:
 	if _place:
 		_place = false
 		_place_piece(a)
-	if _eat:
-		_eat = false
-		if not Actions.eat(a):
-			say("No berries to eat.")
+	offers.step(a)
 	_use_station(a, dt)
 	_follow_chest()
 	_harvest(a, dt)

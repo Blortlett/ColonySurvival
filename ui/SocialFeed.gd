@@ -152,7 +152,8 @@ func _format(ev: Dictionary, tier: int) -> String:
 	match tier:
 		1:
 			match ev.kind:
-				&"invite": return "%s invites you to join them. You refuse." % other
+				&"invite": return ("%s's invite runs out. You don't join." if ev.n == 1 else "You turn down %s's invite.") % other
+				&"gang_refused": return ("%s's gang offer runs out. You don't join." if ev.n == 1 else "You refuse to run with %s.") % other
 				&"demand": return "%s demands your goods. You refuse and fight back!" % other
 				&"fight": return ("%s attacks you! You fight back." % other) if i == 1 else ("You attack %s." % other)
 				&"hit": return ("%s hits you" % other) if i == 1 else ("You hit %s" % other)

@@ -1,5 +1,5 @@
 extends CanvasLayer
-## Debug menu (Player Controller Plan §6a): F1 toggles it, also in exported test builds.
+## Debug menu (Player Controller Plan §6a): F3 toggles it (F1 / F2 answer social prompts), also in exported test builds.
 ## It holds what used to be observer controls: speed-up, pause, watch / free camera and the
 ## zone and label overlays. Watch mode hands the player's body to the AI and frees the
 ## camera; leaving it takes the body back. The player always runs at 1x, so speed-up only
@@ -41,7 +41,7 @@ func _ready() -> void:
 	box.add_theme_constant_override("separation", 6)
 	_panel.add_child(box)
 	var title := Label.new()
-	title.text = "Debug (F1)"
+	title.text = "Debug (F3)"
 	title.add_theme_font_size_override("font_size", 15)
 	box.add_child(title)
 	_state = Label.new()
@@ -133,7 +133,7 @@ func _toggle_nearby() -> void:
 func _unhandled_key_input(event: InputEvent) -> void:
 	if not (event is InputEventKey and event.pressed and not event.echo):
 		return
-	if event.physical_keycode == KEY_F1:
+	if event.physical_keycode == KEY_F3:
 		toggle()
 		get_viewport().set_input_as_handled()
 		return

@@ -202,6 +202,15 @@ const PLAYER_SHAKE := 6.0 # screen shake in px when the player lands or takes a 
 const PLAYER_USE_REACH := 1.6 # chests and machines this close (centre to centre) can be opened with E (start)
 const PANEL_CLOSE_HIT := 5.0 # one hit taking more HP than this closes an open panel (an unarmed punch doesn't) (start)
 
+# --- Player social (Player Social Plan) ---
+const HOVER_PICK := 0.75 # cells: a character this close to the mouse counts as hovered (start)
+const MOOD_ICON_RANGE := 8.0 # cells: NPCs this close to the player show a mood icon (start)
+const OFFER_SECS_INVITE := 10.0 # sim seconds to answer a group invite (start)
+const OFFER_SECS_GANG := 10.0 # ...a gang offer (start)
+const OFFER_RANGE := 12.0 # cells: accepting fails if the asker is further away by then (start)
+const OFFER_QUEUE_MAX := 3 # pending prompts; past this an ask gets the default answer straight away (start)
+const OFFER_DECLINE_OPINION := -5.0 # the asker's opinion of you when you turn them down (start)
+
 # --- AI ---
 const THINK_INTERVAL := 0.25
 # Per-job think intervals (Performance Plan B3, start): fights, flight and raids keep 0.25 s.
