@@ -14,6 +14,7 @@ var camera: Node # ui/CameraController.gd
 var agent_layer: Node2D
 var dynamic_layer: Node2D
 var feed: CanvasLayer # ui/SocialFeed.gd, null without a player
+var hud: CanvasLayer # ui/Hud.gd: its top bar is debug-only
 
 var _panel: PanelContainer
 var _state: Label
@@ -81,6 +82,25 @@ func toggle() -> void:
 	visible = not visible
 	if player:
 		player.keys_blocked = visible
+	apply_view()
+
+
+## Debug mode is the menu being open, or no player at all (--bench / --shot / --frames
+## watch the sim). It shows the top stats bar, mood / faction discs and fight lines, leader
+## and servant pips, and the zone overlays; playing keeps only the facing marker, teammate
+## rings and red rings on enemies fighting the team.
+func debug_mode() -> bool:
+	return visible or player == null
+
+
+func apply_view() -> void:
+	var on := debug_mode()
+	if agent_layer:
+		agent_layer.debug = on
+	if dynamic_layer:
+		dynamic_layer.debug = on
+	if hud:
+		hud.debug = on
 
 
 ## Speed-up is allowed with no player or in watch mode. Not while dead: the sim runs at 1x

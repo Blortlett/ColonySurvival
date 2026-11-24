@@ -46,6 +46,7 @@ func _ready() -> void:
 	_debug.camera = _camera
 	_debug.agent_layer = _agents
 	_debug.dynamic_layer = _dynamic
+	_debug.hud = _hud
 	add_child(_debug)
 	# Headless fast-forward for testing/tuning: godot --headless -- --bench=30
 	# These modes watch the sim without a player, so --bench matches the AI-only numbers.
@@ -71,7 +72,8 @@ func _ready() -> void:
 	_inv_ui = inv_ui
 	_hud.show_log = false # the player's feed replaces the world log (agreed)
 	_debug.player = _player
-	_feed = preload("res://ui/SocialFeed.gd").new()
+	_debug.apply_view() # playing: debug visuals off until F3
+	_feed =preload("res://ui/SocialFeed.gd").new()
 	add_child(_feed)
 	_feed.player = _player
 	_debug.feed = _feed

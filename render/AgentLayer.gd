@@ -38,6 +38,10 @@ const FLOATS := 16 # per instance: 2D transform 8, colour 4, custom 4
 var selected_id := -1
 var player: PlayerController = null # its E-harvest drives the body's use / chop (Main sets it)
 var show_labels := false
+## Debug mode (ui/DebugMenu.gd apply_view): mood / faction discs, armour rings, fight lines,
+## leader and servant pips. Off while playing: only teammate rings and red rings on enemies
+## fighting the player or a teammate (the player's own ring and facing are PlayerLayer's).
+var debug := true
 var mode := Mode.AUTO
 var _font: Font
 
@@ -426,6 +430,8 @@ func _faction_fill(a: Agent) -> Color:
 
 ## Sprite mode, under the sprites: a faction disc with a mood rim at the feet, fight lines.
 func _draw_under() -> void:
+	if not debug:
+		return
 	var s := float(Cfg.CELL)
 	for a in World.agent_list:
 		var p := a.pos * s
@@ -455,9 +461,15 @@ func _draw_overlay() -> void:
 func _overlay_body() -> void:
 	var ci := _overlay
 	var s := float(Cfg.CELL)
+	if not debug:
+		_draw_team_rings(ci)
 	for a in World.agent_list:
 		var p := a.pos * s
 		if not _view.has_point(p):
+			continue
+		if not debug:
+			if a.raid_id != -1:
+				_pennant(ci, p, s)
 			continue
 		var pip := p + Vector2(s * 0.36, -s * 0.36)
 		if a.is_servant():
@@ -488,13 +500,41 @@ func _draw_discs() -> void:
 			Disc.draw(self, p, s * 0.12, Color(1.0, 0.85, 0.2))
 		if a.raid_id != -1:
 			_pennant(self, p, s)
-		if a.job and a.job.kind == Job.Kind.FIGHT:
+		if debug and a.job and a.job.kind == Job.Kind.FIGHT:
 			var t: Agent = World.agents.get(a.job.target_id)
 			if t:
 				draw_line(p, t.pos * s, Color(1, 0.1, 0.1, 0.6), 1.0 * Cfg.PX)
 		if show_labels:
 			draw_string(_font, p + Vector2(-s * 2, -s * 0.6), "%s #%d" % [a.short(), a.id] if a.first_name != "" else a.short(), HORIZONTAL_ALIGNMENT_CENTER, s * 4, int(8 * Cfg.PX))
+	if not debug:
+		_draw_team_rings(self)
 	_draw_selection(self)
+
+
+const TEAM_RING := Color(0.35, 0.95, 0.45, 0.9)
+const ENEMY_RING := Color(1.0, 0.15, 0.15, 0.95)
+
+
+## Playing (not debug): an open ring round each of the player's groupmates, and a red one
+## round anyone fighting the player or a groupmate.
+func _draw_team_rings(ci: CanvasItem) -> void:
+	if player == null or not player.alive():
+		return
+	var me := player.body
+	var team: Faction = null if me.faction.solo else me.faction
+	var s := float(Cfg.CELL)
+	for a in World.agent_list:
+		if a == me:
+			continue
+		var p := a.pos * s
+		if not _view.has_point(p):
+			continue
+		if team != null and a.faction == team:
+			ci.draw_arc(p, s * 0.52, 0, TAU, 28, TEAM_RING, 1.5 * Cfg.PX)
+		elif a.job and a.job.kind == Job.Kind.FIGHT:
+			var t: Agent = World.agents.get(a.job.target_id)
+			if t and (t == me or (team != null and t.faction == team)):
+				ci.draw_arc(p, s * 0.52, 0, TAU, 28, ENEMY_RING, 2.0 * Cfg.PX)
 
 
 ## Raiders carry a small red pennant.

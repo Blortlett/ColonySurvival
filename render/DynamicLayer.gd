@@ -10,7 +10,8 @@ const METAL := Color(0.62, 0.62, 0.66)
 const GLOW := Color(1.0, 0.45, 0.08)
 const PieceLayer := preload("res://render/PieceLayer.gd")
 
-var show_zones := true
+var show_zones := true # the Z toggle; zones draw only in debug mode
+var debug := true # set by the debug menu (ui/DebugMenu.gd apply_view)
 var pieces: Node2D
 
 

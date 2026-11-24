@@ -54,7 +54,7 @@ func _ready() -> void:
 
 func _process(dt: float) -> void:
 	_since += dt
-	var show: bool = get_parent().show_zones
+	var show: bool = get_parent().show_zones and get_parent().debug
 	World.privilege_owner(Vector2i.ZERO) # rebuild zones if dirty, so zone_version is current
 	var dirty := World.pieces_version != _pieces_seen or World.zone_version != _zones_seen or show != _show_zones_seen
 	if (dirty and _since >= REDRAW_SECS) or _since >= REFRESH_SECS:

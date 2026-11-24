@@ -9,8 +9,11 @@ var selected_furniture: Furniture = null
 ## The whole-world event log, bottom left. Off while playing (agreed): the player's own
 ## feed (ui/SocialFeed.gd) takes its place. The watch-only modes (--bench, --shot) keep it.
 var show_log := true
+## Debug mode (F3 menu open, or no player): the top stats bar shows only then.
+var debug := true
 
 var _top: Label
+var _top_bg: ColorRect
 var _log: Label
 var _inspector: PanelContainer
 var _insp_label: Label
@@ -25,6 +28,7 @@ func _ready() -> void:
 	bg.size = Vector2(4000, 28)
 	add_child(bg)
 	move_child(bg, 0)
+	_top_bg = bg
 
 	_log = _label(Vector2(8, 0), 12)
 	_log.anchor_top = 1.0
@@ -72,6 +76,18 @@ func _update(dt: float) -> void:
 	if _refresh > 0.0:
 		return
 	_refresh = 0.2
+	_top.visible = debug
+	_top_bg.visible = debug
+	_log.visible = show_log
+	if show_log:
+		var lines := EventBus.lines.slice(max(0, EventBus.lines.size() - 12))
+		_log.text = "\n".join(lines)
+	_update_inspector()
+	if debug:
+		_update_top()
+
+
+func _update_top() -> void:
 	var happy := 0
 	var neutral := 0
 	var angry := 0
@@ -90,11 +106,6 @@ func _update(dt: float) -> void:
 	_top.text = "%s  %s  |  Agents %d (happy %d / neutral %d / angry %d)  |  Groups %d  Kingdoms %d  Wars %d  Raids %d  Servants %d  Houses %d  Deaths %d  |  [F3] debug menu: speed, pause, watch, overlays, sprites/discs  |  Wheel zoom" % [
 		SimClock.time_string(), "PAUSED" if SimClock.paused else "x%d" % int(SimClock.speed),
 		World.agent_list.size(), happy, neutral, angry, Factions.real_count(), World.kingdoms.size(), Wars.wars.size(), Raids.active.size(), servants, houses, World.deaths]
-	_log.visible = show_log
-	if show_log:
-		var lines := EventBus.lines.slice(max(0, EventBus.lines.size() - 12))
-		_log.text = "\n".join(lines)
-	_update_inspector()
 
 
 func _update_inspector() -> void:
