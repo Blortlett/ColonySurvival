@@ -393,7 +393,7 @@ func _overlay_body() -> void:
 		if a.raid_id != -1:
 			_pennant(ci, p, s)
 		if show_labels:
-			ci.draw_string(_font, p + Vector2(-s, -s * 0.6), a.short(), HORIZONTAL_ALIGNMENT_CENTER, s * 2, int(8 * Cfg.PX))
+			ci.draw_string(_font, p + Vector2(-s * 2, -s * 0.6), "%s #%d" % [a.short(), a.id] if a.first_name != "" else a.short(), HORIZONTAL_ALIGNMENT_CENTER, s * 4, int(8 * Cfg.PX))
 	_draw_selection(ci)
 
 
@@ -417,7 +417,7 @@ func _draw_discs() -> void:
 			if t:
 				draw_line(p, t.pos * s, Color(1, 0.1, 0.1, 0.6), 1.0 * Cfg.PX)
 		if show_labels:
-			draw_string(_font, p + Vector2(-s, -s * 0.6), a.short(), HORIZONTAL_ALIGNMENT_CENTER, s * 2, int(8 * Cfg.PX))
+			draw_string(_font, p + Vector2(-s * 2, -s * 0.6), "%s #%d" % [a.short(), a.id] if a.first_name != "" else a.short(), HORIZONTAL_ALIGNMENT_CENTER, s * 4, int(8 * Cfg.PX))
 	_draw_selection(self)
 
 

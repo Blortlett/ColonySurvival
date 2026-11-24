@@ -73,6 +73,7 @@ func setup() -> void:
 		if arg.begins_with("--seed="):
 			seed = int(arg.get_slice("=", 1)) # bench comparisons across seeds
 	rng.seed = seed if seed != 0 else randi()
+	Names.reset(rng.seed) # its own generator: names never shift the sim's rolls
 	astar.region = Rect2i(0, 0, Cfg.MAP_W, Cfg.MAP_H)
 	astar.cell_size = Vector2.ONE
 	astar.diagonal_mode = AStarGrid2D.DIAGONAL_MODE_ONLY_IF_NO_OBSTACLES
@@ -711,6 +712,7 @@ func spawn_agent(min_dist: int) -> Agent:
 	a.pos = center(_spawn_cell(min_dist))
 	a.think_t = rng.randf() * Cfg.THINK_INTERVAL
 	a.inv.add("berry", 2)
+	Names.assign(a)
 	Factions.make_solo(a)
 	agents[a.id] = a
 	agent_list.append(a)

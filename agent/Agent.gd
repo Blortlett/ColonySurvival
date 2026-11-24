@@ -5,6 +5,8 @@ extends RefCounted
 const STATS := ["str", "agi", "cha", "auth"]
 
 var id: int
+var first_name := "" # from core/Names.gd; "" until named (then short() is "#id")
+var last_name := ""
 var pos: Vector2 # in cell units; cell centre is cell + 0.5
 var alive := true
 
@@ -254,5 +256,9 @@ func home() -> House:
 	return faction.house_of(id)
 
 
+## The agent's name as every log, feed line and UI label shows it: "Bram Holt", or "#12" if
+## it has none (no name lists).
 func short() -> String:
-	return "#%d" % id
+	if first_name == "":
+		return "#%d" % id
+	return "%s %s" % [first_name, last_name]

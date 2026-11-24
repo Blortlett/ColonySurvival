@@ -130,7 +130,7 @@ func _update_inspector() -> void:
 	if a.defend_raid != -1:
 		lines.append("Defending home against a raid")
 	if a.servants.size() > 0:
-		lines.append("Servants: %s" % ", ".join(a.servants.map(func(i): return "#%d" % i)))
+		lines.append("Servants: %s" % ", ".join(a.servants.map(func(i): return _who(i))))
 	var h := a.home()
 	lines.append("Home: %s" % ("none" if h == null else "house %d (%s, %d/%d)" % [h.id, House.State.keys()[h.state], h.occupants.size(), h.capacity]))
 	if h and h.fire:
@@ -145,7 +145,7 @@ func _update_inspector() -> void:
 	if ops.size() > 0:
 		var parts: Array[String] = []
 		for k in ops.slice(0, 5):
-			parts.append("#%d:%+d" % [k, a.opinions[k]])
+			parts.append("%s:%+d" % [_who(k), a.opinions[k]])
 		lines.append("Opinions: %s" % " ".join(parts))
 	_insp_label.text = "\n".join(lines)
 
@@ -155,7 +155,7 @@ func _fire_text(f: Campfire) -> String:
 	if not f.is_house:
 		lines.append("Wild fire   (%s)" % ("burning" if f.burning() else "out"))
 		var by: Agent = World.agents.get(f.placed_by)
-		lines.append("Placed by: %s" % ("#%d" % f.placed_by if by else ("#%d (dead)" % f.placed_by if f.placed_by != -1 else "unknown")))
+		lines.append("Placed by: %s" % (_who(f.placed_by) if by else ("#%d (dead)" % f.placed_by if f.placed_by != -1 else "unknown")))
 		lines.append("Fuel: %d/%d wood" % [f.wood_left(), f.max_wood()])
 		return "\n".join(lines)
 	if f.house and f.house.is_smeltery():
@@ -220,7 +220,7 @@ func _fire_text(f: Campfire) -> String:
 		if m.is_servant():
 			role = "servant of #%d" % m.master_id
 		elif m.servants.size() > 0:
-			role += ", master of %s" % ", ".join(m.servants.map(func(i): return "#%d" % i))
+			role += ", master of %s" % ", ".join(m.servants.map(func(i): return _who(i)))
 		lines.append("  %s  %s  (%s %d)" % [m.short(), role, m.mood_label(), m.mood])
 	lines.append("Houses:")
 	for h in g.houses:
@@ -352,7 +352,7 @@ func _board_summary(b: TaskBoard) -> String:
 func _loot_text(b: LootBag) -> String:
 	var lines: Array[String] = []
 	lines.append("Loot bag   (despawns in %ds)" % int(ceil(b.timer)))
-	lines.append("Dropped by: %s" % ("unknown" if b.dropper_id == -1 else "#%d" % b.dropper_id))
+	lines.append("Dropped by: %s" % ("unknown" if b.dropper_id == -1 else _who(b.dropper_id)))
 	lines.append("Why: %s" % (b.reason if b.reason != "" else "unknown"))
 	var parts: Array[String] = []
 	for k in b.stacks:
@@ -391,3 +391,9 @@ func _furniture_text(fu: Furniture) -> String:
 		if fu.kind == Furniture.Kind.SAWMILL:
 			lines.append("Also: raiding axes are crafted here")
 	return "\n".join(lines)
+
+
+## An agent's name by id ("#12" if it's gone or has no name).
+static func _who(id: int) -> String:
+	var a: Agent = World.agents.get(id)
+	return a.short() if a else "#%d" % id
