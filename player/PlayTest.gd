@@ -163,6 +163,8 @@ func run(main: Node, pc: PlayerController, cam: Node) -> void:
 		_check(a.controller == null and a.last_think > 0.0, "watch mode: the AI thinks for the body")
 		pc.set_watching(false)
 		_check(a.controller == pc and a.job == null, "back from watch mode: the player drives again")
+		# 8. The base fire (Player Group Base Plan); it runs sim time, so it goes last.
+		await _base_fire_checks(a, cam)
 	await _death_tests(main)
 	print("PLAYTEST %s (%d failed)" % ["PASSED" if _fails == 0 else "FAILED", _fails])
 	_main.get_tree().quit()
@@ -807,6 +809,87 @@ func _mailbox_checks(a: Agent, cam: Node) -> void:
 	_steps(1)
 	World.remove_furniture(fm)
 	await _frames(1)
+
+
+## Player Group Base Plan D7-D10: the base fire is refused alone, the AI waits for it in a
+## player-led group, placing it plans the house and posts the build tasks, members build,
+## and a finished building posts its mailbox task. Cleans up after itself.
+func _base_fire_checks(a: Agent, cam: Node) -> void:
+	var pc := _pc
+	var start_pos := a.pos
+	pc.station.close("")
+	_solo(a)
+	_check("base_fire" in Actions.PIECES, "the build menu offers a base fire")
+	_check("followers" in Factions.base_why(a, a.cell()), "no base fire without followers: %s" % Factions.base_why(a, a.cell()))
+	var mate := _free_npc(a)
+	if mate == null:
+		_check(false, "found an NPC for the base fire checks")
+		return
+	var f := Factions.form(a, mate, true)
+	_check(f.player_led and f.leader_id == a.id, "the player leads the new group")
+	Factions.housekeeping(f)
+	_check(f.homes().is_empty(), "the AI doesn't plan a player-led group's first home (D9)")
+	# A site the rules accept, near the player.
+	var site := World.NO_CELL
+	var from := a.cell()
+	var best_d := INF
+	for x in range(from.x - 40, from.x + 41, 2):
+		for y in range(from.y - 40, from.y + 41, 2):
+			var c := Vector2i(x, y)
+			var d := Vector2(c - from).length()
+			if d < best_d and World.in_bounds(c) and Factions.base_why(a, c) == "":
+				best_d = d
+				site = c
+	_check(site != World.NO_CELL, "found a valid base site near the player")
+	if site == World.NO_CELL:
+		_solo(a)
+		return
+	a.inv.add("wood", 5)
+	a.inv.add("stone", 3)
+	a.pos = World.center(site) + Vector2(2.0, 0.0)
+	cam.position = a.pos * Cfg.CELL
+	pc.build_piece = "base_fire"
+	pc.hover_cell = site
+	pc._place_piece(a)
+	pc.build_piece = ""
+	var homes := f.homes()
+	var h: House = homes[0] if not homes.is_empty() else null
+	_check(h != null and h.fire_cell == site and h.state == House.State.BUILDING, "placing the base fire plans the house around it")
+	if h == null:
+		_solo(a)
+		return
+	var fire: Campfire = World.fires.get(site)
+	_check(fire != null and fire.is_house and fire.house == h, "a house fire burns at the site")
+	_check(mate.id in h.occupants, "the follower gets a room")
+	var walls := f.board.tasks.filter(func(t): return t.house == h and t.type == Task.Type.BUILD_WALL).size()
+	_check(walls == h.wall_cells.size(), "wall tasks posted for the house (%d of %d)" % [walls, h.wall_cells.size()])
+	_check("already has a home" in Factions.base_why(a, site + Vector2i(0, 30)), "a second base fire is refused")
+	# The follower can take the house's work from the board (no sim time here: running the
+	# sim shifts moods and positions, which upsets the death tests that follow).
+	var t := f.board.claim(mate.id, mate.cell())
+	_check(t != null and (t.house == h or t.type == Task.Type.CLEAR_NODE), "the follower can claim the house's building work (%s)" % (Task.Type.keys()[t.type] if t else "nothing"))
+	f.board.release(mate.id)
+	await _shot("playtest_base_fire")
+	# Finished buildings get a mailbox task (D10).
+	h.state = House.State.COMPLETE
+	Factions._ensure_piece_tasks(f, h)
+	_check(f.board.tasks.any(func(t): return t.house == h and t.type == Task.Type.PLACE_MAILBOX), "a finished house posts its mailbox task")
+	# Clean up: the house, its pieces and the group.
+	for c in h.wall_cells + [h.door_cell]:
+		var w: Wall = World.walls.get(c)
+		if w:
+			World.remove_wall(w)
+	for c in h.floor_cells:
+		World.floors.erase(c)
+	if World.fires.get(site) == fire:
+		World.remove_fire(fire)
+	World.pieces_version += 1
+	Factions.leave(mate)
+	Factions.make_solo(mate)
+	Brain.set_job(mate, null)
+	_solo(a)
+	a.pos = start_pos
+	cam.position = a.pos * Cfg.CELL
 
 
 ## The first slot holding a stack of `item`, or -1.

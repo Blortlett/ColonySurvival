@@ -1,6 +1,6 @@
 # Player Group & Base Plan
 
-Status: **draft, awaiting sign-off** (2026-11-24). Nothing built yet.
+Status: **built, not yet committed** (2026-11-25). Packages A–D are in; `--playtest` passes 153 checks. Not yet checked by hand in a real game.
 
 Goal: the player founds and runs their own group. They recruit NPCs by invite, always lead
 (and are always king), place the group's base fire themselves, and every building gets a
@@ -63,7 +63,10 @@ Files: `agent/Actions.gd`, `ui/BuildMenu.gd`, `faction/Factions.gd` (housekeepin
 - `Actions.PIECES` gains `house_fire`, labelled "Base fire" in the menu.
 - `Actions.can_place(a, "house_fire", c, reach)`: must lead (`leader_id == a.id`) a non-solo group with no home (planned or built); site must pass a public `Factions.site_ok_at(f, fire_cell)` that reuses `_site_ok` (interior centred on `c`, size from `House.size_for(HOUSE, cap)` with cap = members + 1, clamped like housekeeping). Each failure returns its own reason.
 - `Actions.place(..., "house_fire", ...)` for a leader without a planned house: create the House, add it to `f.houses`, fill occupants, place the fire, call `Factions.on_house_fire_placed`. The AI path (task with a planned house) is unchanged.
-- Door faces the side nearest the player when they placed it (default south).
+- ~~Door faces the side nearest the player.~~ Built: the door always faces south, because `site_why` (the shared site check) only handles south doors.
+- Built as a separate piece, `base_fire` (same cost as `house_fire`), so the AI's `house_fire` path is untouched. `Factions.base_why` / `found_base` do the work; `_site_ok` now wraps `site_why`, which returns a reason.
+- Also fixed: `Cities.gd` city clean-up no longer treats a live mailbox as rubbish.
+- Known gap: a player-led group that joins a kingdom with a city before placing a base fire may still get a house planned on a city plot (`Cities.gd`).
 - `Factions.housekeeping`: skip the "homeless → plan_house" step when `f.player_led` and the group has no home yet (D9).
 - `_site_ok`: also require the mailbox cell (or its alt) to be buildable.
 - `_ensure_piece_tasks`: post `PLACE_MAILBOX` once the building is complete, for every kind (D10).
