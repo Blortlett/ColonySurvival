@@ -36,12 +36,13 @@ static func _happy_meets(a: Agent, b: Agent) -> bool:
 		return false
 	var fa := a.faction
 	var fb := b.faction
-	if b.is_player() and fb.solo and (fa.solo or fa.has_room()):
-		# Player Social Plan §3: ask the player; with nobody to ask, the default rule refuses.
-		var what := " invites you to form a group." if fa.solo else " invites you to join %s (%d members)." % [fa.display_name(), fa.members.size()]
-		if not ask_player(b, &"invite", a, what, "Join", "Refuse", Cfg.OFFER_SECS_INVITE):
-			_refuse_invite(a, b, false)
-		return true
+	if a.is_player() or b.is_player():
+		# NPCs never invite the player, nor join the player's group unasked (Player Group
+		# Plan D4): the player recruits by invite. Groups still trade with the player.
+		if not fa.solo and not fb.solo and not b.is_angry() and (b.is_happy() or b.is_neutral()):
+			_trade(a, b)
+			return true
+		return false
 	if b.is_happy():
 		if fa.solo and fb.solo:
 			if a.opinion_of(b.id) >= 0.0 and b.opinion_of(a.id) >= 0.0:
@@ -313,7 +314,6 @@ static func _refuse_demand(a: Agent, p: Agent, timed_out: bool) -> void:
 ## hostile ones at the bottom (so muscle memory works).
 const PLAYER_OPTIONS := [
 	{"id": &"invite", "label": "Invite to group"},
-	{"id": &"ask_join", "label": "Ask to join"},
 	{"id": &"trade", "label": "Trade"},
 	{"id": &"demand", "label": "Demand goods"},
 	{"id": &"challenge", "label": "Challenge"},
@@ -360,15 +360,6 @@ static func _option_why(p: Agent, t: Agent, opt: StringName, fp: Faction, ft: Fa
 				return "Your group is full."
 			if t.is_angry():
 				return "They're angry with the world."
-		&"ask_join":
-			if not fp.solo:
-				return "You're in a group: leave it first."
-			if ft.solo:
-				return "They have no group."
-			if not ft.has_room():
-				return "Their group is full."
-			if t.is_angry():
-				return "They're angry with the world."
 		&"trade":
 			if fp.solo or ft.solo:
 				return "Trade is between groups."
@@ -402,7 +393,6 @@ static func player_act(p: Agent, t: Agent, opt: StringName) -> String:
 		t.set_cooldown(p.id)
 	match opt:
 		&"invite": return _player_invite(p, t)
-		&"ask_join": return _player_ask_join(p, t)
 		&"trade": return _player_trade(p, t)
 		&"demand": return _player_demand(p, t)
 		&"challenge":
@@ -428,23 +418,29 @@ static func _willing(p: Agent, t: Agent) -> bool:
 	return cha_roll(p, t)
 
 
+## Someone who outranks the player never follows them (Player Group Plan D6); the option
+## stays open so the player can find that out.
 static func _player_invite(p: Agent, t: Agent) -> String:
+	if Factions.outranks(t, p):
+		t.change_opinion(p.id, -3.0)
+		return _say(&"p_refused", "%s won't follow someone with less standing." % t.short(), p, t)
 	if not _willing(p, t):
 		t.change_opinion(p.id, -2.0)
 		return _say(&"p_refused", "%s turns down your invite." % t.short(), p, t)
-	if p.faction.solo:
-		Factions.form(p, t)
-	else:
-		Factions.join(t, p.faction)
+	_bring_in(p, t)
 	return _say(&"p_invite", "%s agrees to join you." % t.short(), p, t)
 
 
-static func _player_ask_join(p: Agent, t: Agent) -> String:
-	var f := t.faction
-	if not _willing(p, t):
-		return _say(&"p_refused", "%s won't take you into %s." % [t.short(), f.name], p, t)
-	Factions.join(p, f)
-	return _say(&"p_join", "%s takes you into %s." % [t.short(), f.name], p, t)
+## The player brings `t` into their group: founds one (the player leads it), or adds `t`
+## to the group they lead (which becomes player-led, D1). In an NPC gang the player only
+## belongs to, `t` just joins and rank still decides (D2).
+static func _bring_in(p: Agent, t: Agent) -> void:
+	if p.faction.solo:
+		Factions.form(p, t, true)
+		return
+	if p.faction.leader_id == p.id:
+		p.faction.player_led = true
+	Factions.join(t, p.faction)
 
 
 static func _player_trade(p: Agent, t: Agent) -> String:
@@ -497,10 +493,7 @@ static func _player_demand(p: Agent, t: Agent) -> String:
 
 static func _player_recruit(p: Agent, t: Agent) -> String:
 	if cha_roll(p, t):
-		if p.faction.solo:
-			Factions.form(p, t)
-		else:
-			Factions.join(t, p.faction)
+		_bring_in(p, t)
 		return _say(&"p_recruit", "%s runs with you now." % t.short(), p, t)
 	Combat.start_fight(t, p, true) # a lost roll: a fight to the death, as between NPCs
 	return _say(&"p_recruit", "%s takes it as an insult: a fight to the death!" % t.short(), p, t)

@@ -287,7 +287,7 @@ func takeover_candidate() -> Agent:
 			var m: Agent = World.agents.get(mid)
 			if m == null or not m.alive or m == body:
 				continue
-			if best == null or m.stats.auth > best.stats.auth 					or (m.stats.auth == best.stats.auth and (m.stats.cha > best.stats.cha 					or (m.stats.cha == best.stats.cha and m.id < best.id))):
+			if best == null or Factions.outranks(m, best):
 				best = m
 	return best
 
@@ -634,8 +634,8 @@ func _harvest(a: Agent, dt: float) -> void:
 			harvest_node = null
 
 
-## E opens the chest or machine in reach (or closes the open one); the open panel's
-## requests run here, inside the sim step.
+## E opens the chest, machine or mailbox in reach (or closes the open one); the open panel's
+## requests run here, inside the sim step. A mailbox opens the group panel (ui/MailboxUI.gd).
 func _use_station(a: Agent, dt: float) -> void:
 	if _use == -1:
 		station.close("")

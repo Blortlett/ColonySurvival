@@ -33,6 +33,8 @@ const RIVET := Color(0.62, 0.63, 0.68)
 const FURNACE := Color(0.30, 0.27, 0.26)
 const GLOW := Color(1.0, 0.45, 0.08)
 const CRATE := Color(0.60, 0.44, 0.24)
+const MAILBOX := Color(0.30, 0.42, 0.62)
+const MAILBOX_FLAG := Color(0.80, 0.20, 0.15)
 
 ## Furnaces and crates seen on the last redraw: DynamicLayer draws their live parts
 ## (the lit glow, the iron mark) on top every frame.
@@ -224,6 +226,12 @@ func _draw_furniture(fu: Furniture, p: Vector2, s: float) -> void:
 			var k := _kingdom_of(fu.owner_id)
 			if k:
 				draw_rect(Rect2(p + Vector2(s * 0.1, s * 0.05), Vector2(s * 0.8, s * 0.45)), k.color, false, 1.5 * Cfg.PX)
+		Furniture.Kind.MAILBOX:
+			# Placeholder until art exists: a post with a box and a little flag.
+			draw_rect(Rect2(p + Vector2(s * 0.44, s * 0.45), Vector2(s * 0.12, s * 0.5)), BOARD_POST)
+			draw_rect(Rect2(p + Vector2(s * 0.2, s * 0.15), Vector2(s * 0.6, s * 0.35)), MAILBOX)
+			draw_rect(Rect2(p + Vector2(s * 0.2, s * 0.15), Vector2(s * 0.6, s * 0.35)), MAILBOX.darkened(0.5), false, 1.0 * Cfg.PX)
+			draw_rect(Rect2(p + Vector2(s * 0.76, s * 0.08), Vector2(s * 0.06, s * 0.22)), MAILBOX_FLAG)
 		Furniture.Kind.SAWMILL:
 			draw_rect(Rect2(p + Vector2(s * 0.1, s * 0.3), Vector2(s * 0.8, s * 0.4)), SAWMILL)
 			Disc.draw(self, p + Vector2(s * 0.5, s * 0.5), s * 0.28, METAL)

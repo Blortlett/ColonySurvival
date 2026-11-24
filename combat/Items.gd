@@ -43,6 +43,7 @@ const BUILD_COSTS := {
 	"door": {"wood": 3, "hemp": 1},
 	"wild_fire": {"wood": 2},
 	"house_fire": {"wood": 5, "stone": 3},
+	"base_fire": {"wood": 5, "stone": 3}, # the player's house_fire: founds their group's base
 	"floor": {"wood": 1}, # per tile (agreed)
 	"chest": {"wood": 5}, # (agreed)
 	# Reinforced pieces (agreed concept, Phase C).
@@ -53,6 +54,7 @@ const BUILD_COSTS := {
 	"road": {"stone": 1}, # 1.3x speed (agreed)
 	"road_r": {"cut_stone": 1}, # paved, 1.5x speed (agreed)
 	"board": {"wood": 4}, # kingdom board (agreed)
+	"mailbox": {"wood": 2}, # outside every building's door (Player Group Base Plan D10, start)
 	# Workshop machines (starting values).
 	"sawmill": {"wood": 6, "stone": 2},
 	"cutter": {"wood": 4, "stone": 4},

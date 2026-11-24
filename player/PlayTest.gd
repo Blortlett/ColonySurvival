@@ -96,6 +96,7 @@ func run(main: Node, pc: PlayerController, cam: Node) -> void:
 	# 4b. Interaction panels (phase 4): craft at a machine and stock a chest, all through
 	# the panels' buttons.
 	await _panels(a, cam)
+	await _mailbox_checks(a, cam)
 
 	# 5. Fight: swing at an NPC in front; it fights back. The player gets a sword so the
 	# rest of the test usually survives (an unarmed player tends to lose).
@@ -287,13 +288,19 @@ func _social_checks(a: Agent) -> void:
 	other.pos = a.pos + Vector2(2, 0)
 	a.mood = 60.0
 	other.mood = 60.0
-	# Decline.
+	# NPCs never invite the player (Player Group Plan D4): a happy meeting asks nothing
+	# and doesn't pull the player into a group.
 	Social._happy_meets(other, a)
+	_check(not pc.offers.has_from(other.id) and a.faction.solo, "a happy NPC doesn't invite the player")
+	# The one ask left is the gang ask (D2). Decline it.
+	other.mood = -60.0
+	a.mood = -60.0
+	Social._angry_meets(other, a)
 	var o: Dictionary = pc.offers.current()
-	_check(o.get("kind", &"") == &"invite" and o.get("from_id", -1) == other.id, "a happy invite asks the player instead of refusing")
-	_check(other.job != null and other.job.kind == Job.Kind.IDLE and other.job.item == Social.WAIT_ANSWER, "the inviter waits for the answer")
+	_check(o.get("kind", &"") == &"gang" and o.get("from_id", -1) == other.id, "a gang ask asks the player instead of refusing")
+	_check(other.job != null and other.job.kind == Job.Kind.IDLE and other.job.item == Social.WAIT_ANSWER, "the asker waits for the answer")
 	await _main.get_tree().process_frame
-	_check(prompt._panel.visible and prompt._yes.text == "[F1] Join" and other.short() in prompt._text.text, "the prompt card shows the invite: %s" % prompt._text.get_parsed_text())
+	_check(prompt._panel.visible and prompt._yes.text == "[F1] Join" and other.short() in prompt._text.text, "the prompt card shows the gang ask: %s" % prompt._text.get_parsed_text())
 	pc.hover_id = other.id
 	if _shots:
 		await _seconds(0.3) # let the card fade in
@@ -302,27 +309,37 @@ func _social_checks(a: Agent) -> void:
 	pc.offers.answer(false)
 	_steps(1)
 	_check(a.faction.solo and not pc.offers.has_from(other.id), "declining keeps the player solo")
-	_check(_has(feed, 1, "You turn down %s's invite" % other.short()), "feed: the declined invite is tier 1: %s" % _last(feed))
-	_check(other.job == null or other.job.item != Social.WAIT_ANSWER, "the inviter stops waiting")
+	_check(_has(feed, 1, "You refuse to run with %s" % other.short()), "feed: the declined gang ask is tier 1: %s" % _last(feed))
+	_check(other.job == null or other.job.item != Social.WAIT_ANSWER, "the asker stops waiting")
+	_calm(a, other)
 	# Timeout: the default rule (refuse).
-	other.mood = 60.0
-	Social._happy_meets(other, a)
-	_check(pc.offers.has_from(other.id), "a second invite is queued")
-	_steps(int(Cfg.OFFER_SECS_INVITE * 60.0) + 5)
-	_check(a.faction.solo and not pc.offers.has_from(other.id) and _has(feed, 1, "invite runs out"),
-		"an unanswered invite runs out and is refused: %s" % _last(feed))
-	# Accept by clicking the Join button.
+	other.mood = -60.0
+	a.mood = -60.0
+	Social._angry_meets(other, a)
+	_check(pc.offers.has_from(other.id), "a second gang ask is queued")
+	a.hp = Cfg.MAX_HP
+	other.set_cooldown(a.id, 60.0) # the angry asker would otherwise rob the player while waiting
+	_steps(int(Cfg.OFFER_SECS_GANG * 60.0) + 5)
+	if not a.alive or a.faction == null:
+		_check(false, "the player survives the gang-ask timeout (hp %.0f, feed %s)" % [a.hp, _last(feed)])
+		for e in feed.entries.slice(-8):
+			print("      [tier %d] %s" % [e.tier, e.text])
+		return
+	_check(a.faction.solo and not pc.offers.has_from(other.id) and _has(feed, 1, "gang offer runs out"),
+		"an unanswered gang ask runs out and is refused: %s" % _last(feed))
+	_calm(a, other)
+	a.mood = 60.0
+	# Invite (D1): the player founds the group and leads it.
 	if not other.alive or other.in_combat() or not other.faction.solo:
 		other = _free_npc(a)
 	if other:
 		other.pos = a.pos + Vector2(2, 0)
 		other.mood = 60.0
-		a.mood = 60.0
-		Social._happy_meets(other, a)
-		await _main.get_tree().process_frame
-		prompt._yes.pressed.emit()
-		_steps(1)
-		_check(not a.faction.solo and a.faction == other.faction, "clicking Join forms a group with %s (%s)" % [other.short(), pc.message])
+		other.change_opinion(a.id, 60.0)
+		_below(other, a)
+		Social._player_invite(a, other)
+		_check(not a.faction.solo and a.faction == other.faction and a.faction.player_led and a.faction.leader_id == a.id,
+			"inviting %s founds the player's group, led by the player" % other.short())
 		# Groupmates defend the player (agreed 2026-11-24).
 		var foe := _free_npc(a, other)
 		if foe and not a.faction.solo:
@@ -335,29 +352,95 @@ func _social_checks(a: Agent) -> void:
 			Brain.set_job(foe, null)
 			Brain.set_job(other, null)
 			Brain.set_job(a, null)
-		Factions.leave(a)
-		Factions.make_solo(a)
+		if not a.faction.solo:
+			_rank_checks(a, other)
+		_solo(a)
 	# Gang offer (angry player), accepted.
 	var g := _free_npc(a)
 	if g:
 		g.pos = a.pos + Vector2(-2, 0)
 		g.mood = -60.0
 		a.mood = -60.0
+		g.stats.auth = a.stats.auth + 3 # D2: in an NPC's gang, rank decides who leads
 		Social._angry_meets(g, a)
 		_check(pc.offers.current().get("kind", &"") == &"gang", "an angry NPC asks the angry player to run as a gang")
-		pc.offers.answer(true)
-		_steps(1)
-		_check(not a.faction.solo and a.faction == g.faction, "accepting the gang offer joins %s (%s)" % [g.short(), pc.message])
+		await _main.get_tree().process_frame
+		for x in [a, g]: # a passer-by may have started a fight during the frame
+			if x.in_combat():
+				Brain.set_job(x, null)
+		prompt._yes.pressed.emit()
+		pc.offers.step(a) # apply it now: a full sim step lets passers-by pick a fight with the angry pair first
+		_check(not a.faction.solo and a.faction == g.faction, "clicking Join on the gang ask joins %s (%s)" % [g.short(), pc.message])
+		_check(not a.faction.player_led and a.faction.leader_id == g.id, "in an NPC's gang the higher-ranked NPC leads (%d)" % a.faction.leader_id)
 		Factions.leave(a)
 		Factions.make_solo(a)
 		a.mood = 60.0
 		# Hover: the character nearest the mouse within reach, never the player's own body.
+		g.pos = a.pos + Vector2(3, 0)
+		_steps(1) # files g under its new position in the spatial index
 		g.pos = a.pos + Vector2(3, 0)
 		_check(pc.pick_agent(g.pos + Vector2(0.3, 0.2)) == g, "the hover pick finds the character under the mouse")
 		_check(pc.pick_agent(a.pos) != a, "the hover pick skips the player's own body")
 	_check(_overlay_words(), "hover card words: mood and opinion")
 	await _prompt_checks_4(a)
 	await _radial_checks(a)
+
+
+## Stops any fight, wait or open ask between the player and `o` (a refused ask may start a fight).
+func _calm(a: Agent, o: Agent) -> void:
+	if _pc.offers.has_from(o.id):
+		_pc.offers.clear()
+	Brain.set_job(o, null)
+	Brain.set_job(a, null)
+	o.death_match.erase(a.id)
+	a.death_match.erase(o.id)
+
+
+## `t` ranks below the player (lower AUTH), so an invite isn't refused on rank (D6).
+func _below(t: Agent, a: Agent) -> void:
+	if a.stats.auth < 2:
+		a.stats.auth = 2
+	t.stats.auth = a.stats.auth - 1
+	a.set_cooldown(t.id, 0.0)
+	t.set_cooldown(a.id, 0.0)
+	Brain.set_job(t, null)
+
+
+## Player Group Plan D1, D3, D6, with the player leading a group with `mate`: a higher-ranked
+## NPC refuses the invite; one that joins anyway doesn't take over; the player is king.
+func _rank_checks(a: Agent, mate: Agent) -> void:
+	var f := a.faction
+	var h := _free_npc(a, mate)
+	if h == null:
+		_check(false, "found an NPC for the rank checks")
+		return
+	h.pos = a.pos + Vector2(-1.5, 0)
+	h.mood = 60.0
+	h.change_opinion(a.id, 60.0)
+	Brain.set_job(h, null)
+	h.stats.auth = a.stats.auth + 3
+	a.set_cooldown(h.id, 0.0)
+	h.set_cooldown(a.id, 0.0)
+	_check(Social.player_why(a, h, &"invite") == "", "invite stays open on someone who outranks you: %s" % Social.player_why(a, h, &"invite"))
+	_pc._social = [&"invite", h.id]
+	_steps(1)
+	_check(h.faction.solo and "less standing" in _pc.message, "a higher-ranked NPC refuses the invite: %s" % _pc.message)
+	Factions.join(h, f)
+	_check(h.faction == f and f.leader_id == a.id, "the player still leads after higher-AUTH %s joins (leader %d)" % [h.short(), f.leader_id])
+	# Kingdom: an NPC group with far more AUTH; the player's group still leads it (D3).
+	var x := _free_npc(a, h)
+	var y: Agent = _free_npc(a, x) if x else null
+	if x == null or y == null:
+		_check(false, "found two NPCs for the kingdom check")
+		return
+	x.stats.auth = a.stats.auth + 10
+	y.stats.auth = a.stats.auth + 10
+	var g2 := Factions.form(x, y)
+	var k := Kingdoms.form(f, g2)
+	_check(k.king_id == a.id and k.leading_fid == f.id, "the player is king of %s (king %d, leading %d)" % [k.name, k.king_id, k.leading_fid])
+	Kingdoms.recompute(k)
+	_check(k.king_id == a.id, "the player stays king on a recompute")
+	Kingdoms.dissolve(k)
 
 
 ## Makes `t` a pushover for a demand: neutral, slow, weak (so it doesn't talk you down,
@@ -462,9 +545,17 @@ func _radial_checks(a: Agent) -> void:
 	var pc := _pc
 	var feed = _main._feed
 	var R = preload("res://ui/SocialRadial.gd")
-	_check(R.pick(Vector2.ZERO, Vector2(0, -60), 6) == 0 and R.pick(Vector2.ZERO, Vector2(0, 60), 6) == 3
-		and R.pick(Vector2.ZERO, Vector2(52, 30), 6) == 2 and R.pick(Vector2.ZERO, Vector2(5, 5), 6) == -1,
-		"radial: the mouse direction picks the option (dead zone picks none)")
+	var n := Social.PLAYER_OPTIONS.size()
+	var picks: bool = R.pick(Vector2.ZERO, Vector2(5, 5), n) == -1
+	for i in n:
+		picks = picks and R.pick(Vector2.ZERO, R.dir_of(i, n) * 60.0, n) == i
+	_check(picks, "radial: the mouse direction picks the option (dead zone picks none)")
+	var r: float = R.radius_for(n)
+	var apart := true
+	for i in n:
+		var d: Vector2 = (R.dir_of(i, n) - R.dir_of((i + 1) % n, n)) * r
+		apart = apart and (absf(d.x) >= R.BUBBLE.x or absf(d.y) >= R.BUBBLE.y)
+	_check(apart, "radial: %d bubbles don't overlap (radius %.0f)" % [n, r])
 	# Demand goods: a pushover drops half its stone at its feet and backs off.
 	var t := _free_npc(a)
 	if t == null:
@@ -486,35 +577,12 @@ func _radial_checks(a: Agent) -> void:
 		u.pos = a.pos + Vector2(0, 1.5)
 		u.mood = 60.0
 		u.change_opinion(a.id, 60.0)
-		Brain.set_job(u, null)
+		_below(u, a)
 		pc._social = [&"invite", u.id]
 		_steps(1)
 		_check(not a.faction.solo and u.faction == a.faction, "invite: %s joins you (%s)" % [u.short(), pc.message])
 		_check(Social.player_why(a, u, &"challenge") != "" and Social.player_why(a, u, &"trade") == "They're in your group.", "greyed: no challenging or trading with your own group")
 		_solo(a)
-	# Ask to join an existing group.
-	var g: Faction = null
-	for f in World.factions.values():
-		if not f.solo and f.has_room() and f.kingdom == null and not f.is_gang():
-			g = f
-			break
-	if g:
-		var m: Agent = null
-		for mid in g.members:
-			var x: Agent = World.agents.get(mid)
-			if x and not x.in_combat():
-				m = x
-				break
-		if m:
-			m.pos = a.pos + Vector2(-1.5, 0)
-			m.mood = 60.0
-			m.change_opinion(a.id, 60.0)
-			a.set_cooldown(m.id, 0.0)
-			m.set_cooldown(a.id, 0.0)
-			pc._social = [&"ask_join", m.id]
-			_steps(1)
-			_check(a.faction == g, "ask to join: %s takes you into %s (%s)" % [m.short(), g.name, pc.message])
-			_solo(a)
 	# Greyed reasons.
 	var w := _free_npc(a, t)
 	if w:
@@ -535,7 +603,8 @@ func _radial_checks(a: Agent) -> void:
 		pc.radial_id = q.id
 		await _main.get_tree().process_frame
 		var radial = _main._radial
-		_check(radial._options.size() == 6, "the radial menu lists 6 options for %s" % q.short())
+		_check(radial._options.size() == 5 and not radial._options.any(func(x): return x.id == &"ask_join"),
+			"the radial menu lists 5 options (no Ask to join) for %s" % q.short())
 		if _shots:
 			await _seconds(0.1)
 		await _shot("playtest_radial")
@@ -674,6 +743,70 @@ func _panels(a: Agent, cam: Node) -> void:
 	menu._update()
 	_check(menu.pick("wall") and pc.build_piece == "wall" and not menu.visible, "build menu picks the wall and closes")
 	pc.build_piece = ""
+
+
+## Mailbox group panel (package C): the ladder of a fresh group, E on an own mailbox opens
+## all three tabs, a foreign one only Members and Faction.
+func _mailbox_checks(a: Agent, cam: Node) -> void:
+	var pc := _pc
+	var ui: CanvasLayer = _main._mailbox
+	var fresh := Faction.new(World.rng) # not registered: a group with no buildings yet
+	fresh.solo = false
+	var steps := Factions.ladder_status(fresh)
+	var ids := steps.map(func(s): return s.id)
+	var states := steps.map(func(s): return s.state)
+	_check(ids == ["home", "stock", "workshop", "reinforce", "smeltery", "stone"], "ladder_status lists the six steps in order (%s)" % [ids])
+	_check(states == ["in_progress", "locked", "locked", "locked", "locked", "locked"], "a fresh group is working on its home, the rest locked (%s)" % [states])
+	# An own mailbox: put one by the test workshop's door (from _panels).
+	var f := a.faction
+	var h: House = null
+	for x in f.houses:
+		if x.is_workshop() and x.state == House.State.COMPLETE:
+			h = x
+	var mc := h.mailbox_site() if h else World.NO_CELL
+	_check(mc != World.NO_CELL, "found a mailbox spot by the test workshop")
+	if mc == World.NO_CELL:
+		return
+	var mb := World.place_furniture(mc, Furniture.Kind.MAILBOX, f.id, h)
+	h.mailbox = mb
+	pc.station.close("")
+	a.pos = World.center(h.door_outside())
+	cam.position = a.pos * Cfg.CELL
+	pc.aim_point = World.center(mc)
+	_steps(1)
+	_check(preload("res://player/Station.gd").target(a) == mb, "E targets the mailbox")
+	pc._use = 1
+	_steps(1)
+	await _frames(2)
+	_check(pc.station.open == mb and ui.visible and ui.tabs().size() == 3, "E opens the mailbox panel with all three tabs")
+	_check(ui.text().contains(a.short()), "Members lists the player")
+	_check(ui.select_tab("faction") and ui.text().contains("Chest stock"), "Faction tab shows the chest stock")
+	_check(ui.select_tab("command") and ui.text().contains("Stone tier"), "Command tab shows the ladder")
+	await _shot("playtest_mailbox")
+	pc._use = -1
+	_steps(1)
+	await _frames(1)
+	_check(pc.station.open == null and not ui.visible, "E closes the mailbox panel")
+	# A foreign mailbox opens too, read-only: no Command tab.
+	var other: Faction = null
+	for o in World.agent_list:
+		if not o.faction.solo and not World.same_side(o.faction.id, f.id):
+			other = o.faction
+			break
+	World.remove_furniture(mb)
+	h.mailbox = null
+	if other == null:
+		print("    (no foreign group to test a foreign mailbox)")
+		return
+	var fm := World.place_furniture(mc, Furniture.Kind.MAILBOX, other.id, null)
+	pc._use = 1
+	_steps(1)
+	await _frames(2)
+	_check(pc.station.open == fm and ui.visible and ui.tabs() == ["members", "faction"] and not ui.select_tab("command"), "a foreign mailbox opens without the Command tab")
+	pc._use = -1
+	_steps(1)
+	World.remove_furniture(fm)
+	await _frames(1)
 
 
 ## The first slot holding a stack of `item`, or -1.
@@ -902,35 +1035,40 @@ func run_input(main: Node, pc: PlayerController, cam: Node) -> void:
 	_key(KEY_F3, false)
 	await _frames(2)
 	_check(not menu.visible and not pc.keys_blocked, "F3 closes the menu")
-	# Social prompt keys (Player Social Plan §3): F2 declines an invite, F1 accepts one.
+	# Social prompt keys (Player Social Plan §3): F2 declines a gang ask, F1 accepts one
+	# (NPCs no longer invite the player, Player Group Plan D4).
 	var npc := _free_npc(a)
 	if npc:
 		npc.pos = a.pos + Vector2(2, 0)
-		a.mood = 60.0
-		npc.mood = 60.0
-		Social._happy_meets(npc, a)
-		_check(pc.offers.has_from(npc.id), "an invite shows a prompt")
+		a.mood = -60.0
+		npc.mood = -60.0
+		Social._angry_meets(npc, a)
+		_check(pc.offers.has_from(npc.id), "a gang ask shows a prompt")
 		_key(KEY_F2, true)
 		_key(KEY_F2, false)
 		await _frames(4)
-		_check(not pc.offers.has_from(npc.id) and a.faction.solo, "F2 declines the invite")
+		_check(not pc.offers.has_from(npc.id) and a.faction.solo, "F2 declines the gang ask")
+		_calm(a, npc)
 		# The sim runs in real time here, so the NPC may join someone else before F1 lands
 		# (accepting then fails its re-check, as it should): try a fresh NPC if so.
 		for attempt in 3:
 			npc.pos = a.pos + Vector2(2, 0)
-			npc.mood = 60.0
-			Social._happy_meets(npc, a)
+			npc.mood = -60.0
+			a.mood = -60.0
+			Social._angry_meets(npc, a)
 			_key(KEY_F1, true)
 			_key(KEY_F1, false)
 			await _frames(4)
 			if not a.faction.solo:
 				break
+			_calm(a, npc)
 			npc = _free_npc(a, npc)
 			if npc == null:
 				break
-		_check(npc != null and not a.faction.solo and a.faction == npc.faction, "F1 accepts the invite (%s)" % pc.message)
+		_check(npc != null and not a.faction.solo and a.faction == npc.faction, "F1 accepts the gang ask (%s)" % pc.message)
 		Factions.leave(a)
 		Factions.make_solo(a)
+		a.mood = 60.0
 	# Radial menu (Player Social Plan §4): hold F over an NPC, move the mouse down to
 	# "Demand goods", LMB confirms it (no swing) and closes the menu; releasing F closes it.
 	var rt := _free_npc(a)
@@ -945,12 +1083,12 @@ func run_input(main: Node, pc: PlayerController, cam: Node) -> void:
 		_key(KEY_F, true)
 		await _frames(3)
 		var radial: CanvasLayer = main._radial
-		_check(pc.radial_id == rt.id and radial._options.size() == 6, "holding F opens the radial menu on %s" % rt.short())
-		_mouse_move(radial.centre() + Vector2(0, radial.RADIUS))
+		_check(pc.radial_id == rt.id and radial._options.size() == 5, "holding F opens the radial menu on %s" % rt.short())
+		_mouse_move(radial.option_pos(2))
 		await _frames(3)
-		_check(pc.radial_sel == &"demand", "moving the mouse down highlights Demand goods (%s %s)" % [pc.radial_sel, pc.radial_why])
+		_check(pc.radial_sel == &"demand", "moving the mouse to it highlights Demand goods (%s %s)" % [pc.radial_sel, pc.radial_why])
 		var swung := a.last_swing
-		_click(MOUSE_BUTTON_LEFT, radial.centre() + Vector2(0, radial.RADIUS))
+		_click(MOUSE_BUTTON_LEFT, radial.option_pos(2))
 		await _frames(4)
 		_check(pc.radial_id == -1 and not a.can_interact(rt.id) and a.last_swing == swung,
 			"LMB confirms the option and closes the menu, without a swing (%s)" % pc.message)

@@ -13,6 +13,7 @@ var _feed: CanvasLayer # ui/SocialFeed.gd (Player Controller Plan §5.1)
 var _playtest: RefCounted = null
 var _panels: CanvasLayer = null # chest / machine panels (ui/StationPanel.gd)
 var _build: CanvasLayer = null # build menu (ui/BuildMenu.gd)
+var _mailbox: CanvasLayer = null # mailbox group panel (ui/MailboxUI.gd)
 var _inv_ui: CanvasLayer = null # hotbar, pack, armour and chest slots (ui/InventoryUI.gd)
 var _prompt: CanvasLayer = null # incoming social prompt (ui/OfferPrompt.gd)
 var _overlay: CanvasLayer = null # hover card and mood icons (ui/SocialOverlay.gd)
@@ -83,6 +84,9 @@ func _ready() -> void:
 	_build = preload("res://ui/BuildMenu.gd").new()
 	_build.player = _player
 	add_child(_build)
+	_mailbox = preload("res://ui/MailboxUI.gd").new()
+	_mailbox.player = _player
+	add_child(_mailbox)
 	# Player social (Player Social Plan §3, §5): the prompt card and the social overlay
 	# (hover card, mood icons). The overlay sits under the HUD panels.
 	_prompt = preload("res://ui/OfferPrompt.gd").new()

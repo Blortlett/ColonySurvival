@@ -27,7 +27,13 @@ func is_machine() -> bool:
 	return Actions.is_machine(open)
 
 
-## Chests, crates and machines E can open: within reach, the one most in front of the body.
+## A mailbox: opens the group panel (ui/MailboxUI.gd). Any side's mailbox opens; a foreign
+## one shows a read-only summary.
+func is_mailbox() -> bool:
+	return open != null and open.kind == Furniture.Kind.MAILBOX
+
+
+## Chests, crates, machines and mailboxes E can open: within reach, the one most in front of the body.
 static func target(a: Agent) -> Furniture:
 	var best: Furniture = null
 	var best_score := -INF
@@ -35,7 +41,7 @@ static func target(a: Agent) -> Furniture:
 	for dx in range(-2, 3):
 		for dy in range(-2, 3):
 			var fu: Furniture = World.furniture.get(c + Vector2i(dx, dy))
-			if fu == null or not (fu.is_storage() or Actions.is_machine(fu)):
+			if fu == null or not (fu.is_storage() or Actions.is_machine(fu) or fu.kind == Furniture.Kind.MAILBOX):
 				continue
 			var d := World.delta(a.pos, World.center(fu.cell))
 			var len := d.length()
@@ -48,9 +54,13 @@ static func target(a: Agent) -> Furniture:
 	return best
 
 
-## Open a chest or machine. Returns why not, or "".
+## Open a chest, machine or mailbox. Returns why not, or "".
 func try_open(a: Agent, fu: Furniture) -> String:
-	var why := Actions.can_use_storage(a, fu) if fu.is_storage() else Actions.can_use_machine(a, fu)
+	var why := ""
+	if fu.is_storage():
+		why = Actions.can_use_storage(a, fu)
+	elif fu.kind != Furniture.Kind.MAILBOX:
+		why = Actions.can_use_machine(a, fu)
 	if why != "":
 		return why
 	close("")

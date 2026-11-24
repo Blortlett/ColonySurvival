@@ -24,6 +24,11 @@ var capacity: int
 var occupants: Array[int] = []
 var fire: Campfire = null
 var chest: Furniture = null
+## Mailbox (Player Group Base Plan D10): one tile outside the door, one tile to the side.
+## Left as seen from outside, facing the door; mailbox_cell_alt is the right side.
+var mailbox_cell: Vector2i
+var mailbox_cell_alt: Vector2i
+var mailbox: Furniture = null
 var machine_cells := {} # Furniture.Kind -> cell (workshop and smeltery machines)
 var crate_cells: Array[Vector2i] = [] # smeltery storage crates
 var workers := {} # smeltery: Furniture.Kind -> [agent id, until] (one worker per machine)
@@ -51,6 +56,10 @@ func _init(fid: int, interior_rect: Rect2i, cap: int, k: Kind = Kind.HOUSE, dir:
 		Vector2i(1, 0): door_cell = Vector2i(outer.end.x - 1, dy)
 		Vector2i(-1, 0): door_cell = Vector2i(outer.position.x, dy)
 		_: door_cell = Vector2i(dx, outer.end.y - 1)
+	# Someone outside facing the door looks along -door_dir; their left is (-dir.y, dir.x).
+	var side := Vector2i(-door_dir.y, door_dir.x)
+	mailbox_cell = door_outside() + side
+	mailbox_cell_alt = door_outside() - side
 	for x in range(outer.position.x, outer.end.x):
 		for y in range(outer.position.y, outer.end.y):
 			var c := Vector2i(x, y)
@@ -195,3 +204,39 @@ func live_chest() -> Furniture:
 		return chest
 	chest = null
 	return null
+
+
+## The mailbox, if it's still standing.
+func live_mailbox() -> Furniture:
+	if mailbox and World.furniture.get(mailbox.cell) == mailbox:
+		return mailbox
+	mailbox = null
+	return null
+
+
+## Still one of its group's buildings (not destroyed).
+func alive() -> bool:
+	var f: Faction = World.factions.get(faction_id)
+	return f != null and f.houses.has(self)
+
+
+## Where the mailbox goes: mailbox_cell, else mailbox_cell_alt, else World.NO_CELL.
+## Only lasting obstacles count (agents and loot bags move on).
+func mailbox_site() -> Vector2i:
+	for c in [mailbox_cell, mailbox_cell_alt]:
+		if mailbox_cell_ok(c):
+			return c
+	return World.NO_CELL
+
+
+func mailbox_cell_ok(c: Vector2i) -> bool:
+	if not World.in_bounds(c) or World.is_solid(c) or World.furniture.has(c):
+		return false
+	var po := World.privilege_owner(c)
+	if po != 0 and not World.same_side(po, faction_id):
+		return false
+	# Never on a building's footprint or in front of any door.
+	for h in World.all_houses():
+		if h.footprint().has_point(c) or h.door_outside() == c:
+			return false
+	return true

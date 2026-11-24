@@ -441,7 +441,8 @@ static func _post_demolish(k: Kingdom, have: Dictionary) -> void:
 		if f.is_house and f.house == null and area.has_point(c):
 			cells.append(c)
 	for c in World.furniture:
-		if World.furniture[c].kind != Furniture.Kind.BOARD and area.has_point(c):
+		var fu: Furniture = World.furniture[c]
+		if fu.kind != Furniture.Kind.BOARD and not _live_mailbox(fu) and area.has_point(c):
 			cells.append(c)
 	for c in World.floors:
 		if area.has_point(c):
@@ -466,13 +467,19 @@ static func _post_demolish(k: Kingdom, have: Dictionary) -> void:
 static func is_junk(c: Vector2i) -> bool:
 	var f: Campfire = World.fires.get(c)
 	var fu: Furniture = World.furniture.get(c)
-	var piece := World.walls.has(c) or World.floors.has(c) or (fu != null and fu.kind != Furniture.Kind.BOARD) or (f != null and f.is_house and f.house == null)
+	var piece := World.walls.has(c) or World.floors.has(c) or (fu != null and fu.kind != Furniture.Kind.BOARD and not _live_mailbox(fu)) or (f != null and f.is_house and f.house == null)
 	if not piece:
 		return false
 	for h in World.all_houses():
 		if h.footprint().has_point(c):
 			return false
 	return true
+
+
+
+## A mailbox stands outside its building's walls (D10), so it's only junk once its house is gone.
+static func _live_mailbox(fu: Furniture) -> bool:
+	return fu.kind == Furniture.Kind.MAILBOX and fu.house != null and fu.house.alive()
 
 
 ## Tear down whatever stands at the cell (chests spill their contents).

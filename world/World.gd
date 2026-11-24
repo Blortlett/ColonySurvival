@@ -19,7 +19,7 @@ var bushes: Array[ResourceNode] = []
 var walls := {} # Vector2i -> Wall (walls and doors)
 var floors := {} # Vector2i -> Floor
 var roads := {} # Vector2i -> tier (1 stone, 2 paved)
-var furniture := {} # Vector2i -> Furniture (chests, machines, boards)
+var furniture := {} # Vector2i -> Furniture (chests, machines, boards, mailboxes)
 var fires := {} # Vector2i -> Campfire
 var house_fires: Array[Campfire] = []
 var loot := {} # Vector2i -> LootBag
@@ -240,7 +240,10 @@ func in_bounds(c: Vector2i) -> bool:
 
 
 func is_solid(c: Vector2i) -> bool:
-	return nodes.has(c) or walls.has(c) or fires.has(c)
+	if nodes.has(c) or walls.has(c) or fires.has(c):
+		return true
+	var fu: Furniture = furniture.get(c)
+	return fu != null and fu.is_solid()
 
 
 func is_walkable(c: Vector2i) -> bool:
@@ -273,6 +276,9 @@ static func center(c: Vector2i) -> Vector2:
 ## Can this agent step onto the cell? Doors open for their faction, or to let a trapped agent out.
 func passable(a: Agent, c: Vector2i) -> bool:
 	if not in_bounds(c) or nodes.has(c) or fires.has(c):
+		return false
+	var fu: Furniture = furniture.get(c)
+	if fu and fu.is_solid():
 		return false
 	var w: Wall = walls.get(c)
 	if w == null:
@@ -592,6 +598,8 @@ func place_furniture(c: Vector2i, kind: int, fid: int, house, tier: int = 0) -> 
 	var fu := Furniture.new(c, kind, fid, tier)
 	fu.house = house
 	furniture[c] = fu
+	if fu.is_solid():
+		astar.set_point_solid(c, true)
 	pieces_version += 1
 	buildings_version += 1
 	_new_furniture.append(fu)
@@ -603,6 +611,8 @@ func remove_furniture(fu: Furniture, reason: String = "chest destroyed") -> void
 	if furniture.get(fu.cell) != fu:
 		return
 	furniture.erase(fu.cell)
+	if fu.is_solid() and not is_solid(fu.cell):
+		astar.set_point_solid(fu.cell, false)
 	pieces_version += 1
 	buildings_version += 1
 	if fu.is_storage() and fu.store.total() > 0:
@@ -631,6 +641,10 @@ func remove_fire(f: Campfire) -> void:
 		house_fires.erase(f)
 		zones_dirty = true
 		if f.house:
+			# The mailbox stands outside the walls: it goes with the house.
+			var mb: Furniture = f.house.live_mailbox()
+			if mb:
+				remove_furniture(mb, "mailbox removed")
 			Factions.destroy_house(f.house)
 
 

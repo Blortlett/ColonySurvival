@@ -32,18 +32,49 @@ static func make_solo(a: Agent) -> void:
 	a.faction = f
 
 
-## Highest authority leads, no exceptions; charisma breaks ties, then lowest id (agreed).
+## Rank order shared by group leaders, kings and the player's takeover: higher AUTH, then
+## higher CHA, then the lower id (agreed). True if `a` outranks `b`.
+static func outranks(a: Agent, b: Agent) -> bool:
+	if a.stats.auth != b.stats.auth:
+		return a.stats.auth > b.stats.auth
+	if a.stats.cha != b.stats.cha:
+		return a.stats.cha > b.stats.cha
+	return a.id < b.id
+
+
+## The player's body if it is a member of `f`, else null.
+static func player_in(f: Faction) -> Agent:
+	for mid in f.members:
+		var m: Agent = World.agents.get(mid)
+		if m and m.is_player():
+			return m
+	return null
+
+
+## Highest rank leads (`outranks`), except in a group the player founded: the player
+## leads it (Player Group Plan D1). In an NPC gang the player was asked into, rank decides (D2).
 static func recompute_leader(f: Faction) -> void:
 	if f == null or f.members.is_empty():
 		return
 	var best: Agent = null
-	for mid in f.members:
-		var m: Agent = World.agents.get(mid)
-		if m == null:
-			continue
-		if best == null or m.stats.auth > best.stats.auth \
-				or (m.stats.auth == best.stats.auth and m.stats.cha > best.stats.cha):
-			best = m
+	var p := player_in(f)
+	if p and not f.player_led and not f.solo and f.leader_id == p.id:
+		# The player founded this group with a servant (make_servant): everyone else serves them.
+		var only_servants := true
+		for mid in f.members:
+			if mid != p.id and not (mid in p.servants):
+				only_servants = false
+				break
+		f.player_led = only_servants
+	if p and f.player_led:
+		best = p
+	else:
+		for mid in f.members:
+			var m: Agent = World.agents.get(mid)
+			if m == null:
+				continue
+			if best == null or outranks(m, best):
+				best = m
 	if best and best.id != f.leader_id:
 		var had_leader := f.leader_id != -1 and not f.solo
 		f.leader_id = best.id
@@ -52,13 +83,20 @@ static func recompute_leader(f: Faction) -> void:
 
 
 ## Two unfactioned agents form a faction. The leader's solo faction (and its house) becomes the team's.
-static func form(a: Agent, b: Agent) -> Faction:
+## `by_player`: the player formed it through their own invite or recruit, so the player's
+## faction becomes the group and the player leads it (D1). Otherwise (NPCs, or the player
+## accepting an NPC's gang ask) the higher rank leads (D2).
+static func form(a: Agent, b: Agent, by_player: bool = false) -> Faction:
 	var lead := a
-	if b.stats.auth > a.stats.auth or (b.stats.auth == a.stats.auth and b.stats.cha > a.stats.cha):
+	if by_player:
+		lead = a if a.is_player() else b
+	elif outranks(b, a):
 		lead = b
 	var other := b if lead == a else a
 	var f := lead.faction
 	f.solo = false
+	f.player_led = by_player
+	f.leader_id = lead.id
 	EventBus.social(&"group_form", "%s and %s form faction %s." % [lead.short(), other.short(), f.name], [lead, other], [f])
 	join(other, f)
 	return f
@@ -223,30 +261,83 @@ static func _plan_house(f: Faction, cap: int, kind: int) -> House:
 
 
 static func _site_ok(interior: Rect2i, f: Faction, workshop: bool = false) -> bool:
+	return site_why(interior, f, workshop) == ""
+
+
+## Why a building can't go on this interior ("" if it can). Shared by the AI's site search
+## and the player's base fire (Player Group Base Plan D7), so both follow the same rules.
+static func site_why(interior: Rect2i, f: Faction, workshop: bool = false) -> String:
 	var outer := interior.grow(1)
 	if outer.position.x < 1 or outer.position.y < 1 or outer.end.x > Cfg.MAP_W - 1 or outer.end.y > Cfg.MAP_H - 1:
-		return false
+		return "too close to the map edge"
 	var fire_cell := interior.position + Vector2i(interior.size.x / 2, interior.size.y / 2)
 	# All checks are pure, so the cheap per-cell ones go first (B5); the result is unchanged.
 	# The cell outside the door must stay open, or the house is sealed (diagonals past walls are blocked).
 	var outside := Vector2i(fire_cell.x + 1, outer.end.y)
 	if not World.is_walkable(outside):
-		return false
+		return "the doorway would be blocked"
+	# The mailbox goes beside the cell outside the door (D10): one side must be free.
+	var left := outside + Vector2i.LEFT
+	var right := outside + Vector2i.RIGHT
+	if not (World.is_walkable(left) and not World.furniture.has(left)) \
+			and not (World.is_walkable(right) and not World.furniture.has(right)):
+		return "no room for a mailbox by the door"
 	for x in range(outer.position.x, outer.end.x):
 		for y in range(outer.position.y, outer.end.y):
 			var c := Vector2i(x, y)
 			if World.is_solid(c) or World.loot.has(c):
-				return false
+				return "something is in the way"
 			var po := World.privilege_owner(c)
 			if po != 0 and not World.same_side(po, f.id):
-				return false
+				return "another group owns this land"
 	# Nobody settles on a foreign kingdom's land (v3 §1.3).
 	for k in World.kingdoms.values():
 		if k.has_city and f.kingdom != k and World.cheb(fire_cell, Cities.centre_cell(k)) <= Cfg.PUSH_RADIUS + 2:
-			return false
-	if not World.house_fire_spacing_ok(fire_cell, null, f.id, workshop) or World.footprint_clash(outer):
-		return false
-	return World.nearest_node(ResourceNode.Type.TREE, fire_cell, Cfg.HOUSE_MAX_TREE_DIST) != null
+			return "too close to %s's city" % k.name
+	if not World.house_fire_spacing_ok(fire_cell, null, f.id, workshop):
+		return "too close to another group's base"
+	if World.footprint_clash(outer):
+		return "too close to another building"
+	if World.nearest_node(ResourceNode.Type.TREE, fire_cell, Cfg.HOUSE_MAX_TREE_DIST) == null:
+		return "no trees nearby"
+	return ""
+
+
+## The player's base fire (D7): an interior of the right size centred on this fire cell.
+static func base_interior(f: Faction, fire_cell: Vector2i) -> Rect2i:
+	var size := House.size_for(House.Kind.HOUSE, base_capacity(f))
+	return Rect2i(fire_cell - Vector2i(size.x / 2, size.y / 2), size)
+
+
+static func base_capacity(f: Faction) -> int:
+	return clamp(f.members.size() + 1, 2, Cfg.FACTION_MAX)
+
+
+## Why `a` can't found their group's base with a fire on this cell ("" if they can).
+static func base_why(a: Agent, fire_cell: Vector2i) -> String:
+	var f := a.faction
+	if f == null or f.solo or f.leader_id != a.id:
+		return "you need followers to found a base"
+	if not f.homes().is_empty():
+		return "your group already has a home"
+	return site_why(base_interior(f, fire_cell), f)
+
+
+## The player founds their group's base (D8): plan the house around the fire, place it, and
+## the members build the rest through the board like any group. Call base_why first.
+static func found_base(a: Agent, fire_cell: Vector2i) -> House:
+	var f := a.faction
+	var h := House.new(f.id, base_interior(f, fire_cell), base_capacity(f))
+	f.houses.append(h)
+	World.buildings_version += 1
+	for mid in f.members:
+		if h.has_room() and f.house_of(mid) == null:
+			h.occupants.append(mid)
+	var fire: Campfire = World.place_fire(h.fire_cell, true, f.id)
+	on_house_fire_placed(h, fire)
+	if not f.solo:
+		EventBus.log_event("%s founds a base for %s." % [a.short(), f.name])
+	return h
 
 
 static func on_house_fire_placed(h: House, fire: Campfire) -> void:
@@ -287,6 +378,12 @@ static func _ensure_piece_tasks(f: Faction, h: House) -> void:
 		for mc in h.machine_cells.values() + h.crate_cells:
 			if not World.furniture.has(mc) and not have.has(Vector3i(mc.x, mc.y, Task.Type.PLACE_MACHINE)):
 				f.board.post(Task.new(Task.Type.PLACE_MACHINE, mc, h))
+	# Every building gets a mailbox by its door (D10). Matched by house, not cell: the
+	# runner may move the task to the other side.
+	if h.live_mailbox() == null and not f.board.tasks.any(func(t): return t.house == h and t.type == Task.Type.PLACE_MAILBOX):
+		var mc := h.mailbox_site()
+		if mc != World.NO_CELL:
+			f.board.post(Task.new(Task.Type.PLACE_MAILBOX, mc, h))
 	if h.upgrade_to <= 0:
 		return
 	# Upgrades, one task per piece below the target tier (break, then replace; agreed).
@@ -394,7 +491,9 @@ static func housekeeping(f: Faction) -> void:
 		while h.has_room() and homeless.size() > 0:
 			h.occupants.append(homeless.pop_front())
 	# Not enough room → start a new house (solo agents decide this themselves in the goal ladder).
-	if homeless.size() > 0 and not planned and not f.solo:
+	# A player-led group's first home waits for the player's base fire (D9).
+	var awaits_player := f.player_led and f.homes().is_empty()
+	if homeless.size() > 0 and not planned and not f.solo and not awaits_player:
 		var cap: int = clamp(homeless.size() + 1, 2, Cfg.FACTION_MAX)
 		var h := plan_house(f, cap)
 		if h:
@@ -552,3 +651,179 @@ static func real_count() -> int:
 		if not f.solo:
 			n += 1
 	return n
+
+
+# --- Group ladder status (Mailbox UI, package C): a pure read for the Command tab ---
+
+## The group ladder in _workshop_goals order: home, stock chest, workshop, reinforce,
+## smeltery, stone tier. Reads only; changes nothing. One Dictionary per step:
+##   id: String      stable key ("home", "stock", "workshop", "reinforce", "smeltery", "stone")
+##   label: String   what the panel shows
+##   state: String   "done", "in_progress" or "locked"
+##   note: String    one short line (what it waits for), may be ""
+##   tasks: Array    [{label: String, done: int, total: int, open: int}]: progress and open
+##                   board tasks for this step's buildings ("Walls 7/14", 3 open). total 0 =
+##                   no progress count, only open tasks.
+##   enabled: bool   always true for now; a later pass may let the leader toggle steps
+##   order: int      position in the ladder; a later pass may let the leader reorder steps
+## A step is "done" when its condition holds, else "in_progress" when every earlier step is
+## done (gangs go on past reinforce, as in _workshop_goals), else "locked".
+static func ladder_status(f: Faction) -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	var homes := f.homes()
+	var main: House = homes[0] if not homes.is_empty() else null
+	var ch: Furniture = main.live_chest() if main else null
+	var shops := shared_workshops(f)
+	var smelts := shared_smelteries(f)
+	var gang := f.is_gang()
+
+	var home_done := main != null and main.state == House.State.COMPLETE and ch != null
+	var home_note := ""
+	if main == null:
+		home_note = "place a base fire to found the base" if f.player_led else "no home planned yet"
+	elif not home_done:
+		home_note = "%s, %s" % [(House.State.keys()[main.state] as String).to_lower(), "chest placed" if ch else "no chest yet"]
+	out.append(_ladder_step("home", "Home", home_done, home_note, _ladder_build_tasks(f, [main] if main else [])))
+
+	var want_stock := 0
+	if ch:
+		want_stock = min(ch.slots() * Inventory.stack_of("berry"), Cfg.STOCK_BERRIES_PER_MEMBER * f.members.size()) / 2
+	var stock_done := home_done and ch.store.total() >= want_stock
+	var stock_tasks: Array = []
+	if ch:
+		stock_tasks.append({"label": "Chest stock", "done": mini(ch.store.total(), want_stock), "total": want_stock, "open": 0})
+	out.append(_ladder_step("stock", "Stock the chest", stock_done, "" if ch else "needs the home's chest", stock_tasks))
+
+	var shop_done := shops.any(func(w): return w.operational())
+	var shop_note := ""
+	if not shop_done:
+		if shops.is_empty():
+			shop_note = "none planned yet"
+		elif shops.any(func(w): return w.state == House.State.COMPLETE):
+			shop_note = "built; needs its machines and a burning fire"
+	if f.kingdom and not shops.is_empty():
+		shop_note += ("" if shop_note == "" else "; ") + "shared with %s" % f.kingdom.name
+	out.append(_ladder_step("workshop", "Workshop", shop_done, shop_note, _ladder_build_tasks(f, shops)))
+
+	var r_list: Array[House] = []
+	r_list.append_array(homes)
+	r_list.append_array(f.workshops())
+	var reinforced := _ladder_tier_done(r_list, 1)
+	out.append(_ladder_step("reinforce", "Reinforce", reinforced,
+		"gangs may skip it" if gang and not reinforced else "", _ladder_tier_tasks(f, r_list, 1)))
+
+	var smelt_done := smelts.any(func(s): return s.operational())
+	var smelt_note := ""
+	if not smelt_done:
+		if smelts.is_empty():
+			smelt_note = "none planned yet"
+		elif smelts.any(func(s): return s.state == House.State.COMPLETE):
+			smelt_note = "built; needs its machines and a burning fire"
+	out.append(_ladder_step("smeltery", "Smeltery", smelt_done, smelt_note, _ladder_build_tasks(f, smelts)))
+
+	var s_list: Array[House] = []
+	s_list.append_array(homes)
+	s_list.append_array(f.smelteries())
+	s_list.append_array(f.workshops())
+	var stone := reinforced and smelt_done and _ladder_tier_done(s_list, 2)
+	out.append(_ladder_step("stone", "Stone tier", stone, "", _ladder_tier_tasks(f, s_list, 2)))
+
+	# The real gates are sequential: a later step only opens once the earlier ones are done.
+	# The stone tier also needs reinforce, even for gangs (_workshop_goals).
+	var prev_done := true
+	for i in out.size():
+		var s := out[i]
+		s.order = i
+		if s.state != "done":
+			s.state = "in_progress" if prev_done and (s.id != "stone" or reinforced) else "locked"
+		if s.id != "reinforce" or not gang:
+			prev_done = prev_done and s.state == "done"
+	return out
+
+
+static func _ladder_step(id: String, label: String, done: bool, note: String, tasks: Array) -> Dictionary:
+	return {"id": id, "label": label, "state": "done" if done else "locked", "note": note,
+		"tasks": tasks, "enabled": true, "order": 0}
+
+
+## Every building in the list is finished and at this tier (an empty list is not done).
+static func _ladder_tier_done(list: Array[House], tier: int) -> bool:
+	if list.is_empty():
+		return false
+	for h in list:
+		if h.state != House.State.COMPLETE or not h.fully_upgraded(tier):
+			return false
+	return true
+
+
+## Build progress of these buildings: walls and doors standing, plus open board tasks by type.
+static func _ladder_build_tasks(f: Faction, list: Array) -> Array:
+	var rows: Array = []
+	if list.is_empty():
+		return rows
+	var walls := 0
+	var wall_total := 0
+	var doors := 0
+	for h in list:
+		wall_total += h.wall_cells.size()
+		for c in h.wall_cells:
+			if World.walls.has(c):
+				walls += 1
+		if World.walls.has(h.door_cell):
+			doors += 1
+	var open := _ladder_open(f, list)
+	rows.append({"label": "Walls", "done": walls, "total": wall_total, "open": open.get(Task.Type.BUILD_WALL, 0)})
+	rows.append({"label": "Door", "done": doors, "total": list.size(), "open": open.get(Task.Type.BUILD_DOOR, 0)})
+	for t in open:
+		if t != Task.Type.BUILD_WALL and t != Task.Type.BUILD_DOOR:
+			rows.append({"label": _ladder_task_label(t), "done": 0, "total": 0, "open": open[t]})
+	return rows
+
+
+## Upgrade progress to `tier`: wall and door pieces at that tier, plus open upgrade tasks.
+static func _ladder_tier_tasks(f: Faction, list: Array[House], tier: int) -> Array:
+	var rows: Array = []
+	var at := 0
+	var total := 0
+	for h in list:
+		if h.state != House.State.COMPLETE:
+			continue
+		for c in h.wall_cells:
+			total += 1
+			var w: Wall = World.walls.get(c)
+			if w and w.tier >= tier:
+				at += 1
+		total += 1
+		var dw: Wall = World.walls.get(h.door_cell)
+		if dw and dw.tier >= mini(tier, Items.max_door_tier()):
+			at += 1
+	if total == 0:
+		return rows
+	var open := _ladder_open(f, list, tier)
+	var up := 0
+	for t in open:
+		up += open[t]
+	rows.append({"label": "Walls at T%d" % tier, "done": at, "total": total, "open": up})
+	return rows
+
+
+## Open (not done) board tasks for these buildings, by Task.Type, on the group's board and
+## its kingdom's. With `tier`, only upgrade tasks to that tier; without, no upgrade tasks.
+static func _ladder_open(f: Faction, list: Array, tier: int = -1) -> Dictionary:
+	var counts := {}
+	var boards: Array = [f.board]
+	if f.kingdom:
+		boards.append(f.kingdom.board)
+	for b in boards:
+		for t in b.tasks:
+			if t.done or t.house == null or not list.has(t.house):
+				continue
+			var up: bool = t.type in [Task.Type.UPGRADE_WALL, Task.Type.UPGRADE_DOOR, Task.Type.UPGRADE_CHEST]
+			if up != (tier != -1) or (up and t.tier != tier):
+				continue
+			counts[t.type] = counts.get(t.type, 0) + 1
+	return counts
+
+
+static func _ladder_task_label(t: int) -> String:
+	return (Task.Type.keys()[t] as String).replace("_", " ").capitalize()

@@ -10,6 +10,9 @@ var solo := true
 var name := ""
 var members: Array[int] = []
 var leader_id := -1
+## Founded by the player (form, invite, recruit, or a servant): the player always leads it
+## and is king of any kingdom it joins. False in an NPC gang the player was asked into.
+var player_led := false
 var color: Color
 var board := TaskBoard.new()
 var houses: Array[House] = []

@@ -2,9 +2,10 @@ class_name Furniture
 extends RefCounted
 ## A piece of furniture on a floor tile: a chest or smeltery crate (with storage), a
 ## workshop machine (sawmill, stone cutter) or a smeltery machine (furnace, anvil).
-## Walkable (agents stand on or next to it). Decays like walls when unprotected.
+## Walkable (agents stand on or next to it), except the mailbox outside a building's door,
+## which is solid. Decays like walls when unprotected.
 
-enum Kind { CHEST, SAWMILL, CUTTER, BOARD, FURNACE, ANVIL, CRATE }
+enum Kind { CHEST, SAWMILL, CUTTER, BOARD, FURNACE, ANVIL, CRATE, MAILBOX } # append only: saved indices
 
 var cell: Vector2i
 var kind: Kind
@@ -61,6 +62,11 @@ func free_for(item: String) -> int:
 	return store.room_for(item)
 
 
+## Blocks movement (the mailbox stands on open ground outside the door).
+func is_solid() -> bool:
+	return kind == Kind.MAILBOX
+
+
 ## Swap in a store (chest upgrade, emptied chest); its slot count follows this furniture.
 func set_store(inv: Inventory) -> void:
 	store = inv
@@ -76,6 +82,7 @@ func label() -> String:
 		Kind.SAWMILL: return "sawmill"
 		Kind.CUTTER: return "stone cutter"
 		Kind.BOARD: return "kingdom board"
+		Kind.MAILBOX: return "mailbox"
 	return "furniture"
 
 
@@ -88,4 +95,5 @@ static func cost_key(k: int) -> String:
 		Kind.ANVIL: return "anvil"
 		Kind.CRATE: return "crate"
 		Kind.BOARD: return "board"
+		Kind.MAILBOX: return "mailbox"
 	return "chest"

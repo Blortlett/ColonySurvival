@@ -86,11 +86,18 @@ static func dissolve(k: Kingdom) -> void:
 	Cities.on_dissolved(k)
 
 
-## Leading group = highest total AUTH; king = highest AUTH in it (agreed).
+## Leading group = highest total AUTH; king = highest rank in it (agreed). A group the
+## player founded always leads, and the player is king (Player Group Plan D3).
 static func recompute(k: Kingdom, announce: bool = true) -> void:
 	var best: Faction = null
 	var best_auth := -1
+	var king: Agent = null
 	for f in k.members():
+		var p := Factions.player_in(f) if f.player_led else null
+		if p:
+			best = f
+			king = p
+			break
 		var total := f.total_auth()
 		if total > best_auth:
 			best_auth = total
@@ -98,11 +105,11 @@ static func recompute(k: Kingdom, announce: bool = true) -> void:
 	if best == null:
 		return
 	k.leading_fid = best.id
-	var king: Agent = null
-	for mid in best.members:
-		var m: Agent = World.agents.get(mid)
-		if m and (king == null or m.stats.auth > king.stats.auth or (m.stats.auth == king.stats.auth and m.stats.cha > king.stats.cha)):
-			king = m
+	if king == null:
+		for mid in best.members:
+			var m: Agent = World.agents.get(mid)
+			if m and (king == null or Factions.outranks(m, king)):
+				king = m
 	if king and king.id != k.king_id:
 		k.king_id = king.id
 		if announce:

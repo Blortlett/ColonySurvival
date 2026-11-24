@@ -2,7 +2,7 @@ class_name Task
 extends RefCounted
 ## One claimable job on a faction task board.
 
-enum Type { PLACE_HOUSE_FIRE, BUILD_WALL, BUILD_DOOR, REFUEL, BUILD_FLOOR, PLACE_CHEST, PLACE_MACHINE, UPGRADE_WALL, UPGRADE_DOOR, UPGRADE_CHEST, CLEAR_NODE, BUILD_ROAD, UPGRADE_ROAD, PLACE_BOARD, DEMOLISH }
+enum Type { PLACE_HOUSE_FIRE, BUILD_WALL, BUILD_DOOR, REFUEL, BUILD_FLOOR, PLACE_CHEST, PLACE_MACHINE, UPGRADE_WALL, UPGRADE_DOOR, UPGRADE_CHEST, CLEAR_NODE, BUILD_ROAD, UPGRADE_ROAD, PLACE_BOARD, DEMOLISH, PLACE_MAILBOX }
 
 const PRIORITY := {
 	Type.PLACE_HOUSE_FIRE: 60,
@@ -20,6 +20,7 @@ const PRIORITY := {
 	Type.BUILD_ROAD: 25,
 	Type.UPGRADE_ROAD: 15,
 	Type.DEMOLISH: 52, # walls first (+2), so floors and chests inside can be reached
+	Type.PLACE_MAILBOX: 38, # after the chest and machines
 }
 const CLAIM_TIMEOUT := 90.0
 
@@ -68,11 +69,14 @@ func cost() -> Dictionary:
 		Type.BUILD_ROAD: return Items.BUILD_COSTS["road"]
 		Type.UPGRADE_ROAD: return Items.BUILD_COSTS["road_r"]
 		Type.PLACE_BOARD: return Items.BUILD_COSTS["board"]
+		Type.PLACE_MAILBOX: return Items.BUILD_COSTS["mailbox"]
 	return {"wood": 1}
 
 
 ## Something still has to be cleared off the cell first.
 func blocked() -> bool:
+	if type == Type.PLACE_MAILBOX:
+		return house != null and house.mailbox_site() == World.NO_CELL # else it uses the free side
 	return type != Type.CLEAR_NODE and type != Type.REFUEL and World.nodes.has(cell)
 
 

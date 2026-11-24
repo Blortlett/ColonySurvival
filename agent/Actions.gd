@@ -7,7 +7,7 @@ class_name Actions
 enum Move { ARRIVED, MOVING, FAILED }
 
 const PLAYER_HALF := 0.3 # half the player's collision box, in cells
-const PIECES := ["wall", "door", "floor", "wild_fire"] # what the player can place by hand
+const PIECES := ["wall", "door", "floor", "wild_fire", "base_fire"] # what the player can place by hand
 
 
 # --- Movement ---
@@ -243,6 +243,7 @@ static func place(a: Agent, piece: String, c: Vector2i, cost: Dictionary, tier: 
 			f.placed_by = a.id
 			return f
 		"house_fire": return World.place_fire(c, true, fid)
+		"base_fire": return Factions.found_base(a, c) # the player founds their group's base (D8)
 	push_error("Actions.place: unknown piece " + piece)
 	return null
 
@@ -260,6 +261,8 @@ static func can_place(a: Agent, piece: String, c: Vector2i, reach: float) -> Str
 		return "can't build here"
 	if box_overlaps(a.pos, c):
 		return "you're standing there"
+	if piece == "base_fire":
+		return Factions.base_why(a, c)
 	return ""
 
 

@@ -657,6 +657,13 @@ static func _run_task(a: Agent, j: Job, dt: float) -> void:
 			_done(a) # couldn't get materials
 		return
 	j.item = ""
+	# Mailbox: the left side of the door, else the right (D10).
+	if t.type == Task.Type.PLACE_MAILBOX and t.house and not t.house.mailbox_cell_ok(t.cell):
+		var site := t.house.mailbox_site()
+		if site != World.NO_CELL and site != t.cell:
+			t.cell = site
+			j.cell = Vector2i.ZERO
+			j.arrived = false
 	# Go to the site.
 	var tm := Time.get_ticks_usec()
 	if not j.arrived or World.cheb(a.cell(), t.cell) > 1:
@@ -715,6 +722,23 @@ static func _perform_task(a: Agent, j: Job, t: Task, cost: Dictionary, dt: float
 			t.house.chest = World.place_furniture(t.cell, Furniture.Kind.CHEST, fid, t.house)
 			board.complete(t)
 			_done(a)
+		Task.Type.PLACE_MAILBOX:
+			var h := t.house
+			if h == null or not h.alive() or h.live_mailbox() != null or not h.mailbox_cell_ok(t.cell):
+				board.complete(t) # done, or no free side: housekeeping re-posts it
+				_done(a)
+				return
+			if World.loot.has(t.cell):
+				World.take_loot(a, World.loot[t.cell])
+			if World.agent_on(t.cell) or World.loot.has(t.cell):
+				j.timer += dt # wait for them to step off
+				if j.timer > 10.0:
+					_done(a)
+				return
+			a.inv.pay(cost)
+			h.mailbox = World.place_furniture(t.cell, Furniture.Kind.MAILBOX, fid, h)
+			board.complete(t)
+			_done(a)
 		Task.Type.CLEAR_NODE:
 			var n: ResourceNode = World.nodes.get(t.cell)
 			if n == null or n.amount <= 0:
@@ -736,7 +760,8 @@ static func _perform_task(a: Agent, j: Job, t: Task, cost: Dictionary, dt: float
 					board.complete(t)
 					_done(a)
 		Task.Type.DEMOLISH:
-			if not Cities.is_junk(t.cell):
+			var dfu: Furniture = World.furniture.get(t.cell)
+			if not Cities.is_junk(t.cell) or (dfu and dfu.kind == Furniture.Kind.MAILBOX and dfu.house and dfu.house.alive()):
 				board.complete(t) # gone already, or part of a live building again
 				_done(a)
 				return
