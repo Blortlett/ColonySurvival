@@ -201,15 +201,6 @@ def body_layer(skin, pose):
 	body = lay.draw_part(torso, sk)
 	# a tool held low on the right (spear) passes under the right shoulder
 	under = footprint(ellipse(*rot(22.6 + ox + sdx, 30.4 - sdy, tw), 2.9, 2.9)) if pose.get("under_r_shoulder") else set()
-	# arms: shoulder -> elbow -> hand, one continuous part each (no inner outline at the
-	# elbow or the shoulder); right arm first so the left reads on top where hands meet
-	arm_cov = set()
-	for sh, hand, side in ((rot(SHOULDER_R[0] + ox + sdx, SHOULDER_R[1] - sdy, tw), pose["hand_r"], 1), (rot(SHOULDER_L[0] + ox + sdx, SHOULDER_L[1] + sdy, tw), pose["hand_l"], -1)):
-		el = elbow(sh, hand, side, pose.get("bend"))
-		arm = union(capsule(*sh, *el, 1.45), capsule(*el, *hand, 1.25), ellipse(*hand, 1.6, 1.6))
-		seam = lambda x, y, sh=sh: (x - sh[0]) ** 2 + (y - sh[1]) ** 2 < 2.3 ** 2
-		arm_cov |= footprint(arm)
-		body |= lay.draw_part(arm, sk, bands=(0.5, 0.86), inner=body, seam=seam)
 	# head: hair over the back/top, face and nose at the front
 	hx, hy = rot(C + 0.2 + ox - lie * (trx + 3.2), C, tw * 0.5)
 	head = union(ellipse(hx, hy, 3.2, 3.5), ellipse(hx + 3.0, hy, 0.9, 0.7))
@@ -218,6 +209,24 @@ def body_layer(skin, pose):
 		dx, dy = px - hx, (py - hy) / 3.5
 		return hr if dx < 0.9 - 1.6 * dy * dy else sk
 	head_cov = footprint(head)
+	# arms raised over the head ("over": an overhead swing) draw after it, so on top
+	over = pose.get("over", False)
+	if over:
+		body |= lay.draw_part(head, head_mat, bands=(0.4, 0.9))
+	# arms: shoulder -> elbow -> hand, one continuous part each (no inner outline at the
+	# elbow or the shoulder); right arm first so the left reads on top where hands meet
+	arm_cov, hand_cov = set(), set()
+	for sh, hand, side in ((rot(SHOULDER_R[0] + ox + sdx, SHOULDER_R[1] - sdy, tw), pose["hand_r"], 1), (rot(SHOULDER_L[0] + ox + sdx, SHOULDER_L[1] + sdy, tw), pose["hand_l"], -1)):
+		el = elbow(sh, hand, side, pose.get("bend"))
+		arm = union(capsule(*sh, *el, 1.45), capsule(*el, *hand, 1.25), ellipse(*hand, 1.6, 1.6))
+		seam = lambda x, y, sh=sh: (x - sh[0]) ** 2 + (y - sh[1]) ** 2 < 2.3 ** 2
+		arm_cov |= footprint(arm)
+		hand_cov |= footprint(ellipse(*hand, 1.6, 1.6))
+		body |= lay.draw_part(arm, sk, bands=(0.5, 0.86), inner=body, seam=seam)
+	if pose.get("tool_on_arm"):  # resting on the shoulder/arm: only the hands cover it
+		arm_cov = hand_cov
+	if over:
+		return lay, arm_cov | under  # the raised tool is above the head too
 	lay.draw_part(head, head_mat, bands=(0.4, 0.9))
 	return lay, arm_cov | head_cov | under
 
@@ -329,6 +338,42 @@ def bow_layer(p, occlude):
 	return lay
 
 
+def pickaxe(pommel, ang, fs=1.0, scale=1.0, edge_on=False):
+	"""Pickaxe: wooden haft with a curved two-spike iron head across its end. The swing is
+	vertical, so `fs` foreshortens the haft (1 = lying flat in view, ~0.2 = pointing at the
+	camera) and `scale` grows the whole tool as it rises toward the camera. Carried, the head
+	is a T across the haft; swinging (edge_on) it lies in the swing plane, so from above it
+	runs along the haft line as a curved spike leading past the end (the striking point),
+	shortest when the head stands upright at the strike."""
+	ux, uy = math.cos(ang), math.sin(ang)
+	vx, vy = -uy, ux
+	px, py = pommel
+
+	def P(u, v):
+		return px + ux * u * scale + vx * v * scale, py + uy * u * scale + vy * v * scale
+	L = 14.0 * fs
+	haft = capsule(*P(0, 0), *P(L + 0.6, 0), 0.75 * scale)
+	if edge_on:
+		k = 0.5 + 0.5 * math.sqrt(max(0.0, 1.0 - fs * fs))  # head's own foreshortening
+		f, b = 6.5 * k, 5.0 * k  # striking spike ahead, back spike over the haft
+		bow = 2.2 * k            # the crescent: spikes curve down from the socket
+		top, bot = [], []
+		for i in range(11):
+			t = i / 5 - 1
+			u = L + (f if t > 0 else b) * t
+			vc = -bow + bow * t * t
+			w = 1.5 * (1 - abs(t)) + 0.3
+			top.append(P(u, vc - w))
+			bot.append(P(u, vc + w))
+		head = polygon(top + bot[::-1])
+		tips = lambda x, y: (x - px) * ux + (y - py) * uy > (L + f * 0.55) * scale
+		return haft, head, tips
+	head = polygon([P(L - 1.8, -6.0), P(L + 0.4, -2.8), P(L + 2.0, -1.4), P(L + 2.0, 1.4), P(L + 0.4, 2.8),
+		P(L - 1.8, 6.0), P(L - 0.4, 2.4), P(L - 1.0, 0), P(L - 0.4, -2.4)])
+	tips = lambda x, y: abs((x - px) * vx + (y - py) * vy) > 4.0 * scale
+	return haft, head, tips
+
+
 def item_layer(item, occlude, head_mat=None):
 	lay = Layer()
 	haft, head, edge = item
@@ -409,7 +454,21 @@ AXE_SWING = [
 	{"twist": D(-20), "pommel": (27.5, 23.0), "ang": D(-30)},  # follow-through
 	{"twist": D(-4), "pommel": (27.0, 27.5), "ang": D(40)},    # recover
 ]
-AXE_IDLE = {"twist": D(6), "pommel": (26.0, 31.5), "ang": D(60)}
+# Carried low in the right hand, a third of the way up the haft, head forward past the hip.
+AXE_IDLE = {"twist": D(3), "hand": (28.0, 32.6), "ang": D(16), "hand_l": (29.0, 16.0)}
+
+
+def axe_walk(n=6):
+	out = []
+	for i in range(n):
+		s = math.sin(2 * math.pi * i / n)
+		out.append({
+			"twist": -0.08 * s,
+			"hand_l": (27.5 + 3.0 * s, 15.5 - 0.5 * abs(s)),
+			"hand": (28.0 - 1.6 * s, 32.6 + 0.3 * abs(s)),
+			"ang": D(16 - 7 * s),
+		})
+	return out
 
 
 # Two-handed spear thrust from a side-on stance: the shoulders turn left-side-forward (positive
@@ -446,6 +505,10 @@ def spear_walk(n=6):
 
 
 def axe_pose(p):
+	if "hand" in p:  # one-handed carry
+		ux, uy = math.cos(p["ang"]), math.sin(p["ang"])
+		h = p["hand"]
+		return dict(p, hand_r=h, pommel=(h[0] - ux * 5.0, h[1] - uy * 5.0))
 	hl, hr = grip(p["pommel"], p["ang"])
 	return dict(p, hand_l=hl, hand_r=hr)
 
@@ -532,9 +595,50 @@ def bow_pose(p):
 	return q
 
 
+# Pickaxe, two-handed vertical strike: lift, overhead (pick pointing back over the head),
+# come over the top (pointing at the camera), bite into the ground ahead, recover. fs
+# foreshortens the haft, scale grows the raised tool, ox leans the body, over draws the arms
+# above the head.
+PICK_SWING = [
+	{"pommel": (27.5, 25.6), "ang": D(4), "fs": 0.85, "scale": 1.0, "ox": 0.0},                    # ready
+	{"pommel": (26.0, 25.0), "ang": D(0), "fs": 0.30, "scale": 1.12, "ox": -0.4, "over": True},     # lift
+	{"pommel": (24.6, 24.6), "ang": D(180), "fs": 0.60, "scale": 1.18, "ox": -0.9, "over": True},   # overhead, cocked back
+	{"pommel": (27.5, 24.6), "ang": D(0), "fs": 0.22, "scale": 1.12, "ox": 0.2, "over": True},      # over the top
+	{"pommel": (29.5, 24.8), "ang": D(0), "fs": 1.00, "scale": 1.0, "ox": 1.0},                     # strike: head in the ground
+	{"pommel": (28.5, 25.2), "ang": D(2), "fs": 0.85, "scale": 1.0, "ox": 0.5},                     # recover
+]
+# Carried on the right shoulder: right hand on the haft in front, head resting behind.
+PICK_IDLE = {"hand": (28.5, 30.0), "ang": D(166), "hand_l": (29.0, 16.0)}  # head angled out past the body
+
+
+def pick_walk(n=6):
+	out = []
+	for i in range(n):
+		s = math.sin(2 * math.pi * i / n)
+		out.append({
+			"twist": -0.06 * s,
+			"hand": (28.5 - 0.6 * s, 30.0 + 0.2 * abs(s)),
+			"ang": D(166 + 3 * s),
+			"hand_l": (27.5 + 3.0 * s, 15.5 - 0.5 * abs(s)),
+		})
+	return out
+
+
+def pick_pose(p):
+	ux, uy = math.cos(p["ang"]), math.sin(p["ang"])
+	if "hand" in p:  # shoulder carry: one hand, the pommel sticks out a little in front of it
+		h = p["hand"]
+		return dict(p, hand_r=h, pommel=(h[0] - ux * 2.5, h[1] - uy * 2.5), item_kw={"scale": 1.15}, tool_on_arm=True)
+	fs, sc = p.get("fs", 1.0), p.get("scale", 1.0)
+	q = dict(p, item_kw={"fs": fs, "scale": sc, "edge_on": True})
+	q["hand_l"], q["hand_r"] = grip(p["pommel"], p["ang"], 1.0 * fs * sc, 4.2 * fs * sc)
+	return q
+
+
 # name -> (item drawing, pose -> hands); each tool has <tool>_idle and an action strip.
 TOOL_ANIMS = [
 	("axe_idle", axe, axe_pose, [AXE_IDLE]),
+	("axe_walk", axe, axe_pose, axe_walk()),
 	("axe_swing", axe, axe_pose, AXE_SWING),
 	("spear_idle", spear, spear_carry_pose, [SPEAR_IDLE]),
 	("spear_walk", spear, spear_carry_pose, spear_walk()),
@@ -542,6 +646,9 @@ TOOL_ANIMS = [
 	("club_idle", club, club_pose, [CLUB_IDLE]),
 	("club_walk", club, club_pose, club_walk()),
 	("club_swing", club, club_pose, CLUB_SWING),
+	("pickaxe_idle", pickaxe, pick_pose, [PICK_IDLE]),
+	("pickaxe_walk", pickaxe, pick_pose, pick_walk()),
+	("pickaxe_swing", pickaxe, pick_pose, PICK_SWING),
 	("bow_idle", "bow", bow_pose, [BOW_IDLE]),
 	("bow_walk", "bow", bow_pose, bow_walk()),
 	("bow_fire", "bow", bow_pose, BOW_FIRE),
@@ -581,7 +688,7 @@ def build():
 				if s == "light" and draw_item == "bow":
 					item.append(bow_layer(p, occ).image())
 				elif s == "light":
-					item.append(item_layer(draw_item(p["pommel"], p["ang"]), occ,
+					item.append(item_layer(draw_item(p["pommel"], p["ang"], **p.get("item_kw", {})), occ,
 						"wood" if name.split("_")[0] in WOOD_TOOLS else None).image())
 		sheets["human_body_" + name] = body
 		sheets["item_" + name] = {"": item}

@@ -26,6 +26,7 @@ const AUTO_DISC_ZOOM := 0.3 # AUTO draws discs below this camera zoom
 const IDLE_SPEED := 0.3 # cells/s; slower counts as standing
 const RUN_SPEED := 3.3 # cells/s; faster counts as running (base walking speed is 3)
 const HURRY_JOBS := [Job.Kind.FIGHT, Job.Kind.FLEE, Job.Kind.RAID, Job.Kind.DEFEND]
+const CARRY_ALIAS := {"pickaxe_t2": "pickaxe"} # tools that share another's carry art
 const USE_JOBS := [Job.Kind.GATHER, Job.Kind.TASK, Job.Kind.CRAFT, Job.Kind.CHEST, Job.Kind.LOOT]
 const TURN_RATE := 14.0 # 1/s, how fast sprites swing round to a new angle
 const FLASH_SECS := 0.2
@@ -321,19 +322,36 @@ func _carried(a: Agent, st: AnimState, anim: String) -> String:
 	return v if st.body.torso.has(v) else anim
 
 
-## The weapon a body visibly carries: its melee weapon, else a bow (the player's when in
-## hand, an NPC's when it has arrows for it), else "unarmed".
+## The weapon or tool a body visibly carries: its melee weapon; else the player's tool in
+## hand; else the axe or pickaxe on the way to chop or mine, or a bow with arrows to shoot;
+## else "unarmed".
 func _shown_weapon(a: Agent) -> String:
 	var w := a.melee_weapon()
 	if w != "unarmed":
 		return w
 	if a.held >= 0:
 		var e = a.inv.entry(a.held)
-		return "bow" if Inventory.is_tool_entry(e) and e.type == "bow" else "unarmed"
+		return CARRY_ALIAS.get(e.type, e.type) if Inventory.is_tool_entry(e) else "unarmed"
+	if a.job and a.job.kind == Job.Kind.GATHER:
+		if _mines(a, a.job.node):
+			return "pickaxe" # on the way to the rock
+		if _chops(a, a.job.node):
+			return "axe" # on the way to the tree
 	return "bow" if a.has_bow_ready() else "unarmed"
 
 
-## Standing still at work: chop with an axe at a tree, otherwise the two-handed gather
+## Working this node is axe work, and the agent has an axe for it.
+static func _chops(a: Agent, n: ResourceNode) -> bool:
+	return n != null and n.type == ResourceNode.Type.TREE and a.inv.has_tool("axe")
+
+
+## Working this node is pickaxe work, and the agent has a pickaxe for it.
+static func _mines(a: Agent, n: ResourceNode) -> bool:
+	return n != null and (n.type == ResourceNode.Type.ROCK or n.type == ResourceNode.Type.METAL) 		and (a.inv.has_tool("pickaxe") or a.inv.has_tool("pickaxe_t2"))
+
+
+## Standing still at work: chop with an axe at a tree, mine rock or metal with a pickaxe,
+## otherwise the two-handed gather
 ## ("use") for work jobs and the player's held E; "" when not working.
 func _work_anim(a: Agent, st: AnimState) -> String:
 	var node: ResourceNode = null
@@ -347,8 +365,10 @@ func _work_anim(a: Agent, st: AnimState) -> String:
 			node = a.job.node
 	if not working:
 		return ""
-	if node != null and node.type == ResourceNode.Type.TREE and a.inv.has_tool("axe") and st.body.torso.has("chop"):
+	if _chops(a, node) and st.body.torso.has("chop"):
 		return "chop"
+	if _mines(a, node) and st.body.torso.has("mine"):
+		return "mine"
 	return "use"
 
 

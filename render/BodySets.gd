@@ -9,7 +9,8 @@ extends RefCounted
 ##   angle   - radians to add if the art doesn't face +X (e.g. -PI/2 for art facing up)
 ##   tints   - modulate colours picked per agent for variety (keep them light)
 ##   legs    - idle, walk, run
-##   torso   - idle, walk, run, attack, use, pain, death, plus chop (axe on a tree) and
+##   torso   - idle, walk, run, attack, use, pain, death, plus chop (axe on a tree), mine
+##             (pickaxe on rock or metal) and
 ##             <anim>_<weapon> variants: attack_<weapon> plays instead of attack when fighting
 ##             with that weapon, idle/walk/run_<weapon> while carrying it (e.g. idle_club)
 ## Each animation: sheet (path), fps, loop. Optional:
@@ -56,10 +57,24 @@ static func _human(skin: String, weight: int) -> Dictionary:
 			"walk_spear": {"sheet": h + "body_spear_walk_%s_Sheet.png" % skin, "fps": 10, "loop": true},
 			"run_spear": {"sheet": h + "body_spear_walk_%s_Sheet.png" % skin, "fps": 14, "loop": true},
 			"chop": {"sheet": h + "body_axe_swing_%s_Sheet.png" % skin, "fps": 10, "loop": true},
+			"mine": {"sheet": h + "body_pickaxe_swing_%s_Sheet.png" % skin, "fps": 9, "loop": true},
+			"idle_axe": {"sheet": h + "body_axe_idle_%s_Sheet.png" % skin, "fps": 1, "loop": true},
+			"walk_axe": {"sheet": h + "body_axe_walk_%s_Sheet.png" % skin, "fps": 10, "loop": true},
+			"run_axe": {"sheet": h + "body_axe_walk_%s_Sheet.png" % skin, "fps": 14, "loop": true},
+			"idle_pickaxe": {"sheet": h + "body_pickaxe_idle_%s_Sheet.png" % skin, "fps": 1, "loop": true},
+			"walk_pickaxe": {"sheet": h + "body_pickaxe_walk_%s_Sheet.png" % skin, "fps": 10, "loop": true},
+			"run_pickaxe": {"sheet": h + "body_pickaxe_walk_%s_Sheet.png" % skin, "fps": 14, "loop": true},
 			"death": {"sheet": h + "body_death_%s_Sheet.png" % skin, "fps": 8, "loop": false},
 		},
 		"items": {
 			"chop": {"sheet": "human/item_axe_swing_Sheet.png"},
+			"mine": {"sheet": "human/item_pickaxe_swing_Sheet.png"},
+			"idle_axe": {"sheet": "human/item_axe_idle_Sheet.png"},
+			"walk_axe": {"sheet": "human/item_axe_walk_Sheet.png"},
+			"run_axe": {"sheet": "human/item_axe_walk_Sheet.png"},
+			"idle_pickaxe": {"sheet": "human/item_pickaxe_idle_Sheet.png"},
+			"walk_pickaxe": {"sheet": "human/item_pickaxe_walk_Sheet.png"},
+			"run_pickaxe": {"sheet": "human/item_pickaxe_walk_Sheet.png"},
 			"attack_spear": {"sheet": "human/item_spear_thrust_Sheet.png"},
 			"attack_club": {"sheet": "human/item_club_swing_Sheet.png"},
 			"idle_club": {"sheet": "human/item_club_idle_Sheet.png"},

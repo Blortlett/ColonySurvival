@@ -125,7 +125,7 @@ func _toggle_watch() -> void:
 
 
 const KIT_TOOLS := ["spear", "club", "sword", "bow", "axe", "pickaxe", "pickaxe_t2"]
-const KIT_STACKS := {"arrow": 60, "wood": 100, "stone": 100}
+const KIT_STACKS := {"arrow": 60, "wood": 40, "stone": 40} # wood/stone: 2 full stacks each
 
 
 ## Numpad 1: every weapon and gathering tool, arrows, wood and stone into the player's pack.
