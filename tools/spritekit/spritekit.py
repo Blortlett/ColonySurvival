@@ -30,6 +30,8 @@ HAIR = {
 	"dark": [(14, 10, 10), (30, 24, 22), (46, 38, 34), (66, 56, 50)],
 }
 WOOD = [(42, 26, 16), (96, 62, 34), (134, 90, 50), (170, 122, 72)]
+STRING = (226, 220, 198)
+FLETCH = (176, 52, 44)
 DARK_WOOD = [(30, 18, 12), (70, 44, 26), (104, 68, 38), (138, 96, 56)]  # club: reads against skin
 IRON = [(22, 22, 30), (92, 96, 108), (148, 154, 166), (214, 220, 230)]
 
@@ -281,6 +283,52 @@ def club(pommel, ang):
 	return grip_, body, knot
 
 
+def _line(lay, a, b, col):
+	"""1px line with no outline (bow string, arrow shaft)."""
+	n = int(max(abs(b[0] - a[0]), abs(b[1] - a[1])) * 3) + 1
+	for i in range(n + 1):
+		t = i / n
+		x, y = int(a[0] + (b[0] - a[0]) * t), int(a[1] + (b[1] - a[1]) * t)
+		if 0 <= x < F and 0 <= y < F:
+			lay.px[(x, y)] = col + (255,)
+
+
+def bow_layer(p, occlude):
+	"""Horizontal hunting bow. p: grip (left hand), ang (aim), draw (string point: the right
+	hand, or None at rest), arrow (nocked arrow shown). The stave arcs across the aim line
+	with its belly toward the archer; drawing pulls the tips back and in."""
+	gx, gy = p["grip"]
+	ux, uy = math.cos(p["ang"]), math.sin(p["ang"])
+	vx, vy = -uy, ux
+
+	def P(u, v):
+		return gx + ux * u + vx * v, gy + uy * u + vy * v
+	pull = 0.0 if p.get("draw") is None else min(1.0, max(0.0, (math.hypot(p["draw"][0] - gx, p["draw"][1] - gy) - 2.4) / 6.0))
+	half = 9.0 - 1.0 * pull       # tips come in as the limbs bend
+	back = 1.8 + 1.8 * pull       # ... and back toward the archer
+	pts = [P(-back * t * t, half * t) for t in [i / 6 - 1 for i in range(13)]]
+	tip_a, tip_b = pts[0], pts[-1]
+	lay = Layer()
+	nock = p["draw"] if p.get("draw") is not None else ((tip_a[0] + tip_b[0]) / 2, (tip_a[1] + tip_b[1]) / 2)
+	_line(lay, tip_a, nock, STRING)
+	_line(lay, nock, tip_b, STRING)
+	stave = union(*[capsule(*pts[i], *pts[i + 1], 0.75) for i in range(len(pts) - 1)])
+	lay.draw_part(stave, WOOD, bands=(0.3, 0.75))
+	if p.get("arrow"):
+		a0 = nock
+		a1 = (a0[0] + ux * 15.0, a0[1] + uy * 15.0)
+		_line(lay, a0, a1, WOOD[3])
+		lay.draw_part(polygon([(a1[0] + ux * 3.4, a1[1] + uy * 3.4), (a1[0] + vx * 1.7, a1[1] + vy * 1.7),
+			(a1[0] - vx * 1.7, a1[1] - vy * 1.7)], 0.7), IRON)
+		for k in (1.0, 2.0, 3.0):
+			for sgn in (1, -1):
+				x, y = int(a0[0] + ux * k + vx * sgn), int(a0[1] + uy * k + vy * sgn)
+				lay.px[(x, y)] = FLETCH + (255,)
+	for k in occlude:
+		lay.px.pop(k, None)
+	return lay
+
+
 def item_layer(item, occlude, head_mat=None):
 	lay = Layer()
 	haft, head, edge = item
@@ -447,6 +495,43 @@ def club_pose(p):
 	return dict(p, hand_r=h, pommel=(h[0] - ux * 1.6, h[1] - uy * 1.6))
 
 
+# Bow, held horizontally in the left hand on an aim line just right of centre (the draw goes
+# to the right cheek); the shoulders turn left-side-forward like the spear stance.
+AIM_Y = 26.5
+BOW_FIRE = [
+	{"twist": D(12), "grip": (34.0, AIM_Y), "draw": (31.6, AIM_Y), "arrow": True},   # nock
+	{"twist": D(18), "grip": (35.0, AIM_Y), "draw": (29.0, AIM_Y), "arrow": True},   # draw
+	{"twist": D(22), "grip": (35.5, AIM_Y), "draw": (27.0, AIM_Y + 0.4), "arrow": True},  # full draw
+	{"twist": D(22), "grip": (35.5, AIM_Y), "draw": None, "hand_r": (24.8, 29.0)},   # release
+	{"twist": D(17), "grip": (35.0, AIM_Y), "draw": None, "hand_r": (25.5, 29.5)},   # follow-through
+	{"twist": D(10), "grip": (34.0, AIM_Y), "draw": None, "hand_r": (29.0, 28.8)},   # recover, reach for an arrow
+]
+# Carried at the left side in the left hand, the hollow of the curve toward the body (tips
+# pointing in) with the rear tip lifted off the shoulder, so the whole arc shows.
+BOW_CARRY_ANG = D(-75)
+BOW_IDLE = {"twist": D(-3), "grip": (27.0, 13.2), "bow_ang": BOW_CARRY_ANG, "hand_r": (29.0, 32.0)}
+
+
+def bow_walk(n=6):
+	out = []
+	for i in range(n):
+		s = math.sin(2 * math.pi * i / n)
+		out.append({
+			"twist": -0.08 * s,
+			"grip": (27.0 + 1.6 * s, 13.2 + 0.3 * abs(s)),
+			"bow_ang": BOW_CARRY_ANG + D(6 * s),
+			"hand_r": (27.5 - 3.0 * s, 32.5 + 0.5 * abs(s)),
+		})
+	return out
+
+
+def bow_pose(p):
+	q = dict(p, hand_l=p["grip"], ang=p.get("bow_ang", 0.0))
+	if p.get("draw") is not None:
+		q["hand_r"] = p["draw"]
+	return q
+
+
 # name -> (item drawing, pose -> hands); each tool has <tool>_idle and an action strip.
 TOOL_ANIMS = [
 	("axe_idle", axe, axe_pose, [AXE_IDLE]),
@@ -457,6 +542,9 @@ TOOL_ANIMS = [
 	("club_idle", club, club_pose, [CLUB_IDLE]),
 	("club_walk", club, club_pose, club_walk()),
 	("club_swing", club, club_pose, CLUB_SWING),
+	("bow_idle", "bow", bow_pose, [BOW_IDLE]),
+	("bow_walk", "bow", bow_pose, bow_walk()),
+	("bow_fire", "bow", bow_pose, BOW_FIRE),
 ]
 WOOD_TOOLS = {"club"}
 
@@ -490,7 +578,9 @@ def build():
 				p = to_pose(p)
 				lay, occ = body_layer(s, p)
 				body[s].append(lay.image())
-				if s == "light":
+				if s == "light" and draw_item == "bow":
+					item.append(bow_layer(p, occ).image())
+				elif s == "light":
 					item.append(item_layer(draw_item(p["pommel"], p["ang"]), occ,
 						"wood" if name.split("_")[0] in WOOD_TOOLS else None).image())
 		sheets["human_body_" + name] = body

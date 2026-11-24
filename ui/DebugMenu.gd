@@ -62,7 +62,7 @@ func _ready() -> void:
 	var hint := Label.new()
 	hint.add_theme_font_size_override("font_size", 11)
 	hint.add_theme_color_override("font_color", Color(0.7, 0.7, 0.7))
-	hint.text = "Speed-up works in watch mode only:\nthe player always runs at 1x.\nIn watch mode: LMB inspect, RMB pan,\nC takes control of the selected agent."
+	hint.text = "Speed-up works in watch mode only:\nthe player always runs at 1x.\nIn watch mode: LMB inspect, RMB pan,\nC takes control of the selected agent.\nNumpad 1: debug kit (weapons, tools,\narrows, wood, stone)."
 	box.add_child(hint)
 	visible = false
 
@@ -124,6 +124,27 @@ func _toggle_watch() -> void:
 		agent_layer.selected_id = -1
 
 
+const KIT_TOOLS := ["spear", "club", "sword", "bow", "axe", "pickaxe", "pickaxe_t2"]
+const KIT_STACKS := {"arrow": 60, "wood": 100, "stone": 100}
+
+
+## Numpad 1: every weapon and gathering tool, arrows, wood and stone into the player's pack.
+## Says what didn't fit if the pack fills up.
+func give_kit() -> void:
+	if player == null or not player.alive():
+		return
+	var inv: Inventory = player.body.inv
+	var missed: Array[String] = []
+	for t in KIT_TOOLS:
+		if not inv.add_tool(t):
+			missed.append(t)
+	for item in KIT_STACKS:
+		var short: int = KIT_STACKS[item] - inv.add(item, KIT_STACKS[item])
+		if short > 0:
+			missed.append("%d %s" % [short, item])
+	player.say("Debug kit added." if missed.is_empty() else "Debug kit: pack full, missed %s." % ", ".join(missed))
+
+
 ## Tier 3 of the social feed (witnessed nearby, grey) on or off.
 func _toggle_nearby() -> void:
 	if feed:
@@ -153,6 +174,7 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		KEY_L: agent_layer.show_labels = not agent_layer.show_labels
 		KEY_K: agent_layer.cycle_mode()
 		KEY_G: _toggle_nearby()
+		KEY_KP_1: give_kit()
 		_: handled = false
 	if handled:
 		get_viewport().set_input_as_handled()

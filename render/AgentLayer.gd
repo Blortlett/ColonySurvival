@@ -71,6 +71,7 @@ class AnimState:
 	var alt := false # alternate punch arm
 	var last_hp := 0.0
 	var last_cd := 0.0
+	var last_arrows := 0 # an attack that used an arrow was a bow shot
 	var flash := 0.0
 	var stamp := 0
 
@@ -219,6 +220,7 @@ func _update(real_dt: float) -> void:
 			st.last_pos = a.pos
 			st.last_cd = a.attack_cd
 			st.last_hp = a.hp
+			st.last_arrows = a.inv.count("arrow")
 			continue
 		# Movement.
 		if sim_dt > 0.0:
@@ -234,7 +236,8 @@ func _update(real_dt: float) -> void:
 		var hurry := a.job != null and HURRY_JOBS.has(a.job.kind)
 		# Swings and hits (attack_cd jumps up when a swing lands, hp drops on a hit).
 		if a.attack_cd > st.last_cd + 0.01:
-			var w := "attack_" + a.melee_weapon()
+			var arrows := a.inv.count("arrow")
+			var w := "attack_" + ("bow" if arrows < st.last_arrows else a.melee_weapon())
 			st.oneshot = w if st.body.torso.has(w) else "attack"
 			st.torso_t = 0.0
 			st.alt = not st.alt
@@ -245,6 +248,7 @@ func _update(real_dt: float) -> void:
 				st.torso_t = 0.0
 		st.last_cd = a.attack_cd
 		st.last_hp = a.hp
+		st.last_arrows = a.inv.count("arrow")
 		st.flash = maxf(st.flash - real_dt, 0.0)
 		# Angles.
 		var face := facing_of(a, st)
@@ -310,11 +314,23 @@ func _update(real_dt: float) -> void:
 func _carried(a: Agent, st: AnimState, anim: String) -> String:
 	if anim != "idle" and anim != "walk" and anim != "run":
 		return anim
-	var w := a.melee_weapon()
+	var w := _shown_weapon(a)
 	if w == "unarmed":
 		return anim
 	var v := anim + "_" + w
 	return v if st.body.torso.has(v) else anim
+
+
+## The weapon a body visibly carries: its melee weapon, else a bow (the player's when in
+## hand, an NPC's when it has arrows for it), else "unarmed".
+func _shown_weapon(a: Agent) -> String:
+	var w := a.melee_weapon()
+	if w != "unarmed":
+		return w
+	if a.held >= 0:
+		var e = a.inv.entry(a.held)
+		return "bow" if Inventory.is_tool_entry(e) and e.type == "bow" else "unarmed"
+	return "bow" if a.has_bow_ready() else "unarmed"
 
 
 ## Standing still at work: chop with an axe at a tree, otherwise the two-handed gather
@@ -343,6 +359,7 @@ func _new_state(a: Agent) -> AnimState:
 	st.last_pos = a.pos
 	st.last_hp = a.hp
 	st.last_cd = a.attack_cd
+	st.last_arrows = a.inv.count("arrow")
 	st.move_ang = float(a.id % 8) * TAU / 8.0
 	st.legs_ang = st.move_ang
 	st.torso_ang = st.move_ang
