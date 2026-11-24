@@ -1156,8 +1156,10 @@ def outfit_gifs(sheets, outfit, out_dir, scale=7):
 if __name__ == "__main__":
 	if len(sys.argv) > 1 and sys.argv[1] == "--outfit-gifs":  # rebuilds art/, then the outfit review GIFs
 		d = os.path.join(os.path.dirname(os.path.abspath(__file__)), "preview")
-		for p in outfit_gifs(build(), "peasant", d):
-			print("wrote", p)
+		sh = build()
+		for o in sys.argv[2:] or list(OUTFITS):  # e.g. --outfit-gifs iron
+			for p in outfit_gifs(sh, o, d):
+				print("wrote", p)
 		sys.exit(0)
 	if len(sys.argv) > 1 and sys.argv[1] == "--iron":  # look test only; leaves art/ untouched
 		d = os.path.join(os.path.dirname(os.path.abspath(__file__)), "preview")

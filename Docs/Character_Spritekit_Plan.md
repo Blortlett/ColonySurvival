@@ -1,6 +1,6 @@
 # Anarchy Colony Sim — Character Spritekit Plan (draft)
 
-**Status: the naked human is built and wired in (2026-11-24).** All the unarmed, tool and weapon animations below are in the game. **Clothing phases 1–3 are done:** the peasant outfit (tunic, trousers, hood) has outfit sheets for every animation and both skins (§8.2), and is wired into the game as craftable cloth armour that draws on whoever wears it (§8.3). Next: iron armour art (phase 4).
+**Status: the naked human is built and wired in (2026-11-24).** All the unarmed, tool and weapon animations below are in the game. **Clothing phases 1–3 are done:** the peasant outfit (tunic, trousers, hood) has outfit sheets for every animation and both skins (§8.2), and is wired into the game as craftable cloth armour that draws on whoever wears it (§8.3). **Phase 4 is done too:** iron armour (breastplate + pauldrons, greaves, helmet) has outfit sheets for every animation and both skins and draws on whoever wears it (§8.4).
 
 **Builds on:** the agent sprite renderer (`render/AgentLayer.gd`, `render/SpriteAtlas.gd`, `render/BodySets.gd`; Summer Roadmap §3), Godot 4.7.2, GDScript, Python 3 + Pillow for the generator.
 **Goal:** one shared, extendable top-down human for every agent and the player. Bodies come in skin tones, carry and use every weapon and tool, and take clothing and armour as separate layers, so pants and shirts are independent. All art comes from one script, so a change to the rig or a palette updates every sheet at once.
@@ -13,7 +13,7 @@
 
 ### 1.1 The generator
 
-`tools/spritekit/spritekit.py` draws every sheet from code. Nothing is hand-painted. Running it rewrites `art/characters/human/` (172 PNGs today: 70 naked body/legs/item sheets + 102 peasant outfit sheets).
+`tools/spritekit/spritekit.py` draws every sheet from code. Nothing is hand-painted. Running it rewrites `art/characters/human/` (274 PNGs today: 70 naked body/legs/item sheets + 102 peasant + 102 iron outfit sheets).
 
 - **Frame:** 48 × 48 px, character centred at (24, 24), facing **+X**, the same as the old Sci-Fi TDS pack (agreed).
 - **Rig:**
@@ -27,7 +27,7 @@
   - 1 px dark outline on the **outside** only.
   - Where a part crosses another (an arm over the torso), the outline becomes a soft line: outline mixed with shadow.
   - At joints (shoulder) there's no line at all, so arms read as one limb.
-- **Palettes:** `SKINS` (light, dark), `HAIR`, `WOOD`, `DARK_WOOD` (club), `IRON`, plus `STRING`, `FLETCH` and `SMEAR`.
+- **Palettes:** `SKINS` (light, dark), `HAIR`, `WOOD`, `DARK_WOOD` (club), `IRON`, plus `STRING`, `FLETCH` and `SMEAR`; outfits add `LINEN`, `WOOL`, `ROPE` (cloth) and `MAIL` (iron).
 - **Tool layer:**
   - The tool is drawn on its own sheet, frame for frame with the body, with the hands, arms and head **cut out**, so it can always draw on top.
   - Cut-out options per pose: `under_r_shoulder` (spear passes under the right shoulder), `tool_on_arm` (pickaxe resting on the shoulder: only the hand covers it), `over` (arms raised over the head; the head no longer covers the tool).
@@ -63,7 +63,7 @@ Unless noted, every row has one body sheet per skin tone and, for tools, one ite
 | Standing at work | `chop` (axe on a tree), `mine` (pickaxe on rock or metal), else `use` (gather) | The player's held-E harvest counts too (`player.harvest_node`). |
 | Idle / walk / run | `<anim>_<weapon>` if the set has it, else plain | The weapon shown is `_shown_weapon()`: melee weapon, else the player's held tool (`CARRY_ALIAS` maps `pickaxe_t2 → pickaxe`), else the axe or pickaxe on the way to a tree or rock, else a bow with arrows. |
 
-- **Debug kit:** with the F3 menu open, numpad 1 gives every weapon and tool, 60 arrows, 40 wood, 40 stone and 20 hemp, and puts the cloth outfit on (tunic, trousers, hood into empty worn slots; `DebugMenu.give_kit`).
+- **Debug kit:** with the F3 menu open, numpad 1 gives every weapon and tool, 60 arrows, 40 wood, 40 stone and 20 hemp, puts the iron armour on and the cloth outfit into the pack, to swap in the inventory (`DebugMenu.KIT_WEAR`: pieces go into empty worn slots in order, iron first; spare pieces are packed after the tools so the hotbar keeps the tools; `DebugMenu.give_kit`).
 
 ---
 
@@ -208,7 +208,7 @@ Each slot is independent, so any mix works: tunic + greaves, chest plate + bare 
 | 1 ✅ | Generator outfit support | Garment shapes and materials on the rig, the dressed/naked difference, outfit sheet output, outfit previews and GIFs | ~1 day |
 | 2 ✅ | Peasant tunic + trousers (+ hood) | Design and tune both over every animation (24 body animations + legs), both skins; review loop as in §2 | ~1 day with review |
 | 3 ✅ | Engine wiring | `BodySets.outfits`, 2D atlas packing, `AgentLayer` outfit instances, tints, corpses, slot selection; load-check | ~1 day |
-| 4 | Iron armour | Chest plate + pauldrons, greaves, helmet; wired to `Agent.worn` | ~1 day with review |
+| 4 ✅ | Iron armour | Chest plate + pauldrons, greaves, helmet; wired to `Agent.worn` | ~1 day with review |
 | 5 | Polish (later) | Hood; gauntlets; a palette-swap skin shader (one sheet per animation instead of per skin, unlocking more skin tones cheaply); pain animation; a pickaxe dust puff on the strike | as wanted |
 
 Do phase 2 before phase 3 so the look is agreed on still frames and GIFs before any engine work, the way the naked body was done.
@@ -283,7 +283,32 @@ Body anims: `idle`, `walk`, `gather`, `punch_right`, `punch_left`, `death`, and 
   - Reserves 6 instances per agent and 4 per corpse; still one draw call.
 - **Checked in-game** (close-up screenshots of dressed agents with sword, spear, club, bow, pickaxe and axe, plus corpses): the layers line up with the body, tools draw over the tunic, the hood sits on the head, and corpses wear their death outfits. The scripted `--playtest` passes, including the armour on/off check.
 
-**Left:** iron armour art (phase 4: chest plate, greaves, helmet as `OUTFITS["iron"]` in spritekit); per-agent earth-tone dye (§8.2, `OUTFIT_TINT`); cloth item icons in the inventory are placeholder colours; balance of cloth values and hemp supply.
+**Left:** ~~iron armour art~~ (done, §8.4); per-agent earth-tone dye (§8.2, `OUTFIT_TINT`); cloth item icons in the inventory are placeholder colours; balance of cloth values and hemp supply.
+
+### 8.4 Iron armour built and wired (2026-11-24)
+
+`python tools/spritekit/spritekit.py --iron` is the look test: idle + walk, both skins, for naked, full iron, full peasant and mixed sets (iron chest + trousers + hood, tunic + trousers + iron helmet, tunic + iron greaves + iron helmet), written to `tools/spritekit/preview/iron_preview.png` and `iron_walk.gif`; it leaves `art/` untouched. The concept was approved on these. `python tools/spritekit/spritekit.py --outfit-gifs iron` rebuilds everything and writes `iron_<set>.gif` (same layout as the peasant GIFs, §8.2); with no name it does every outfit.
+
+**Sheets:** `OUTFITS["iron"] = {legs: greaves, torso: plate, head: helmet}`, the same 102 sheets as the peasant (§8.2 table, `peasant` → `iron`). The renderer's outfit name is `iron` in all three slots (head too, not `helmet`).
+
+| Slot | Garment | Drawing (tuning constants in spritekit) |
+|---|---|---|
+| `torso` | `plate` | Torso and shoulder balls grown `PLATE_G` 0.9 px in `IRON` (bands `PLATE_BANDS`), darker lower rim at `PLATE_RIM`. Per arm, after the bare arm: a `MAIL` sleeve over the upper arm (`MAIL_LEN` 0.8 of shoulder → elbow), then the pauldron caps the shoulder: a circle `PAUL_R` 2.8 on the shoulder ball, pushed `PAUL_BACK` 0.8 back and `PAUL_OUT` 0.5 out, with a darker lame band (`PAUL_LAME`) toward its outer rim. Forearms and hands bare. |
+| `legs` | `greaves` | `MAIL` thigh to the knee (45 % hip → ankle), `IRON` sabaton over the foot, `IRON` greave knee → ankle drawn over the sabaton (soft line). Shows in the walk and on the corpse. |
+| `head` | `helmet` | Round `IRON` cap (`HELM_R` 3.9, `HELM_BACK` 0.4) with a bright ridge over the crown, the face showing below the brow (`HELM_OPEN` / `HELM_SIDE`, like the hood's opening) and a 1 px nose guard out to `NOSE_GUARD`. |
+
+`MAIL` is a darker steel drawn as a 1 px checker of two tones (`mail_mat`), which reads as rings.
+
+**Checks:** the 172 naked + peasant sheets came out byte-for-byte pixel-identical. Stacking legs → legs outfit → body → torso outfit → head outfit reproduces a full-iron render exactly in every frame except 3 overhead pickaxe frames (2–7 outline pixels per frame): there the helmet rim, drawn by the later head layer, gets a hard outline where the full render has a soft line over the pauldron. That is the "later slot wins" rule of §5.3, invisible at game scale, accepted. Tools: the pick haft rests on the pauldron, the raised pick and arms draw over the helmet, the spear passes under the right pauldron (about 1 px of overlap at the pauldron edge, as accepted in §4.2).
+
+**Learned in review (self-review before the concept went out):**
+- **Ball pauldrons read as a robot.** Big round pauldrons out along the arm plus the round helmet looked like three spheres, and they hid the elbow, so at idle (the arm is short there) the forearm vanished into a dark hole. Pauldrons sit back over the shoulder ball, no bigger than it, and a darker lame band across each makes them read as layered plates.
+- **Keep the plate quiet.** A ridge down the breastplate plus the nose guard made a busy cross through the centre; the breastplate is plain (just the rim), and the brightest highlights are on the helmet and pauldrons. Mail must stay clearly darker than plate or the arm merges into the body, but not so dark that it reads as outline.
+- At game scale the silhouette is barely bigger than cloth (it has to be, for the shared tool cut-outs) but reads clearly heavier through the grey value and the pauldron bumps.
+
+**Wiring:** `BodySets.OUTFITS` lists `"iron"` in every slot; `AgentLayer.WEAR_OUTFIT` already mapped `chest_armor` / `leg_armor` / `helmet` → `iron`, so no other code changed. **Atlas: 274 sheets → 2,048 × 1,392.** Headless import + `--quit-after 120` clean, `--playtest` passes.
+
+**Debug kit:** F3, numpad 1 now puts the full iron set on and packs the cloth set (§1.3). Checked in-game: the player in full iron with the spear, helmet, breastplate and pauldrons drawn over the body and the tool on top. Iron pieces (`chest_armor`, `leg_armor`, `helmet`) are anvil recipes, 1 `iron_bar` each (`Items.ANVIL_RECIPES`); `auto_equip` swaps them in over cloth. Agents in a long run (`--shot`, `--bench`) wear iron once smelting is going.
 
 ## 9. Sheet and memory budget
 
@@ -291,9 +316,9 @@ Body anims: `idle`, `walk`, `gather`, `punch_right`, `punch_left`, `death`, and 
 |---|---|---|
 | Body (24 anims × 2 skins) + legs (2 × 2) | 52 | 52 |
 | Items | 18 | 18 |
-| Torso outfits (tunic, iron × 24 × 2) | 48 (tunic) | 96 |
-| Legs outfits (trousers, iron × idle/walk/death × 2) | 6 (trousers) | 12 |
-| Head outfits (hood, helmet × 24 × 2) | 48 (hood) | 96 |
-| **Total** | **172** | **~274** |
+| Torso outfits (tunic, iron × 24 × 2) | 96 | 96 |
+| Legs outfits (trousers, iron × idle/walk/death × 2) | 12 | 12 |
+| Head outfits (hood, helmet × 24 × 2) | 96 | 96 |
+| **Total** | **274** (both phases built) | **274** |
 
-Measured with the 2D packing (§8.3): today's 172 sheets fit in 2,048 × 864, so ~274 should be about 2,048 × 1,400 (about 15 MB with mips). That's fine on desktop. With the palette-swap shader, the body and outfit sheets halve.
+Measured with the 2D packing (§8.3, §8.4): 172 sheets fit in 2,048 × 864 and all 274 in 2,048 × 1,392 (about 15 MB with mips). That's fine on desktop. With the palette-swap shader, the body and outfit sheets halve.

@@ -145,12 +145,13 @@ func _toggle_watch() -> void:
 
 
 const KIT_TOOLS := ["spear", "club", "sword", "bow", "axe", "pickaxe", "pickaxe_t2"]
-const KIT_WEAR := ["tunic", "trousers", "hood"] # put on straight away (into empty worn slots)
+const KIT_WEAR := ["chest_armor", "leg_armor", "helmet", "tunic", "trousers", "hood"] # in order into empty worn slots (iron first), the rest into the pack
 const KIT_STACKS := {"arrow": 60, "wood": 40, "stone": 40, "hemp": 20} # wood/stone: 2 full stacks each; hemp for cloth
 
 
 ## Numpad 1: every weapon and gathering tool, arrows, wood, stone and hemp into the player's
-## pack, and the cloth outfit worn (a piece goes into the pack instead if that slot is taken).
+## pack, the iron armour worn and the cloth outfit in the pack, to swap in the inventory (a
+## piece goes into the pack instead if its slot is taken).
 ## Says what didn't fit if the pack fills up.
 func give_kit() -> void:
 	if player == null or not player.alive():
@@ -158,13 +159,14 @@ func give_kit() -> void:
 	var a: Agent = player.body
 	var inv: Inventory = a.inv
 	var missed: Array[String] = []
+	var spare: Array[String] = [] # wear whose slot is taken: packed after the tools, so the hotbar gets tools
 	for t in KIT_WEAR:
 		var slot := Items.wear_slot(t)
 		if not a.worn.has(slot):
 			a.worn[slot] = {"type": t, "dur": Items.DURABILITY[t]}
-		elif not inv.add_tool(t):
-			missed.append(t)
-	for t in KIT_TOOLS:
+		else:
+			spare.append(t)
+	for t in KIT_TOOLS + spare:
 		if not inv.add_tool(t):
 			missed.append(t)
 	for item in KIT_STACKS:

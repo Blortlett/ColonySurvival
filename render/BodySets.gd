@@ -33,8 +33,8 @@ const DIR := "res://art/characters/"
 
 ## Outfits the human has art for, per slot. Sheet names come from the body sheet each one is
 ## diffed against: human_body_<x> / human_legs_<x> -> human_outfit_<slot>_<outfit>_<x>
-## (tools/spritekit/spritekit.py writes them). Iron armour adds e.g. "iron" here once drawn.
-const OUTFITS := {"legs": ["peasant"], "torso": ["peasant"], "head": ["peasant"]}
+## (tools/spritekit/spritekit.py writes them): peasant cloth and iron armour.
+const OUTFITS := {"legs": ["peasant", "iron"], "torso": ["peasant", "iron"], "head": ["peasant", "iron"]}
 
 
 ## The shared human (tools/spritekit/spritekit.py makes these sheets); one set per skin tone.
