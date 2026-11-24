@@ -30,6 +30,7 @@ HAIR = {
 	"dark": [(14, 10, 10), (30, 24, 22), (46, 38, 34), (66, 56, 50)],
 }
 WOOD = [(42, 26, 16), (96, 62, 34), (134, 90, 50), (170, 122, 72)]
+DARK_WOOD = [(30, 18, 12), (70, 44, 26), (104, 68, 38), (138, 96, 56)]  # club: reads against skin
 IRON = [(22, 22, 30), (92, 96, 108), (148, 154, 166), (214, 220, 230)]
 
 
@@ -264,11 +265,30 @@ def spear(butt, ang):
 	return shaft, head, edge
 
 
-def item_layer(item, occlude):
+def club(pommel, ang):
+	"""One-handed wooden club: a thin grip that swells into a heavy rounded head."""
+	ux, uy = math.cos(ang), math.sin(ang)
+	vx, vy = -uy, ux
+	px, py = pommel
+
+	def P(u, v):
+		return px + ux * u + vx * v, py + uy * u + vy * v
+	L = 13.0
+	grip_ = capsule(*P(0, 0), *P(5.0, 0), 0.75)
+	body = union(polygon([P(4.0, 0.8), P(L - 1.6, 2.2), P(L - 1.6, -2.2), P(4.0, -0.8)], 0.6),
+		capsule(*P(L - 2.0, 0), *P(L - 1.0, 0), 2.3))
+	knot = lambda x, y: abs((x - px) * ux + (y - py) * uy - (L - 3.2)) < 0.6 and (x - px) * vx + (y - py) * vy > 0.4
+	return grip_, body, knot
+
+
+def item_layer(item, occlude, head_mat=None):
 	lay = Layer()
 	haft, head, edge = item
 	lay.draw_part(haft, WOOD, bands=(0.3, 0.75))
-	lay.draw_part(head, lambda x, y, h: [IRON[0], IRON[1], IRON[3] if edge(x, y) else IRON[2], IRON[3]])
+	if head_mat == "wood":  # all-wood club: grain knot in the shadow tone
+		lay.draw_part(union(haft, head), lambda x, y, h: [DARK_WOOD[0], DARK_WOOD[1], DARK_WOOD[1] if edge(x, y) else DARK_WOOD[2], DARK_WOOD[3]], bands=(0.35, 0.8))
+	else:
+		lay.draw_part(head, lambda x, y, h: [IRON[0], IRON[1], IRON[3] if edge(x, y) else IRON[2], IRON[3]])
 	for k in occlude:
 		lay.px.pop(k, None)
 	return lay
@@ -357,7 +377,24 @@ SPEAR_THRUST = [
 	{"twist": D(5), "pommel": (22.3, 26.9), "ang": D(0), "grip_l": 8.0},      # hold
 	{"twist": D(16), "pommel": (16.0, 26.8), "ang": D(-1), "grip_l": 12.0},   # recover
 ]
-SPEAR_IDLE = SPEAR_THRUST[0]
+# Carrying: one-handed in the right hand at its balance point, point forward, butt trailing
+# past the hip (and under the right shoulder); the left arm is free.
+SPEAR_IDLE = {"twist": D(3), "hand": (27.5, 34.2), "ang": D(-4), "hand_l": (29.0, 16.0)}
+
+
+def spear_walk(n=6):
+	"""Walk/run cycle carrying the spear: the left arm swings as usual, the spear arm swings
+	a little and the point dips and rises with the step."""
+	out = []
+	for i in range(n):
+		s = math.sin(2 * math.pi * i / n)
+		out.append({
+			"twist": -0.07 * s,
+			"hand_l": (27.5 + 3.0 * s, 15.5 - 0.5 * abs(s)),
+			"hand": (27.5 - 1.4 * s, 34.2 + 0.3 * abs(s)),
+			"ang": D(-4 + 3 * s),
+		})
+	return out
 
 
 def axe_pose(p):
@@ -365,18 +402,63 @@ def axe_pose(p):
 	return dict(p, hand_l=hl, hand_r=hr)
 
 
+def spear_carry_pose(p):
+	ux, uy = math.cos(p["ang"]), math.sin(p["ang"])
+	h = p["hand"]
+	return dict(p, hand_r=h, pommel=(h[0] - ux * 9.0, h[1] - uy * 9.0), under_r_shoulder=True)
+
+
 def spear_pose(p):
 	hr, hl = grip(p["pommel"], p["ang"], 3.0, p.get("grip_l", 8.0))  # right hand near the butt, left forward
 	return dict(p, hand_l=hl, hand_r=hr, under_r_shoulder=True)
+
+
+# One-handed club, right hand on the grip (pose "hand"), left arm free to guard/balance.
+# Swing: club cocked behind the right shoulder, whipped across the front, follow-through left.
+CLUB_SWING = [
+	{"twist": D(10), "hand": (27.0, 31.5), "ang": D(70), "hand_l": (28.5, 17.0)},    # ready
+	{"twist": D(30), "hand": (21.5, 34.0), "ang": D(150), "hand_l": (29.5, 18.5)},   # wind-up behind the shoulder
+	{"twist": D(10), "hand": (28.5, 33.0), "ang": D(75), "hand_l": (28.5, 17.5)},    # swing
+	{"twist": D(-18), "hand": (33.0, 26.5), "ang": D(0), "hand_l": (26.5, 15.5)},    # impact, straight ahead
+	{"twist": D(-26), "hand": (29.5, 20.5), "ang": D(-55), "hand_l": (24.5, 14.0)},  # follow-through
+	{"twist": D(-4), "hand": (28.0, 29.5), "ang": D(35), "hand_l": (28.0, 16.5)},    # recover
+]
+CLUB_IDLE = {"twist": D(4), "hand": (27.5, 32.5), "ang": D(22), "hand_l": (29.0, 16.0)}
+
+
+def club_walk(n=6):
+	"""Walk/run cycle carrying the club low on the right: the left arm swings as usual, the
+	club arm swings less and the club bobs with it."""
+	out = []
+	for i in range(n):
+		s = math.sin(2 * math.pi * i / n)
+		out.append({
+			"twist": -0.08 * s,
+			"hand_l": (27.5 + 3.0 * s, 15.5 - 0.5 * abs(s)),
+			"hand": (27.5 - 1.8 * s, 32.5 + 0.3 * abs(s)),
+			"ang": D(22 - 9 * s),
+		})
+	return out
+
+
+def club_pose(p):
+	ux, uy = math.cos(p["ang"]), math.sin(p["ang"])
+	h = p["hand"]
+	return dict(p, hand_r=h, pommel=(h[0] - ux * 1.6, h[1] - uy * 1.6))
 
 
 # name -> (item drawing, pose -> hands); each tool has <tool>_idle and an action strip.
 TOOL_ANIMS = [
 	("axe_idle", axe, axe_pose, [AXE_IDLE]),
 	("axe_swing", axe, axe_pose, AXE_SWING),
-	("spear_idle", spear, spear_pose, [SPEAR_IDLE]),
+	("spear_idle", spear, spear_carry_pose, [SPEAR_IDLE]),
+	("spear_walk", spear, spear_carry_pose, spear_walk()),
 	("spear_thrust", spear, spear_pose, SPEAR_THRUST),
+	("club_idle", club, club_pose, [CLUB_IDLE]),
+	("club_walk", club, club_pose, club_walk()),
+	("club_swing", club, club_pose, CLUB_SWING),
 ]
+WOOD_TOOLS = {"club"}
 
 
 # ---------------------------------------------------------------- output
@@ -409,7 +491,8 @@ def build():
 				lay, occ = body_layer(s, p)
 				body[s].append(lay.image())
 				if s == "light":
-					item.append(item_layer(draw_item(p["pommel"], p["ang"]), occ).image())
+					item.append(item_layer(draw_item(p["pommel"], p["ang"]), occ,
+						"wood" if name.split("_")[0] in WOOD_TOOLS else None).image())
 		sheets["human_body_" + name] = body
 		sheets["item_" + name] = {"": item}
 	for name, by_skin in sheets.items():

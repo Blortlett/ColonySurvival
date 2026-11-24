@@ -271,6 +271,7 @@ func _update(real_dt: float) -> void:
 				torso = _work_anim(a, st)
 			if torso == "":
 				torso = "idle"
+			torso = _carried(a, st, torso)
 			if torso != st.torso_anim:
 				st.torso_t = 0.0
 		st.torso_anim = torso
@@ -303,6 +304,17 @@ func _update(real_dt: float) -> void:
 			_corpses.remove_at(0)
 	_mm.buffer = _buf
 	_mm.visible_instance_count = count
+
+
+## idle / walk / run while holding a weapon the set has art for (idle_club ...), else as is.
+func _carried(a: Agent, st: AnimState, anim: String) -> String:
+	if anim != "idle" and anim != "walk" and anim != "run":
+		return anim
+	var w := a.melee_weapon()
+	if w == "unarmed":
+		return anim
+	var v := anim + "_" + w
+	return v if st.body.torso.has(v) else anim
 
 
 ## Standing still at work: chop with an axe at a tree, otherwise the two-handed gather
