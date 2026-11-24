@@ -91,10 +91,10 @@ static func _step(k: Kingdom, lead: Faction, g: Faction, e: Dictionary) -> void:
 			if g.kingdom == null and not g.solo and k.has_room():
 				_stage(e, "inviting")
 				invited += 1
-				EventBus.log_event("%s invites %s to join the kingdom." % [k.name, g.name])
+				EventBus.social(&"pushout", "%s invites %s to join the kingdom." % [k.name, g.name], [], [g, k])
 			else:
 				_stage(e, "demanding")
-				EventBus.log_event("%s demands that %s leave its land." % [k.name, g.display_name() if not g.solo else "a lone settler"])
+				EventBus.social(&"pushout", "%s demands that %s leave its land." % [k.name, g.display_name() if not g.solo else "a lone settler"], [], [g, k])
 		"inviting":
 			if not waited:
 				return
@@ -104,7 +104,7 @@ static func _step(k: Kingdom, lead: Faction, g: Faction, e: Dictionary) -> void:
 				Kingdoms.join(g, k) # it rebuilds on a city plot and abandons its old house (agreed)
 				return
 			_stage(e, "demanding")
-			EventBus.log_event("%s declines; %s demands that it leave." % [g.name, k.name])
+			EventBus.social(&"pushout", "%s declines; %s demands that it leave." % [g.name, k.name], [], [g, k])
 		"demanding":
 			if not waited:
 				return
@@ -114,7 +114,7 @@ static func _step(k: Kingdom, lead: Faction, g: Faction, e: Dictionary) -> void:
 				_stage(e, "leaving")
 				g.evicted_by = k.id
 				Relations.change(lead, g, Cfg.REL_LEAVE)
-				EventBus.log_event("%s agrees to leave %s's land (%.0f vs %.0f power)." % [g.display_name() if not g.solo else "A lone settler", k.name, kp, gp])
+				EventBus.social(&"pushout", "%s agrees to leave %s's land (%.0f vs %.0f power)." % [g.display_name() if not g.solo else "A lone settler", k.name, kp, gp], [], [g, k])
 			else:
 				_war(k, lead, g, e, "%s refuses to leave %s's land: war!" % [g.name, k.name])
 		"leaving":
@@ -141,7 +141,7 @@ static func _war(k: Kingdom, lead: Faction, g: Faction, e: Dictionary, msg: Stri
 		_stage(e, "leaving") # a lone settler can't wage war; it just has to go
 		return
 	if not Wars.at_war(lead, g):
-		EventBus.log_event(msg)
+		EventBus.social(&"pushout", msg, [], [g, k])
 		Wars.declare(lead, g)
 		wars += 1
 
@@ -193,7 +193,7 @@ static func leave_step(f: Faction) -> void:
 		f.evicted_by = -1
 		k.pushouts.erase(f.id)
 		left += 1
-		EventBus.log_event("%s moves out of %s's land." % [f.display_name() if not f.solo else "A lone settler", k.name])
+		EventBus.social(&"pushout", "%s moves out of %s's land." % [f.display_name() if not f.solo else "A lone settler", k.name], [], [f, k])
 		return
 	if not outside_any and e.get("stage", "") == "leaving":
 		Factions.plan_house(f, 1 if f.solo else clamp(f.members.size() + 1, 2, Cfg.FACTION_MAX))

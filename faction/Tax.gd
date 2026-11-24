@@ -66,7 +66,7 @@ static func _tax(k: Kingdom, lead: Faction, g: Faction, h: House) -> void:
 		resisted += 1
 		g.last_tax = "refused %s" % k.name
 		Relations.change(lead, g, Cfg.TAX_RESIST_REL)
-		EventBus.log_event("%s refuses to pay %s's tax (%.0f x %.1f vs %.0f nearby): war!" % [g.name, k.name, gp, anger, near])
+		EventBus.social(&"tax_refused", "%s refuses to pay %s's tax (%.0f x %.1f vs %.0f nearby): war!" % [g.name, k.name, gp, anger, near], [], [g, k])
 		Wars.declare(lead, g)
 		return
 	var n := _collect(k, lead, g, h.live_chest())
@@ -80,7 +80,7 @@ static func _tax(k: Kingdom, lead: Faction, g: Faction, h: House) -> void:
 		if m:
 			m.change_mood(Cfg.TAX_MOOD)
 	Relations.change(lead, g, Cfg.TAX_REL)
-	EventBus.log_event("%s taxes %s: %d items taken." % [k.name, g.name, n])
+	EventBus.social(&"tax", "%s taxes %s: %d items taken." % [k.name, g.name, n], [], [g, k], World.center(h.fire_cell), n)
 
 
 ## What the kingdom needs first (its capital chest's stocking shortfall), then the baseline,

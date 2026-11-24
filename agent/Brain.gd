@@ -198,7 +198,7 @@ static func _rebellion_check(a: Agent) -> void:
 	a.rebel_t = 0.0
 	var m: Agent = World.agents.get(a.master_id)
 	if m and a.stats.str >= m.stats.str * Cfg.REBEL_STR_RATIO and World.rng.randf() < Cfg.REBEL_CHANCE:
-		EventBus.log_event("%s rebels against their master %s!" % [a.short(), m.short()])
+		EventBus.social(&"rebel", "%s rebels against their master %s!" % [a.short(), m.short()], [a, m])
 		Combat.start_fight(a, m)
 
 
@@ -521,8 +521,7 @@ static func _process_step(a: Agent, j: Job, dt: float) -> int:
 	j.timer += dt
 	if j.timer >= p.secs:
 		j.timer = 0.0
-		a.inv.pay(p["in"])
-		a.inv.add(j.item, p.out)
+		Actions.process_batch(a, j.item)
 		if j.task:
 			j.task.claim_time = SimClock.time
 	return Obtain.WORKING
@@ -555,8 +554,7 @@ static func _run_craft(a: Agent, j: Job, dt: float) -> void:
 		_blacklist_cell(a, m.cell)
 		_done(a)
 	elif mv == Actions.Move.ARRIVED:
-		a.inv.pay(cost)
-		a.inv.add_tool(j.then_craft)
+		Actions.craft(a, j.then_craft)
 		EventBus.log_event("%s crafts a %s%s." % [a.short(), Items.label(j.then_craft), " at the anvil" if j.then_craft in Items.ANVIL_RECIPES else ""])
 		_to_crate(a, j)
 

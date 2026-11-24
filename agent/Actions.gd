@@ -277,6 +277,83 @@ static func use_chest(a: Agent, ch: Furniture, plan: Dictionary) -> int:
 	return Stock.transfer(a, ch, plan)
 
 
+## Why the agent can't use this chest or crate, or "" if it can: the AI only ever uses
+## storage of its own side (group or kingdom), so the player follows the same rule.
+static func can_use_storage(a: Agent, ch: Furniture) -> String:
+	if ch == null or World.furniture.get(ch.cell) != ch or not ch.is_storage():
+		return "it's gone"
+	if not World.same_side(ch.owner_id, a.faction.id):
+		return "it isn't your side's"
+	return ""
+
+
+# --- Machines: processing and crafting ---
+
+const MACHINES := [Furniture.Kind.SAWMILL, Furniture.Kind.CUTTER, Furniture.Kind.FURNACE, Furniture.Kind.ANVIL]
+
+
+static func is_machine(fu: Furniture) -> bool:
+	return fu != null and fu.kind in MACHINES
+
+
+## What a machine of this kind makes: {"process": [Items.PROCESS keys], "craft": [Items.RECIPES keys]}.
+## Same split as the AI: anvil recipes at the anvil, the other workshop recipes at the sawmill.
+static func machine_menu(kind: int) -> Dictionary:
+	var process: Array[String] = []
+	for k in Items.PROCESS:
+		if Items.PROCESS[k].machine == kind:
+			process.append(k)
+	var craft: Array[String] = []
+	if kind == Furniture.Kind.ANVIL:
+		craft.assign(Items.ANVIL_RECIPES)
+	elif kind == Furniture.Kind.SAWMILL:
+		craft.assign(Items.WORKSHOP_RECIPES)
+	return {"process": process, "craft": craft}
+
+
+## Why the agent can't work this machine, or "" if it can. Same rule as the AI's
+## Factions.nearest_machine: a workshop or smeltery of its side that is operational
+## (built, fire burning, every machine standing).
+static func can_use_machine(a: Agent, m: Furniture) -> String:
+	if m == null or World.furniture.get(m.cell) != m or not is_machine(m):
+		return "it's gone"
+	var h: House = m.house
+	if h == null or h.machine(m.kind) != m or not h in Factions.machine_houses(a.faction):
+		return "it isn't your side's"
+	if not h.operational():
+		return "the %s isn't running (fire out or unfinished)" % h.label()
+	return ""
+
+
+## Run one batch of a processed item (planks, handles, cut stone, iron bars, metal doors):
+## pay the inputs, get the output. Callers stand at the machine for Items.PROCESS[item].secs first.
+static func process_batch(a: Agent, item: String) -> bool:
+	var p: Dictionary = Items.PROCESS[item]
+	if not a.inv.has_cost(p["in"]):
+		return false
+	a.inv.pay(p["in"])
+	a.inv.add(item, p.out)
+	return true
+
+
+## Craft a recipe (Items.RECIPES): pay the cost, get the tool (or ARROWS_PER_CRAFT arrows).
+## Workshop and anvil recipes need the caller to be at the machine.
+static func craft(a: Agent, item: String) -> bool:
+	var cost: Dictionary = Items.RECIPES[item]
+	if not a.inv.has_cost(cost):
+		return false
+	a.inv.pay(cost)
+	if item == "arrow":
+		a.inv.add("arrow", Items.ARROWS_PER_CRAFT)
+	else:
+		a.inv.add_tool(item)
+	return true
+
+
+static func cost_text(cost: Dictionary) -> String:
+	return _cost_text(cost)
+
+
 ## Done warming up at a fire: warm again, and the fire's company counts (relations, opinions).
 static func finish_warming(a: Agent, f: Campfire) -> void:
 	a.warmth = 1.0

@@ -17,6 +17,7 @@ static func start_fight(att: Agent, vic: Agent, to_death: bool = false) -> void:
 	if to_death:
 		att.death_match[vic.id] = true
 		vic.death_match[att.id] = true
+	EventBus.social(&"fight", "", [att, vic])
 	on_attacked(vic, att)
 
 
@@ -141,7 +142,7 @@ static func attack_wall(a: Agent, w: Wall) -> void:
 	World.pieces_version += 1
 	if w.hp <= 0.0:
 		var owner: Faction = World.factions.get(w.owner_id)
-		EventBus.log_event("%s breaks through %s's %s!" % [a.short(), owner.name if owner else "an old", "door" if w.is_door else "wall"])
+		EventBus.social(&"breach", "%s breaks through %s's %s!" % [a.short(), owner.name if owner else "an old", "door" if w.is_door else "wall"], [a], [owner] if owner else [], World.center(w.cell))
 		World.remove_wall(w)
 
 
@@ -150,6 +151,8 @@ static func apply_damage(t: Agent, dmg: float, a: Agent) -> void:
 		dmg *= 1.0 - t.armor_reduction()
 		t.wear_armor()
 	t.hp -= dmg
+	if EventBus.feed_on:
+		EventBus.social(&"hit", "", [a, t], [], t.pos, int(ceil(dmg)))
 	if t.hp <= 0.0:
 		World.kill_agent(t, a)
 		return
@@ -166,7 +169,7 @@ static func plead(v: Agent, a: Agent) -> void:
 	if World.rng.randf() < chance:
 		accept_surrender(a, v)
 	else:
-		EventBus.log_event("%s begs %s for mercy... and is refused." % [v.short(), a.short()])
+		EventBus.social(&"plead", "%s begs %s for mercy... and is refused." % [v.short(), a.short()], [v, a])
 		v.death_match[a.id] = true
 		a.death_match[v.id] = true
 		var j := Job.new(Job.Kind.FIGHT, Job.PRIO_CRITICAL)
@@ -183,24 +186,24 @@ static func accept_surrender(a: Agent, v: Agent) -> void:
 	v.set_cooldown(a.id, 60.0)
 	# Rebellion outcomes.
 	if v.id == a.master_id:
-		EventBus.log_event("%s overpowered their master %s and walks free." % [a.short(), v.short()])
+		EventBus.social(&"rebel", "%s overpowered their master %s and walks free." % [a.short(), v.short()], [a, v])
 		Factions.free_agent(a)
 		return
 	if a.id == v.master_id:
-		EventBus.log_event("%s crushed %s's rebellion." % [a.short(), v.short()])
+		EventBus.social(&"rebel", "%s crushed %s's rebellion." % [a.short(), v.short()], [a, v])
 		return
 	var master := a
 	if a.is_servant() and World.agents.has(a.master_id):
 		master = World.agents[a.master_id] # servants can't have servants
 	if master.faction.has_room():
-		EventBus.log_event("%s surrenders to %s." % [v.short(), a.short()])
+		EventBus.social(&"surrender", "%s surrenders to %s." % [v.short(), a.short()], [v, a])
 		Factions.make_servant(v, master)
 	else:
 		var n := rob(a, v, Cfg.DEMAND_FRACTION)
 		Relations.change(a.faction, v.faction, Cfg.REL_ROB)
 		v.change_mood(-20.0) # no happy boost for being spared (agreed)
 		v.change_opinion(a.id, -50.0)
-		EventBus.log_event("%s spares %s but takes %d items." % [a.short(), v.short(), n])
+		EventBus.social(&"robbed", "%s spares %s but takes %d items." % [a.short(), v.short(), n], [a, v], [], v.pos, n)
 		Brain.flee(v, a.pos, a.id, Job.PRIO_NEEDS)
 
 

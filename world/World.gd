@@ -4,6 +4,11 @@ extends Node
 const NODE_BUCKET := 16
 const NO_CELL := Vector2i(-1, -1)
 
+## Emitted at the end of kill_agent, after the body has left its group and a newcomer has
+## spawned. `group` and `kingdom` are what the body belonged to just before it died.
+## The PlayerController listens for its own body (Player Controller Plan §5a).
+signal agent_died(a: Agent, killer: Agent, group: Faction, kingdom: Kingdom, newcomer: Agent)
+
 var rng := RandomNumberGenerator.new()
 var astar := AStarGrid2D.new()
 var spatial := SpatialHash.new()
@@ -737,6 +742,8 @@ func kill_agent(a: Agent, killer: Agent) -> void:
 		return
 	a.alive = false
 	deaths += 1
+	var group := a.faction
+	var kingdom: Kingdom = group.kingdom if group else null
 	var why := ("killed by %s" % killer.short()) if killer else ("died of %s" % ("cold" if a.warmth <= 0.0 else "hunger"))
 	# Worn gear drops into the loot bag too, so killers can strip armoured victims (agreed).
 	drop_loot(a.cell(), a.inv.stacks.duplicate(), a.inv.tools.duplicate() + a.worn.values(), a.id, why)
@@ -756,9 +763,9 @@ func kill_agent(a: Agent, killer: Agent) -> void:
 	if killer and killer.alive:
 		killer.kills += 1
 		killer.gain_authority()
-		EventBus.log_event("%s killed %s." % [killer.short(), a.short()])
+		EventBus.social(&"killed", "%s killed %s." % [killer.short(), a.short()], [killer, a], [], a.pos)
 	else:
-		EventBus.log_event("%s died of %s." % [a.short(), "cold" if a.warmth <= 0.0 else "hunger"])
+		EventBus.social(&"died", "%s died of %s." % [a.short(), "cold" if a.warmth <= 0.0 else "hunger"], [a])
 	Factions.on_agent_removed(a)
 	if killer and killer.alive:
 		Factions.recompute_leader(killer.faction)
@@ -772,6 +779,7 @@ func kill_agent(a: Agent, killer: Agent) -> void:
 	# Constant population: a fresh agent appears somewhere else (agreed).
 	var fresh := spawn_agent(Cfg.RESPAWN_MIN_DIST)
 	EventBus.log_event("%s wanders in from the wilds." % fresh.short())
+	agent_died.emit(a, killer, group, kingdom, fresh)
 
 
 func agent_at_point(p: Vector2, radius: float) -> Agent:

@@ -38,7 +38,7 @@ static func _happy_meets(a: Agent, b: Agent) -> bool:
 	var fb := b.faction
 	if b.is_player() and fb.solo and (fa.solo or fa.has_room()):
 		# Player Controller Plan §5 placeholder: the player refuses to join (default rule).
-		EventBus.log_event("%s invites %s to join %s; they refuse." % [a.short(), b.short(), "them" if fa.solo else fa.name])
+		EventBus.social(&"invite", "%s invites %s to join %s; they refuse." % [a.short(), b.short(), "them" if fa.solo else fa.name], [a, b], [fa])
 		return true
 	if b.is_happy():
 		if fa.solo and fb.solo:
@@ -143,7 +143,7 @@ static func _attack_chance(a: Agent, b: Agent) -> float:
 static func _demand(a: Agent, b: Agent, attack: bool) -> void:
 	if b.is_player():
 		# Default rule (Player Controller Plan §5): the player refuses and fights back.
-		EventBus.log_event("%s demands %s's goods and is refused." % [a.short(), b.short()])
+		EventBus.social(&"demand", "%s demands %s's goods and is refused." % [a.short(), b.short()], [a, b])
 		Combat.start_fight(a, b)
 		return
 	var mine := b.power()
@@ -164,5 +164,5 @@ static func _demand(a: Agent, b: Agent, attack: bool) -> void:
 		b.change_mood(-15.0)
 		b.change_opinion(a.id, -40.0)
 		if n > 0:
-			EventBus.log_event("%s hands %d items to %s." % [b.short(), n, a.short()])
+			EventBus.social(&"robbed", "%s hands %d items to %s." % [b.short(), n, a.short()], [a, b], [], b.pos, n)
 			Relations.change(a.faction, b.faction, Cfg.REL_ROB)

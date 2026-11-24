@@ -509,11 +509,11 @@ static func _win(r: Raid) -> void:
 		var w := Wars.kingdom_war(r.kingdom)
 		if not w.is_empty():
 			w.last_raid = SimClock.time # a sack keeps the war going, whoever leads now
-		EventBus.log_event("%s sack %s's %s (%s): the fire is out and %d items are taken." % [r.kingdom.name, ek.name if ek else "?", "capital" if was_capital else h.label(), tname, taken])
+		EventBus.social(&"sack", "%s sack %s's %s (%s): the fire is out and %d items are taken." % [r.kingdom.name, ek.name if ek else "?", "capital" if was_capital else h.label(), tname, taken], [], [tf], World.center(h.fire_cell), taken)
 		if not _next_target(r):
 			end_raid(r, true, "")
 		return
-	EventBus.log_event("%s sack %s's %s: the fire is out and %d items are taken." % [r.attacker.name, tname, h.label(), taken])
+	EventBus.social(&"sack", "%s sack %s's %s: the fire is out and %d items are taken." % [r.attacker.name, tname, h.label(), taken], [], [tf], World.center(h.fire_cell), taken)
 	end_raid(r, true, "")
 
 

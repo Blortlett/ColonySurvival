@@ -48,7 +48,7 @@ static func recompute_leader(f: Faction) -> void:
 		var had_leader := f.leader_id != -1 and not f.solo
 		f.leader_id = best.id
 		if had_leader:
-			EventBus.log_event("%s now leads %s." % [best.short(), f.name])
+			EventBus.social(&"leader", "%s now leads %s." % [best.short(), f.name], [best], [f])
 
 
 ## Two unfactioned agents form a faction. The leader's solo faction (and its house) becomes the team's.
@@ -59,7 +59,7 @@ static func form(a: Agent, b: Agent) -> Faction:
 	var other := b if lead == a else a
 	var f := lead.faction
 	f.solo = false
-	EventBus.log_event("%s and %s form faction %s." % [lead.short(), other.short(), f.name])
+	EventBus.social(&"group_form", "%s and %s form faction %s." % [lead.short(), other.short(), f.name], [lead, other], [f])
 	join(other, f)
 	return f
 
@@ -72,6 +72,7 @@ static func join(a: Agent, f: Faction) -> void:
 	f.members.append(a.id)
 	a.faction = f
 	a.change_mood(10.0)
+	EventBus.social(&"group_join", ("%s joins %s (%d members)." % [a.short(), f.name, f.members.size()]) if f.members.size() > 2 else "", [a], [f])
 	recompute_leader(f)
 	for mid in f.members:
 		if mid != a.id:
@@ -79,8 +80,6 @@ static func join(a: Agent, f: Faction) -> void:
 			var m: Agent = World.agents.get(mid)
 			if m:
 				m.change_opinion(a.id, 10.0)
-	if f.members.size() > 2:
-		EventBus.log_event("%s joins %s (%d members)." % [a.short(), f.name, f.members.size()])
 
 
 static func leave(a: Agent) -> void:
@@ -92,6 +91,8 @@ static func leave(a: Agent) -> void:
 		h.occupants.erase(a.id)
 	f.members.erase(a.id)
 	a.faction = null
+	if not f.solo:
+		EventBus.social(&"group_leave", "", [a], [f])
 	if f.members.is_empty():
 		disband(f)
 	else:
@@ -137,7 +138,7 @@ static func free_agent(s: Agent) -> void:
 	make_solo(s)
 	s.job = null
 	s.path.clear()
-	EventBus.log_event("%s is a free agent again." % s.short())
+	EventBus.social(&"freed", "%s is a free agent again." % s.short(), [s])
 
 
 ## The defeated victim becomes the master's servant and joins the master's faction.
@@ -165,7 +166,7 @@ static func make_servant(v: Agent, master: Agent) -> void:
 	v.job = null
 	v.path.clear()
 	recompute_leader(f)
-	EventBus.log_event("%s is now %s's servant." % [v.short(), master.short()])
+	EventBus.social(&"servant", "%s is now %s's servant." % [v.short(), master.short()], [v, master], [f])
 
 
 # --- Houses ---

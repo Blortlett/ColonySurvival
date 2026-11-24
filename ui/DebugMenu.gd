@@ -4,20 +4,26 @@ extends CanvasLayer
 ## zone and label overlays. Watch mode hands the player's body to the AI and frees the
 ## camera; leaving it takes the body back. The player always runs at 1x, so speed-up only
 ## works while watching and resets to 1x on return.
-## Shortcuts while the menu is open: Space pause, 1-5 speed, V watch, Z zones, L labels.
+## "Take control" moves the player to the agent selected in watch mode (LMB inspect), the
+## same controller swap as a death takeover (§5a); handy for testing.
+## Shortcuts while the menu is open: Space pause, 1-5 speed, V watch, C take control,
+## Z zones, L labels, G the social feed's "witnessed nearby" tier.
 
 var player: PlayerController
 var camera: Node # ui/CameraController.gd
 var agent_layer: Node2D
 var dynamic_layer: Node2D
+var feed: CanvasLayer # ui/SocialFeed.gd, null without a player
 
 var _panel: PanelContainer
 var _state: Label
 var _watch: Button
+var _control: Button
 var _pause: Button
 var _zones: Button
 var _labels: Button
 var _sprites: Button
+var _nearby: Button
 var _speeds: Array[Button] = []
 
 
@@ -42,6 +48,7 @@ func _ready() -> void:
 	_state.add_theme_font_size_override("font_size", 12)
 	box.add_child(_state)
 	_watch = _button(box, "Watch / free camera [V]", _toggle_watch)
+	_control = _button(box, "Take control of selected [C]", take_selected)
 	_pause = _button(box, "Pause [Space]", func(): SimClock.toggle_pause())
 	var row := HBoxContainer.new()
 	box.add_child(row)
@@ -51,10 +58,11 @@ func _ready() -> void:
 	_zones = _button(box, "Zones [Z]", func(): dynamic_layer.show_zones = not dynamic_layer.show_zones)
 	_labels = _button(box, "Labels [L]", func(): agent_layer.show_labels = not agent_layer.show_labels)
 	_sprites = _button(box, "Agents [K]", func(): agent_layer.cycle_mode())
+	_nearby = _button(box, "Feed: nearby [G]", _toggle_nearby)
 	var hint := Label.new()
 	hint.add_theme_font_size_override("font_size", 11)
 	hint.add_theme_color_override("font_color", Color(0.7, 0.7, 0.7))
-	hint.text = "Speed-up works in watch mode only:\nthe player always runs at 1x.\nIn watch mode: LMB inspect, RMB pan."
+	hint.text = "Speed-up works in watch mode only:\nthe player always runs at 1x.\nIn watch mode: LMB inspect, RMB pan,\nC takes control of the selected agent."
 	box.add_child(hint)
 	visible = false
 
@@ -75,8 +83,10 @@ func toggle() -> void:
 		player.keys_blocked = visible
 
 
+## Speed-up is allowed with no player or in watch mode. Not while dead: the sim runs at 1x
+## behind the death panel (§5a).
 func watching() -> bool:
-	return player == null or player.watching or not player.alive()
+	return player == null or player.watching
 
 
 func set_speed(i: int) -> void:
@@ -88,6 +98,22 @@ func set_speed(i: int) -> void:
 	SimClock.set_speed(SimClock.SPEEDS[i])
 
 
+## Take control of the agent selected in watch mode (the controller swap of §5a): the camera,
+## HUD and player layer follow the new body; watch mode and speed-up end.
+func take_selected() -> void:
+	if player == null:
+		return
+	var a: Agent = World.agents.get(agent_layer.selected_id)
+	if a == null or not a.alive:
+		player.say("Select an agent first (watch mode: LMB).")
+		return
+	if a == player.body and not player.watching:
+		return
+	player.take_over(a)
+	camera.free_camera = false
+	agent_layer.selected_id = -1
+
+
 func _toggle_watch() -> void:
 	if player == null or not player.alive():
 		return
@@ -96,6 +122,12 @@ func _toggle_watch() -> void:
 	if not player.watching:
 		SimClock.set_speed(1.0) # the player always runs at 1x (agreed)
 		agent_layer.selected_id = -1
+
+
+## Tier 3 of the social feed (witnessed nearby, grey) on or off.
+func _toggle_nearby() -> void:
+	if feed:
+		feed.show_nearby = not feed.show_nearby
 
 
 func _unhandled_key_input(event: InputEvent) -> void:
@@ -116,9 +148,11 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		KEY_4: set_speed(3)
 		KEY_5: set_speed(4)
 		KEY_V: _toggle_watch()
+		KEY_C: take_selected()
 		KEY_Z: dynamic_layer.show_zones = not dynamic_layer.show_zones
 		KEY_L: agent_layer.show_labels = not agent_layer.show_labels
 		KEY_K: agent_layer.cycle_mode()
+		KEY_G: _toggle_nearby()
 		_: handled = false
 	if handled:
 		get_viewport().set_input_as_handled()
@@ -128,12 +162,18 @@ func _process(_dt: float) -> void:
 	if not visible:
 		return
 	_state.text = "%s  %s\nMode: %s" % [SimClock.time_string(), "PAUSED" if SimClock.paused else "x%d" % int(SimClock.speed),
-		"watching (AI drives your body)" if player and player.watching else ("free camera" if watching() else "playing")]
+		"watching (AI drives your body)" if player and player.watching else ("free camera" if watching() else ("dead" if player.dead() else "playing"))]
 	_watch.text = ("Back to playing [V]" if player and player.watching else "Watch / free camera [V]")
+	var sel: Agent = World.agents.get(agent_layer.selected_id)
+	_control.disabled = player == null or sel == null
+	_control.text = ("Take control of %s [C]" % sel.short()) if sel else "Take control of selected [C]"
 	_pause.text = "Resume [Space]" if SimClock.paused else "Pause [Space]"
 	_zones.text = "Zones: %s [Z]" % ("on" if dynamic_layer.show_zones else "off")
 	_labels.text = "Labels: %s [L]" % ("on" if agent_layer.show_labels else "off")
 	_sprites.text = "Agents: %s [K]" % agent_layer.mode_name()
+	_nearby.visible = feed != null
+	if feed:
+		_nearby.text = "Feed, witnessed nearby: %s [G]" % ("on" if feed.show_nearby else "off")
 	for i in _speeds.size():
 		_speeds[i].disabled = not watching()
 		_speeds[i].modulate = Color(1, 0.85, 0.3) if SimClock.speed == SimClock.SPEEDS[i] else Color.WHITE

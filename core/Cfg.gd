@@ -195,6 +195,8 @@ const PLAYER_LOOK_AHEAD := 0.25 # camera leans this share of the way towards the
 const PLAYER_LOOK_MAX := 6.0 # ...but at most this many cells
 const PLAYER_ZOOM := 1.5 # camera zoom when play starts
 const PLAYER_SHAKE := 6.0 # screen shake in px when the player lands or takes a hit (visual only)
+const PLAYER_USE_REACH := 1.6 # chests and machines this close (centre to centre) can be opened with E (start)
+const PANEL_CLOSE_HIT := 5.0 # one hit taking more HP than this closes an open panel (an unarmed punch doesn't) (start)
 
 # --- AI ---
 const THINK_INTERVAL := 0.25

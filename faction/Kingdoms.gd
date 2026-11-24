@@ -33,7 +33,7 @@ static func form(fa: Faction, fb: Faction) -> Kingdom:
 	recompute(k, false)
 	World.zones_dirty = true
 	World.buildings_version += 1
-	EventBus.log_event("%s and %s form the kingdom of %s." % [fa.name, fb.name, k.name])
+	EventBus.social(&"kingdom_form", "%s and %s form the kingdom of %s." % [fa.name, fb.name, k.name], [], [k])
 	Cities.on_formed(k)
 	return k
 
@@ -45,7 +45,7 @@ static func join(f: Faction, k: Kingdom) -> void:
 	recompute(k)
 	World.zones_dirty = true
 	World.buildings_version += 1
-	EventBus.log_event("%s joins the kingdom of %s (%d groups)." % [f.name, k.name, k.groups.size()])
+	EventBus.social(&"kingdom_join", "%s joins the kingdom of %s (%d groups)." % [f.name, k.name, k.groups.size()], [], [f, k])
 	Cities.on_joined(k, f)
 
 
@@ -61,8 +61,7 @@ static func leave(f: Faction, why: String = "") -> void:
 	World.zones_dirty = true
 	World.buildings_version += 1
 	Cities.on_left(k, f)
-	if why != "":
-		EventBus.log_event("%s leaves %s (%s)." % [f.name, k.name, why])
+	EventBus.social(&"kingdom_leave", ("%s leaves %s (%s)." % [f.name, k.name, why]) if why != "" else "", [], [f, k])
 	if k.groups.size() < 2:
 		dissolve(k)
 	else:
@@ -75,6 +74,7 @@ static func dissolve(k: Kingdom) -> void:
 	if ek and not KingdomWars.is_scattering(k):
 		KingdomWars.scatter(k, ek, true)
 		return
+	EventBus.social(&"kingdom_dissolve", "The kingdom of %s dissolves." % k.name, [], [k])
 	for f in k.members():
 		f.kingdom = null
 	k.groups.clear()
@@ -84,7 +84,6 @@ static func dissolve(k: Kingdom) -> void:
 	World.zones_dirty = true
 	World.buildings_version += 1
 	Cities.on_dissolved(k)
-	EventBus.log_event("The kingdom of %s dissolves." % k.name)
 
 
 ## Leading group = highest total AUTH; king = highest AUTH in it (agreed).
@@ -107,7 +106,7 @@ static func recompute(k: Kingdom, announce: bool = true) -> void:
 	if king and king.id != k.king_id:
 		k.king_id = king.id
 		if announce:
-			EventBus.log_event("%s is now king of %s." % [king.short(), k.name])
+			EventBus.social(&"king", "%s is now king of %s." % [king.short(), k.name], [king], [k])
 
 
 ## Every couple of seconds: gangs drop out, leadership follows AUTH, tiny kingdoms dissolve.

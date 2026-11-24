@@ -32,7 +32,7 @@ static func declare(by: Faction, on: Faction) -> void:
 	if by.is_gang() or at_war(by, on) or side(by) == side(on):
 		return
 	wars.append({"a": side(by), "b": side(on), "since": SimClock.time, "last_raid": SimClock.time})
-	EventBus.log_event("%s declares war on %s!" % [side_name(side(by)), side_name(side(on))])
+	EventBus.social(&"war", "%s declares war on %s!" % [side_name(side(by)), side_name(side(on))], [], [by, on])
 
 
 ## A kingdom war (Kingdom Wars Plan §1.2): it replaces any older war between the two, and
@@ -84,14 +84,14 @@ static func update() -> void:
 			wars.erase(w)
 			if w.get("kingdom", false):
 				KingdomWars.on_peace(w)
-				EventBus.log_event("Peace between %s and %s: ten minutes without a raid." % [side_name(w.a), side_name(w.b)])
+				EventBus.social(&"peace", "Peace between %s and %s: ten minutes without a raid." % [side_name(w.a), side_name(w.b)], [], side_groups(w.a) + side_groups(w.b))
 				continue
 			for fa in side_groups(w.a):
 				for fb in side_groups(w.b):
 					if Relations.score(fa, fb) < Cfg.PEACE_RELATION:
 						fa.relations[fb.id] = Cfg.PEACE_RELATION
 						fb.relations[fa.id] = Cfg.PEACE_RELATION
-			EventBus.log_event("Peace between %s and %s." % [side_name(w.a), side_name(w.b)])
+			EventBus.social(&"peace", "Peace between %s and %s." % [side_name(w.a), side_name(w.b)], [], side_groups(w.a) + side_groups(w.b))
 	if wars.size() != n:
 		KingdomWars.refresh()
 

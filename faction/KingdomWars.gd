@@ -62,9 +62,9 @@ static func scatter(k: Kingdom, winner: Kingdom, fell_apart: bool = false) -> vo
 			if m:
 				agents.append(m)
 	if fell_apart:
-		EventBus.log_event("The kingdom of %s falls apart mid-war with %s! Its %d survivors scatter to the winds." % [k.name, winner.name if winner else "?", agents.size()])
+		EventBus.social(&"scatter", "The kingdom of %s falls apart mid-war with %s! Its %d survivors scatter to the winds." % [k.name, winner.name if winner else "?", agents.size()], [], [k, winner])
 	else:
-		EventBus.log_event("The kingdom of %s is broken%s! Its %d survivors scatter to the winds." % [k.name, (" by %s" % winner.name) if winner else "", agents.size()])
+		EventBus.social(&"scatter", "The kingdom of %s is broken%s! Its %d survivors scatter to the winds." % [k.name, (" by %s" % winner.name) if winner else "", agents.size()], [], [k, winner])
 	for r in Raids.active.duplicate():
 		if r.kingdom == k or (winner and r.kingdom == winner):
 			Raids.end_raid(r, r.kingdom == winner, "")
@@ -190,7 +190,7 @@ static func check() -> void:
 static func declare(k: Kingdom, target: Kingdom, kp: float, tp: float) -> void:
 	Wars.declare_kingdom(k, target)
 	declared += 1
-	EventBus.log_event("The kingdom of %s declares war on %s (%.0f vs %.0f power)! No prisoners." % [k.name, target.name, kp, tp])
+	EventBus.social(&"war", "The kingdom of %s declares war on %s (%.0f vs %.0f power)! No prisoners." % [k.name, target.name, kp, tp], [], [k, target])
 
 
 ## Ten minutes without raids (Wars.update): a truce for the pair (agreed).

@@ -7,8 +7,12 @@ var _dynamic: Node2D
 var _camera: Camera2D
 var _hud: CanvasLayer
 var _debug: CanvasLayer
+var _death_panel: CanvasLayer = null
 var _player: PlayerController = null
+var _feed: CanvasLayer # ui/SocialFeed.gd (Player Controller Plan §5.1)
 var _playtest: RefCounted = null
+var _panels: CanvasLayer = null # chest / machine panels (ui/StationPanel.gd)
+var _build: CanvasLayer = null # build menu (ui/BuildMenu.gd)
 var _sim_usec := 0 # time spent stepping the sim in _process (--frames)
 
 
@@ -56,10 +60,29 @@ func _ready() -> void:
 	player_layer.player = _player
 	player_hud.player = _player
 	_debug.player = _player
+	_feed = preload("res://ui/SocialFeed.gd").new()
+	add_child(_feed)
+	_feed.player = _player
+	_debug.feed = _feed
+	_panels = preload("res://ui/StationPanel.gd").new()
+	_panels.player = _player
+	add_child(_panels)
+	_build = preload("res://ui/BuildMenu.gd").new()
+	_build.player = _player
+	add_child(_build)
 	_player.hit_landed.connect(func(): _camera.shake())
 	_player.hurt.connect(func(): _camera.shake(Cfg.PLAYER_SHAKE * 0.6))
 	_player.possess(_start_agent())
 	_camera.follow(_player)
+	# Death and takeover (§5a): the panel offers the choices; whichever body the controller
+	# moves to (takeover, respawn, debug), the camera follows it again.
+	_death_panel = preload("res://ui/DeathPanel.gd").new()
+	_death_panel.player = _player
+	add_child(_death_panel)
+	_player.body_changed.connect(func():
+		if _camera.free_camera:
+			_camera.follow(_player) # from watch mode: back to the player's zoom, on the new body
+		_agents.selected_id = -1)
 	for arg in OS.get_cmdline_user_args():
 		if arg == "--playtest":
 			_playtest = preload("res://player/PlayTest.gd").new() # kept: its coroutine runs for a while
@@ -403,14 +426,7 @@ func _process(delta: float) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event is InputEventKey and event.pressed and not event.echo:
-		# Placeholder for death (phase 6 brings takeover / respawn choices): carry on as the
-		# newcomer who just wandered in (every death spawns one).
-		if event.physical_keycode == KEY_R and _player and _player.body and not _player.body.alive and not World.agent_list.is_empty():
-			_player.possess(World.agent_list.back())
-			_camera.follow(_player)
-			EventBus.log_event("You carry on as %s." % _player.body.short())
-	elif event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 		if not _camera.free_camera and _player and _player.alive():
 			return # playing: the left button swings (PlayerController)
 		var p := get_global_mouse_position() / Cfg.CELL

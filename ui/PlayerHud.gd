@@ -81,7 +81,7 @@ func _process(dt: float) -> void:
 func _info_text() -> String:
 	var a := player.body
 	if not a.alive:
-		return "You died. Press R to carry on as a newcomer.\n(Death and takeover choices come in a later phase.)"
+		return "You died. Choose how to carry on in the panel above (T take over, N start fresh)."
 	var lines: Array[String] = []
 	var w := a.melee_weapon()
 	var tool = a.inv.get_tool(w)
@@ -103,7 +103,8 @@ func _info_text() -> String:
 	elif player.build_piece != "":
 		lines.append("Building %s (%s): LMB place, RMB / X stop" % [Items.label(player.build_piece), _cost(Items.BUILD_COSTS[player.build_piece])])
 	else:
-		lines.append("WASD move  LMB swing  hold E harvest  1-4 build  F eat  F1 debug")
+		var use: String = ("E open %s  " % player.use_target.label()) if player.use_target else ""
+		lines.append(use + "WASD move  LMB swing  hold E harvest  B build  F eat  F1 debug")
 	return "\n".join(lines)
 
 

@@ -229,12 +229,7 @@ static func raid_axes(f: Faction) -> int:
 ## Craft if we can afford it, otherwise gather the first missing material.
 static func craft_or_gather(a: Agent, item: String) -> Job:
 	var cost: Dictionary = Items.RECIPES[item]
-	if a.inv.has_cost(cost):
-		a.inv.pay(cost)
-		if item == "arrow":
-			a.inv.add("arrow", Items.ARROWS_PER_CRAFT)
-		else:
-			a.inv.add_tool(item)
+	if Actions.craft(a, item):
 		var j := Job.new(Job.Kind.IDLE, Job.PRIO_LADDER)
 		j.timer = 2.0 # crafting time
 		return j
