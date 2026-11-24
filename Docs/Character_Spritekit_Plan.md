@@ -191,7 +191,7 @@ Each slot is independent, so any mix works: tunic + greaves, chest plate + bare 
    - Apply outfit tints.
    - **Corpses:** draw torso death + legs-outfit death + torso-outfit death + head-outfit death. Today a corpse is one instance.
    - Reserve up to 6 instances per agent. 120 agents → about 720 instances, still one draw call.
-4. **Game data:** decide where cloth comes from (§8 Q1). Armour already exists: `worn.chest_armor → torso:"iron"`, `leg_armor → legs:"iron"`, `helmet → head:"helmet"`.
+4. **Game data:** cloth is craftable armour (§8): tunic, trousers and hood items select the `peasant` outfit per slot, with a random earth tone per agent. Armour already exists: `worn.chest_armor → torso:"iron"`, `leg_armor → legs:"iron"`, `helmet → head:"helmet"`.
 5. **Generator:**
    - Garment shapes and materials on the rig (§5).
    - A dressed draw for each `(outfit, slot)`.
@@ -215,15 +215,22 @@ Do phase 2 before phase 3 so the look is agreed on still frames and GIFs before 
 
 ---
 
-## 8. Open questions
+## 8. Decisions (2026-11-24)
 
-1. **Where does cloth come from?** Options:
-   - (a) Everyone wears peasant clothes by default. Simplest, and nobody walks around naked.
-   - (b) Tunic and trousers become craftable items in new `worn` slots, so being unclothed is a real state.
-   - (c) NPCs dress by default and the player starts naked.
-2. **Dye:** faction colour on tunics, random earth tones per agent, or both (faction for grouped agents, earth tones for solo)?
-3. **Does armour replace cloth or layer on it?** E.g. a chest plate over a tunic, with the tunic's sleeves showing under the pauldrons. Layering looks richer but needs a fourth "under" layer or combined sheets; replacing keeps three slots.
-4. **More skin tones:** two today. If more are wanted, do the palette-swap shader (phase 5) before the outfit sheet count grows.
+1. **Where cloth comes from (agreed):** everyone is **naked by default**. Tunic, trousers and hood are **craftable cloth armour** (weak peasant armour with small armour/resistance values; balance later). Being unclothed is a real state.
+2. **Dye (agreed):** the tunic tier uses **random earth tones per agent** (undyed, brown, sage, ochre, …), applied as the outfit instance's modulate.
+3. **Armour replaces cloth (agreed):** iron armour **replaces** the tunic tier and is simply better. No layering, so three outfit slots stay enough.
+4. **Skin tones (agreed):** keep **two** (light, dark). The palette-swap shader stays optional polish.
+
+### 8.1 What the peasant concept settled (look test)
+
+`python tools/spritekit/spritekit.py --peasant` renders the clothed idle + walk for both skins and four tints to `tools/spritekit/preview/peasant_preview.png` (stills, naked row first) and `peasant_walk.gif` (10 fps). It does not touch `art/`, and the naked sheets are unchanged.
+
+- **Pipeline:** `body_layer` / `legs_layer` take an `outfit` tuple and draw the garments in the naked draw order. `outfit_layer(dressed, naked)` keeps the differing pixels. `OUTFITS["peasant"]` maps each slot to its garments (`legs: trousers`, `torso: tunic`, `head: hood`), and each slot is diffed against the naked render on its own. Skin pixels almost never land in the diff (a bare forearm over the tunic is identical in both renders), so tinting the whole outfit layer is safe.
+- **Tunic:** the torso and shoulder balls grown 0.6 px in `LINEN`. Short sleeves are a capsule from the shoulder over the first 35 % of the upper arm (`SLEEVE`), with no line at the shoulder seam and a soft hem line over the arm, so the forearms and hands stay bare. The rope belt (`ROPE`, `BELT_U`) sits at the front rim of the torso. Seen from above, the waist barely shows, so it reads as a faint line at most.
+- **Trousers:** `WOOL` capsule from the hip to the ankle with a soft cuff over the bare foot. From above it shows mainly on the trailing leg in the walk.
+- **Hood:** a round `WOOL` cowl, a little bigger than the head and shifted back, with the face opening at +X. Review: the first opening covered everything but the nose ("like he can't see"). Now the opening's edge sits just ahead of the head centre in the middle (`HOOD_OPEN`) and sweeps well back at the sides (`HOOD_SIDE`), so the whole face crescent and the cheeks show. Inside the opening the head draws as skin, with the hair tucked under the hood. A pointed back tail read as an arrowhead and was dropped.
+- **Tinting:** cloth is light and near neutral, so a multiply gives clean earth tones. A green close to the grass loses the silhouette, so the green is a darker sage.
 
 ---
 

@@ -34,6 +34,10 @@ STRING = (226, 220, 198)
 FLETCH = (176, 52, 44)
 DARK_WOOD = [(30, 18, 12), (70, 44, 26), (104, 68, 38), (138, 96, 56)]  # club: reads against skin
 IRON = [(22, 22, 30), (92, 96, 108), (148, 154, 166), (214, 220, 230)]
+# Peasant cloth, drawn light and undyed so the game can tint (multiply) it toward earth tones.
+LINEN = [(48, 40, 32), (170, 160, 136), (208, 200, 176), (232, 226, 206)]   # tunic
+WOOL = [(44, 34, 28), (146, 130, 106), (180, 166, 140), (202, 190, 164)]    # trousers, hood
+ROPE = (128, 108, 78)                                                       # belt (darker band)
 
 
 # ---------------------------------------------------------------- shapes
@@ -178,9 +182,22 @@ HIP_L = (22.5, 21.5)
 HIP_R = (22.5, 26.5)
 
 
-def body_layer(skin, pose):
+def _leg(lay, sk, hip, foot, toe, trousers):
+	"""One leg, hip -> foot (bare foot ellipse ahead of it along `toe` = +-1). Trousers draw
+	over it in wool to the ankle; their cuff over the foot is a soft line, not an outline."""
+	leg = union(capsule(*hip, *foot, 1.7), ellipse(foot[0] + 0.6 * toe, foot[1], 2.0, 1.5))
+	skin_px = lay.draw_part(leg, sk, bands=(0.4, 0.85))
+	if trousers:
+		ax, ay = foot[0] - 0.5 * toe, foot[1]  # ankle, just behind the foot's centre
+		lay.draw_part(union(capsule(*hip, ax, ay, 1.95), ellipse(*hip, 2.1, 2.1)), WOOL, bands=(0.4, 0.85), inner=skin_px)
+
+
+def body_layer(skin, pose, outfit=()):
 	"""pose: twist (rad), hand_l, hand_r (x, y). Optional (used by death): ox shifts the
-	whole body along x, torso_rx stretches the torso, feet draws legs under it (lying down)."""
+	whole body along x, torso_rx stretches the torso, feet draws legs under it (lying down).
+	outfit: garments to draw dressed ("tunic", "hood", "trousers" for the death legs), in the
+	same draw order as the naked body, so outfit layer = dressed - naked (see outfit_layer)."""
+	tunic, hood = "tunic" in outfit, "hood" in outfit
 	tw = pose.get("twist", 0.0)
 	ox = pose.get("ox", 0.0)
 	trx = pose.get("torso_rx", 4.6)
@@ -191,14 +208,26 @@ def body_layer(skin, pose):
 	if "feet" in pose:
 		for hy, foot in zip((21.5, 26.5), pose["feet"]):
 			hip = (C - 1.6 + ox + trx * 0.45, C + (hy - C) * 0.8)
-			lay.draw_part(union(capsule(*hip, *foot, 1.7), ellipse(foot[0] + 0.6, foot[1], 2.0, 1.5)), sk, bands=(0.4, 0.85))
-	# torso + shoulders (twisted around the centre)
+			_leg(lay, sk, hip, foot, 1, "trousers" in outfit)
+	# torso + shoulders (twisted around the centre); the tunic is the same shape grown a little
+	g = 0.6 if tunic else 0.0
+	tcx = C - 1.6 + ox
 	torso = union(
-		ellipse(C - 1.6 + ox, C, trx, 8.4 - 2.4 * lie, tw),
-		ellipse(*rot(22.6 + ox + sdx, 17.6 + sdy, tw), 2.9, 2.9),
-		ellipse(*rot(22.6 + ox + sdx, 30.4 - sdy, tw), 2.9, 2.9),
+		ellipse(tcx, C, trx + g, 8.4 - 2.4 * lie + g, tw),
+		ellipse(*rot(22.6 + ox + sdx, 17.6 + sdy, tw), 2.9 + g, 2.9 + g),
+		ellipse(*rot(22.6 + ox + sdx, 30.4 - sdy, tw), 2.9 + g, 2.9 + g),
 	)
-	body = lay.draw_part(torso, sk)
+	if tunic:
+		ca, sa = math.cos(tw), math.sin(tw)
+
+		def torso_mat(px, py, h):
+			u = (px - tcx) * ca + (py - C) * sa  # along the facing, in the twisted torso frame
+			if abs(u - BELT_U) < 0.5 and h > 0:
+				return [LINEN[0], ROPE, ROPE, ROPE]
+			return LINEN
+		body = lay.draw_part(torso, torso_mat)
+	else:
+		body = lay.draw_part(torso, sk)
 	# a tool held low on the right (spear) passes under the right shoulder
 	under = footprint(ellipse(*rot(22.6 + ox + sdx, 30.4 - sdy, tw), 2.9, 2.9)) if pose.get("under_r_shoulder") else set()
 	# head: hair over the back/top, face and nose at the front
@@ -209,10 +238,25 @@ def body_layer(skin, pose):
 		dx, dy = px - hx, (py - hy) / 3.5
 		return hr if dx < 0.9 - 1.6 * dy * dy else sk
 	head_cov = footprint(head)
+
+	def face_open(px, py):
+		"""The hood's face opening: its edge sits HOOD_OPEN ahead of the head centre in the
+		middle and sweeps back toward the sides (HOOD_SIDE), so the cheeks show too."""
+		dx, dy = px - hx, (py - hy) / 3.5
+		return dx > HOOD_OPEN - HOOD_SIDE * dy * dy
+
+	def draw_head():
+		if not hood:
+			return lay.draw_part(head, head_mat, bands=(0.4, 0.9))
+		# hooded: the whole opening is face (the hair is tucked under the cloth)
+		px_ = lay.draw_part(head, lambda px, py, h: sk if face_open(px, py) else hr, bands=(0.4, 0.9))
+		cap = ellipse(hx - 0.7, hy, 4.0, 4.0)  # round cowl, falling a little onto the back
+		px_ |= lay.draw_part(lambda px, py: None if face_open(px, py) else cap(px, py), WOOL, bands=(0.35, 0.93), inner=px_)
+		return px_
 	# arms raised over the head ("over": an overhead swing) draw after it, so on top
 	over = pose.get("over", False)
 	if over:
-		body |= lay.draw_part(head, head_mat, bands=(0.4, 0.9))
+		body |= draw_head()
 	# arms: shoulder -> elbow -> hand, one continuous part each (no inner outline at the
 	# elbow or the shoulder); right arm first so the left reads on top where hands meet
 	arm_cov, hand_cov = set(), set()
@@ -222,24 +266,49 @@ def body_layer(skin, pose):
 		seam = lambda x, y, sh=sh: (x - sh[0]) ** 2 + (y - sh[1]) ** 2 < 2.3 ** 2
 		arm_cov |= footprint(arm)
 		hand_cov |= footprint(ellipse(*hand, 1.6, 1.6))
-		body |= lay.draw_part(arm, sk, bands=(0.5, 0.86), inner=body, seam=seam)
+		arm_px = lay.draw_part(arm, sk, bands=(0.5, 0.86), inner=body, seam=seam)
+		if tunic:  # short sleeve from the shoulder to just above the elbow; its hem is a soft line
+			cuff = (sh[0] + (el[0] - sh[0]) * SLEEVE, sh[1] + (el[1] - sh[1]) * SLEEVE)
+			arm_px |= lay.draw_part(capsule(*sh, *cuff, 1.7), LINEN, bands=(0.5, 0.86), inner=body | arm_px, seam=seam)
+		body |= arm_px
 	if pose.get("tool_on_arm"):  # resting on the shoulder/arm: only the hands cover it
 		arm_cov = hand_cov
 	if over:
 		return lay, arm_cov | under  # the raised tool is above the head too
-	lay.draw_part(head, head_mat, bands=(0.4, 0.9))
+	draw_head()
 	return lay, arm_cov | head_cov | under
 
 
-def legs_layer(skin, pose):
-	"""pose: dl, dr = forward offset of each foot (px)."""
+def legs_layer(skin, pose, outfit=()):
+	"""pose: dl, dr = forward offset of each foot (px). outfit: "trousers" draws them dressed."""
 	lay = Layer()
 	sk = SKINS[skin]
 	for (hx, hy), d in ((HIP_L, pose["dl"]), (HIP_R, pose["dr"])):
-		fx = hx + d
-		leg = union(capsule(hx, hy, fx, hy, 1.7), ellipse(fx + 0.6 * (1 if d >= 0 else -1), hy, 2.0, 1.5))
-		lay.draw_part(leg, sk, bands=(0.4, 0.85))
+		_leg(lay, sk, (hx, hy), (hx + d, hy), 1 if d >= 0 else -1, "trousers" in outfit)
 	return lay
+
+
+# Garment tuning (start values).
+BELT_U = 3.6      # rope belt: distance ahead of the torso centre, along the facing
+SLEEVE = 0.35     # sleeve length as a fraction of shoulder -> elbow
+HOOD_OPEN = 0.4   # x of the hood's face opening at its middle, ahead of the head centre
+HOOD_SIDE = 3.2   # how far back the opening sweeps toward the sides of the face
+
+# Outfit slots and the garments drawn for each (plan §4.1).
+OUTFITS = {"peasant": {"legs": ("trousers",), "torso": ("tunic",), "head": ("hood",)}}
+
+
+def outfit_layer(dressed, naked):
+	"""The outfit layer: every pixel of the dressed render that differs from the naked one.
+	Drawn over the naked sheet it reproduces the dressed body (plan §4.2)."""
+	out = Image.new("RGBA", (F, F), (0, 0, 0, 0))
+	d, n = dressed.load(), naked.load()
+	o = out.load()
+	for y in range(F):
+		for x in range(F):
+			if d[x, y] != n[x, y]:
+				o[x, y] = d[x, y]
+	return out
 
 
 # ---------------------------------------------------------------- items
@@ -802,7 +871,83 @@ def preview(sheets, path, scale=8):
 	canvas.save(path)
 
 
+GRASS = (78, 96, 62)
+# Concept tints (multiplied onto the cloth layers as the game's modulate would): legs, torso, head.
+EARTH = {
+	"undyed": ((255, 255, 255), (255, 255, 255), (255, 255, 255)),
+	"brown": ((150, 118, 88), (196, 160, 120), (150, 118, 88)),
+	"green": ((150, 134, 108), (132, 146, 112), (120, 130, 100)),
+	"ochre": ((140, 128, 110), (232, 190, 112), (190, 150, 96)),
+}
+
+
+def _tint(im, rgb):
+	r, g, b, a = im.split()
+	r = r.point(lambda v: v * rgb[0] // 255)
+	g = g.point(lambda v: v * rgb[1] // 255)
+	b = b.point(lambda v: v * rgb[2] // 255)
+	return Image.merge("RGBA", (r, g, b, a))
+
+
+def outfit_frames(skin, outfit, body_poses, legs_poses):
+	"""Naked legs/body plus one outfit layer per slot, frame for frame:
+	[(legs, legs_outfit, body, torso_outfit, head_outfit), ...]."""
+	slots = OUTFITS[outfit]
+	out = []
+	for bp, lp in zip(body_poses, legs_poses):
+		legs = legs_layer(skin, lp).image()
+		body = body_layer(skin, bp)[0].image()
+		out.append((legs, outfit_layer(legs_layer(skin, lp, slots["legs"]).image(), legs),
+			body, outfit_layer(body_layer(skin, bp, slots["torso"])[0].image(), body),
+			outfit_layer(body_layer(skin, bp, slots["head"])[0].image(), body)))
+	return out
+
+
+def _stack(fr, tint):
+	legs, lo, body, to, ho = fr
+	im = Image.alpha_composite(legs, _tint(lo, tint[0]))
+	im = Image.alpha_composite(im, body)
+	im = Image.alpha_composite(im, _tint(to, tint[1]))
+	return Image.alpha_composite(im, _tint(ho, tint[2]))
+
+
+def peasant_preview(png_path, gif_path, scale=7):
+	"""Look test: clothed peasant idle + walk, both skins, in several earth-tone tints.
+	Still sheet: one row per skin x tint (naked first), idle then the 6 walk frames.
+	GIF: the walk at 10 fps, tints across, skins down."""
+	walk = walk_poses()
+	idle_l = {"dl": 0.5, "dr": -0.5}
+	S, pad = F * scale, 4
+	big = lambda im: im.resize((S, S), Image.NEAREST)
+	rows, gif_cells = [], {}
+	for s in SKINS:
+		frames = outfit_frames(s, "peasant", [IDLE_HANDS] + walk, [idle_l] + walk)
+		rows.append([Image.alpha_composite(f[0], f[2]) for f in frames])
+		for t, tint in EARTH.items():
+			rows.append([_stack(f, tint) for f in frames])
+			gif_cells[(s, t)] = rows[-1][1:]
+	cols = max(len(r) for r in rows)
+	canvas = Image.new("RGBA", (cols * (S + pad), len(rows) * (S + pad)), GRASS + (255,))
+	for j, r in enumerate(rows):
+		for i, f in enumerate(r):
+			canvas.alpha_composite(big(f), (i * (S + pad), j * (S + pad)))
+	canvas.save(png_path)
+	gif = []
+	for k in range(len(walk)):
+		im = Image.new("RGBA", (len(EARTH) * S, len(SKINS) * S), GRASS + (255,))
+		for j, s in enumerate(SKINS):
+			for i, t in enumerate(EARTH):
+				im.alpha_composite(big(gif_cells[(s, t)][k]), (i * S, j * S))
+		gif.append(im.convert("RGB"))
+	gif[0].save(gif_path, save_all=True, append_images=gif[1:], duration=100, loop=0, disposal=2, optimize=False)
+
+
 if __name__ == "__main__":
+	if len(sys.argv) > 1 and sys.argv[1] == "--peasant":  # look test only; leaves art/ untouched
+		d = os.path.join(os.path.dirname(os.path.abspath(__file__)), "preview")
+		peasant_preview(os.path.join(d, "peasant_preview.png"), os.path.join(d, "peasant_walk.gif"))
+		print("wrote peasant preview to", d)
+		sys.exit(0)
 	sh = build()
 	if len(sys.argv) > 1:
 		preview(sh, sys.argv[1], int(sys.argv[2]) if len(sys.argv) > 2 else 8)
