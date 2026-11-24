@@ -14,14 +14,28 @@ var _answer: Array = []
 
 ## Queues an offer. False if the queue is full or this NPC already has one open, so the
 ## caller applies the default rule instead.
-func add(o: Dictionary) -> bool:
-	if queue.size() >= Cfg.OFFER_QUEUE_MAX or has_from(o.from_id):
+## Urgent offers (a demand, a plea) jump the queue and may go one past the limit.
+func add(o: Dictionary, urgent: bool = false) -> bool:
+	if has_from(o.from_id) or queue.size() >= Cfg.OFFER_QUEUE_MAX + (1 if urgent else 0):
 		return false
 	o.id = _next_id
 	_next_id += 1
 	o.expires = SimClock.time + o.secs
-	queue.append(o)
+	if urgent:
+		queue.insert(0, o)
+	else:
+		queue.append(o)
 	return true
+
+
+## Takes an open offer of this kind from this NPC out of the queue ({} if none), e.g. when
+## hitting a pleading NPC answers "finish" (Player Social Plan §3.1).
+func take(kind: StringName, from_id: int) -> Dictionary:
+	for o in queue:
+		if o.kind == kind and o.from_id == from_id:
+			queue.erase(o)
+			return o
+	return {}
 
 
 func has_from(agent_id: int) -> bool:
@@ -57,13 +71,17 @@ func step(p: Agent) -> void:
 		var npc: Agent = World.agents.get(o.from_id)
 		if npc == null or not npc.alive:
 			queue.erase(o) # the asker died: nothing to answer
+		elif o.kind == &"demand" and World.dist(npc.pos, p.pos) > Cfg.SOCIAL_RANGE * 2.0:
+			queue.erase(o) # walking away from a demand is a refusal
+			Social.answer_offer(p, o, false, false)
 		elif SimClock.time >= o.expires:
 			queue.erase(o)
 			Social.answer_offer(p, o, false, true)
 
 
-## The body changed hands (death, takeover, watch mode): drop everything. Every offer kind's
-## default is a plain refusal, so there's nothing to apply; the askers stop waiting.
+## The body changed hands (death, takeover, watch mode): drop everything and let the askers
+## go. Nothing else is applied: the old body is dead or back with the AI, and a pleading NPC
+## just walks away (its fight stopped while it begged).
 func clear() -> void:
 	for o in queue:
 		Social.release_asker(o.from_id)

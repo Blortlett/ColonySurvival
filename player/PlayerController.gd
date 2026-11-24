@@ -11,6 +11,8 @@ extends Node2D
 ## it (a chest opens the inventory too; E / Esc close), Tab inventory, B the build menu
 ## (ui/BuildMenu.gd sets build_piece), X / Esc stop building. Eating is LMB with food in hand.
 ## F1 / F2 (or the prompt's buttons) accept / decline what an NPC asks (Player Social Plan §3).
+## Hold F over a character to open the social radial menu (§4): move the mouse to an option,
+## LMB confirms it (and closes the menu); releasing F closes it without choosing.
 ## Movement keeps working while a panel is open; walking out of reach closes it.
 
 signal hit_landed # the player's swing or shot hit someone (camera shake)
@@ -38,6 +40,9 @@ var warm_t := 0.0
 var station := Station.new() # the open chest or machine panel (phase 4)
 var offers := Offers.new() # what NPCs are asking the player (Player Social Plan §3)
 var hover_id := -1 # the character under the mouse (Player Social Plan §5), -1 if none
+var radial_id := -1 # whom the radial menu is open on while F is held (§4), -1 if closed
+var radial_sel: StringName = &"" # the usable option under the mouse (set by ui/SocialRadial.gd)
+var radial_why := "" # why the option under the mouse is greyed out ("" if it isn't)
 var use_target: Furniture = null # what E would open right now (HUD hint)
 var message := ""
 var held := 0 # hotbar slot in hand (0-5); copied to body.held while the player drives it
@@ -56,6 +61,7 @@ var _shoot_t := 0.0
 var _place := false
 var _harvest_held := false
 var _use := 0 # 1 open what's in reach, -1 close the panel
+var _social: Array = [] # [option, target id] picked from the radial menu, applied in the sim step
 var _e_latch := false # this E press opened or closed a panel: don't harvest until it's released
 var _xp_dist := 0.0
 var _last_hp := 0.0
@@ -74,6 +80,8 @@ func possess(a: Agent) -> void:
 		offers.clear() # asks were for the old body
 	body = a
 	hover_id = -1
+	close_radial()
+	_social = []
 	inv_open = false
 	_inv_auto = false
 	_inv_reqs.clear()
@@ -109,6 +117,7 @@ func set_watching(on: bool) -> void:
 	station.close("")
 	offers.clear()
 	hover_id = -1
+	close_radial()
 	if body == null or not body.alive:
 		return
 	if on:
@@ -135,6 +144,25 @@ func pick_agent(p: Vector2) -> Agent:
 			best = o
 			bd = d
 	return best
+
+
+## F pressed: open the radial menu on the hovered character, if one is in reach.
+func open_radial() -> void:
+	var h := hover_agent()
+	if h == null:
+		say("Hover someone to interact with them.")
+	elif World.dist(h.pos, body.pos) > Cfg.SOCIAL_RANGE:
+		say("Get closer to %s." % h.short())
+	else:
+		radial_id = h.id
+		radial_sel = &""
+		radial_why = ""
+
+
+func close_radial() -> void:
+	radial_id = -1
+	radial_sel = &""
+	radial_why = ""
 
 
 func hover_agent() -> Agent:
@@ -335,6 +363,7 @@ func _process(dt: float) -> void:
 		_move_in = Vector2.ZERO
 		_harvest_held = false
 		hover_id = -1
+		close_radial()
 		return
 	var m := Vector2.ZERO
 	if Input.is_physical_key_pressed(KEY_W): m.y -= 1.0
@@ -351,6 +380,11 @@ func _process(dt: float) -> void:
 	hover_cell = Vector2i(aim_point.floor())
 	var h := pick_agent(aim_point)
 	hover_id = h.id if h else -1
+	if radial_id != -1:
+		var t: Agent = World.agents.get(radial_id)
+		if not Input.is_physical_key_pressed(KEY_F) or t == null or not t.alive \
+				or World.dist(t.pos, body.pos) > Cfg.SOCIAL_RANGE * 1.5:
+			close_radial() # F released, or the target died or got away
 	if body.hp < _last_hp - 0.01:
 		hurt.emit()
 	_last_hp = body.hp
@@ -358,6 +392,16 @@ func _process(dt: float) -> void:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if not alive() or watching:
+		return
+	if event is InputEventMouseButton and event.pressed and radial_id != -1:
+		# While the radial menu is open, LMB only confirms an option; nothing swings.
+		if event.button_index == MOUSE_BUTTON_LEFT:
+			if radial_sel != &"":
+				_social = [radial_sel, radial_id]
+				close_radial()
+			elif radial_why != "":
+				say(radial_why)
+		get_viewport().set_input_as_handled()
 		return
 	if event is InputEventMouseButton and event.pressed:
 		if event.button_index == MOUSE_BUTTON_LEFT:
@@ -392,6 +436,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			get_viewport().set_input_as_handled()
 		elif k >= KEY_1 and k < KEY_1 + Cfg.HOTBAR_SLOTS and not keys_blocked:
 			select_slot(k - KEY_1)
+		elif k == KEY_F:
+			open_radial()
 		elif (k == KEY_F1 or k == KEY_F2) and not offers.queue.is_empty():
 			offers.answer(k == KEY_F1)
 			get_viewport().set_input_as_handled()
@@ -419,6 +465,10 @@ func control(a: Agent, dt: float) -> void:
 		_place = false
 		_place_piece(a)
 	offers.step(a)
+	if not _social.is_empty():
+		var t: Agent = World.agents.get(_social[1])
+		say(Social.player_act(a, t, _social[0]) if t else "They're gone.", 3.0)
+		_social = []
 	_use_station(a, dt)
 	_follow_chest()
 	_harvest(a, dt)

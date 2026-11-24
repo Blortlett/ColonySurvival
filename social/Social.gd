@@ -70,7 +70,8 @@ static func _happy_meets(a: Agent, b: Agent) -> bool:
 	return false
 
 
-static func _trade(a: Agent, b: Agent) -> void:
+## Returns [what a gave, what b gave] ("" for nothing).
+static func _trade(a: Agent, b: Agent) -> Array:
 	var give_a := _surplus_for(a, b)
 	var give_b := _surplus_for(b, a)
 	if give_a != "" or give_b != "":
@@ -91,6 +92,7 @@ static func _trade(a: Agent, b: Agent) -> void:
 	else:
 		a.change_opinion(b.id, 2.0)
 		b.change_opinion(a.id, 2.0)
+	return [give_a, give_b]
 
 
 static func _surplus_for(giver: Agent, taker: Agent) -> String:
@@ -150,9 +152,10 @@ static func _attack_chance(a: Agent, b: Agent) -> float:
 ## Target responds to an angry initiator: comply, flee or fight.
 static func _demand(a: Agent, b: Agent, attack: bool) -> void:
 	if b.is_player():
-		# Default rule (Player Controller Plan §5): the player refuses and fights back.
-		EventBus.social(&"demand", "%s demands %s's goods and is refused." % [a.short(), b.short()], [a, b])
-		Combat.start_fight(a, b)
+		# Player Social Plan §3: ask; with nobody to ask, the default rule refuses and fights.
+		if not ask_player(b, &"demand", a, " demands your goods.", "Hand over", "Refuse",
+				Cfg.OFFER_SECS_DEMAND, Job.PRIO_NEEDS, true):
+			_refuse_demand(a, b, false)
 		return
 	var mine := b.power()
 	var theirs := a.power()
@@ -181,17 +184,20 @@ static func _demand(a: Agent, b: Agent, attack: bool) -> void:
 ## Asks the player instead of applying a default rule: queues a prompt on their controller
 ## and has the asker wait nearby for the answer. False if nobody can be asked (no player
 ## controller, the queue is full, or this NPC already has a prompt open).
-static func ask_player(p: Agent, kind: StringName, npc: Agent, text: String, yes: String, no: String, secs: float) -> bool:
+static func ask_player(p: Agent, kind: StringName, npc: Agent, text: String, yes: String, no: String, secs: float,
+		hold_prio: int = Job.PRIO_TASK, urgent: bool = false) -> bool:
 	var pc = p.controller
 	if pc == null or not ("offers" in pc):
 		return false
 	var f := npc.faction
 	var col: Color = f.color.lightened(0.35) if f and not f.solo else Color.WHITE
 	if not pc.offers.add({"kind": kind, "from_id": npc.id, "fid": f.id if f else -1, "secs": secs,
-			"who": npc.short(), "text": text, "yes": yes, "no": no, "color": col}):
+			"who": npc.short(), "text": text, "yes": yes, "no": no, "color": col}, urgent):
 		return false
-	if not npc.in_combat():
-		var j := Job.new(Job.Kind.IDLE, Job.PRIO_TASK) # linger for the answer; needs still come first
+	if urgent or not npc.in_combat():
+		# Wait for the answer. Invites linger (needs still come first); a demand holds its
+		# ground; a pleading victim stops fighting (PRIO_CRITICAL).
+		var j := Job.new(Job.Kind.IDLE, hold_prio)
 		j.timer = secs
 		j.item = WAIT_ANSWER
 		Brain.set_job(npc, j)
@@ -240,6 +246,18 @@ static func answer_offer(p: Agent, o: Dictionary, yes: bool, timed_out: bool) ->
 				EventBus.log_event("%s and %s run together as a gang." % [npc.short(), p.short()])
 			else:
 				Factions.join(p, npc.faction)
+		&"demand":
+			if yes:
+				_hand_over(npc, p)
+			else:
+				_refuse_demand(npc, p, timed_out)
+		&"plead":
+			if timed_out:
+				Combat.plead_roll(npc, p) # no answer: the usual 50/50 roll decides
+			elif yes:
+				Combat.accept_surrender(p, npc)
+			else:
+				Combat.refuse_plea(npc, p)
 
 
 ## Why accepting no longer works ("" if it still does): checked again on the answer, since
@@ -250,10 +268,10 @@ static func offer_blocked(p: Agent, o: Dictionary) -> String:
 		return "they are gone"
 	if World.dist(npc.pos, p.pos) > Cfg.OFFER_RANGE:
 		return "%s is too far away" % npc.short()
-	if npc.in_combat() or p.in_combat():
-		return "there's a fight on"
 	match o.kind:
 		&"invite", &"gang":
+			if npc.in_combat() or p.in_combat():
+				return "there's a fight on"
 			if not p.faction.solo:
 				return "you're already in a group"
 			if npc.faction.id != o.fid:
@@ -269,3 +287,220 @@ static func _refuse_invite(a: Agent, p: Agent, timed_out: bool) -> void:
 		a.change_opinion(p.id, Cfg.OFFER_DECLINE_OPINION)
 	EventBus.social(&"invite", "%s invites %s to join %s; they refuse." % [a.short(), p.short(), "them" if fa.solo else fa.name],
 		[a, p], [fa], EventBus.NO_POS, 1 if timed_out else 0)
+
+
+## The player hands over their goods to a demand: the same as an NPC complying in _demand.
+static func _hand_over(a: Agent, p: Agent) -> void:
+	var n := Combat.rob(a, p, Cfg.DEMAND_FRACTION)
+	World.social_counts.robberies += 1
+	p.change_mood(-15.0)
+	p.change_opinion(a.id, -40.0)
+	var text := ("You hand %d items to %s." % [n, a.short()]) if n > 0 else ("You have nothing %s wants." % a.short())
+	EventBus.social(&"p_handover", text, [a, p], [], p.pos, n)
+	if n > 0:
+		Relations.change(a.faction, p.faction, Cfg.REL_ROB)
+
+
+## The player refuses a demand, walks away or doesn't answer: the NPC attacks (default rule).
+static func _refuse_demand(a: Agent, p: Agent, timed_out: bool) -> void:
+	EventBus.social(&"demand", "%s demands %s's goods and is refused." % [a.short(), p.short()], [a, p], [], EventBus.NO_POS, 1 if timed_out else 0)
+	Combat.start_fight(a, p)
+
+
+# --- The player starts social actions (Player Social Plan §4, the radial menu) ---
+
+## Radial options in fixed positions, clockwise from the top: friendly ones on top,
+## hostile ones at the bottom (so muscle memory works).
+const PLAYER_OPTIONS := [
+	{"id": &"invite", "label": "Invite to group"},
+	{"id": &"ask_join", "label": "Ask to join"},
+	{"id": &"trade", "label": "Trade"},
+	{"id": &"demand", "label": "Demand goods"},
+	{"id": &"challenge", "label": "Challenge"},
+	{"id": &"recruit", "label": "Recruit to gang"},
+]
+
+
+## Every radial option for the player `p` facing `t`: [{id, label, why}], why = "" if it
+## can be used now. The menu only reads this, so the rules stay here.
+static func player_options(p: Agent, t: Agent) -> Array:
+	var out := []
+	for o in PLAYER_OPTIONS:
+		out.append({"id": o.id, "label": o.label, "why": player_why(p, t, o.id)})
+	return out
+
+
+## Why the player can't do `opt` to `t` right now ("" if they can).
+static func player_why(p: Agent, t: Agent, opt: StringName) -> String:
+	if t == null or not t.alive:
+		return "They're gone."
+	if World.dist(p.pos, t.pos) > Cfg.SOCIAL_RANGE * 1.5:
+		return "Too far away."
+	var fp := p.faction
+	var ft := t.faction
+	var same_side := fp == ft or (fp.kingdom != null and fp.kingdom == ft.kingdom)
+	if opt == &"challenge":
+		return "They're in your group." if fp == ft and not fp.solo else ""
+	if t.in_combat():
+		return "They're fighting."
+	var why := _option_why(p, t, opt, fp, ft, same_side)
+	if why == "" and not p.can_interact(t.id):
+		return "Ask again in %d s." % ceili(p.cooldowns.get(t.id, 0.0) - SimClock.time)
+	return why
+
+
+static func _option_why(p: Agent, t: Agent, opt: StringName, fp: Faction, ft: Faction, same_side: bool) -> String:
+	match opt:
+		&"invite":
+			if not ft.solo:
+				return "They're already in a group."
+			if t.is_servant():
+				return "They serve someone."
+			if not fp.solo and not fp.has_room():
+				return "Your group is full."
+			if t.is_angry():
+				return "They're angry with the world."
+		&"ask_join":
+			if not fp.solo:
+				return "You're in a group: leave it first."
+			if ft.solo:
+				return "They have no group."
+			if not ft.has_room():
+				return "Their group is full."
+			if t.is_angry():
+				return "They're angry with the world."
+		&"trade":
+			if fp.solo or ft.solo:
+				return "Trade is between groups."
+			if fp == ft:
+				return "They're in your group."
+			if t.is_angry():
+				return "They're angry with the world."
+		&"demand":
+			if same_side and not fp.solo:
+				return "They're on your side."
+		&"recruit":
+			if not p.is_angry():
+				return "Only angry people run gangs."
+			if not t.is_angry():
+				return "They aren't angry enough."
+			if not ft.solo:
+				return "They're already in a group."
+			if not fp.solo and not fp.has_room():
+				return "Your gang is full."
+	return ""
+
+
+## Does what the player picked from the radial menu (inside the sim step). Returns a
+## short line for the player; the full result goes to the feed.
+static func player_act(p: Agent, t: Agent, opt: StringName) -> String:
+	var why := player_why(p, t, opt)
+	if why != "":
+		return why
+	if opt != &"challenge":
+		p.set_cooldown(t.id)
+		t.set_cooldown(p.id)
+	match opt:
+		&"invite": return _player_invite(p, t)
+		&"ask_join": return _player_ask_join(p, t)
+		&"trade": return _player_trade(p, t)
+		&"demand": return _player_demand(p, t)
+		&"challenge":
+			Combat.start_fight(p, t, true)
+			return _say(&"p_challenge", "You challenge %s to a fight to the death!" % t.short(), p, t)
+		&"recruit": return _player_recruit(p, t)
+	return ""
+
+
+## Feed and log line for a player-started action (kind p_*: the feed shows the text as is).
+static func _say(kind: StringName, text: String, p: Agent, t: Agent, n: int = 0) -> String:
+	EventBus.social(kind, text, [p, t], [], t.pos, n)
+	return text
+
+
+## Same answer an NPC gets: happy and not against you joins, a neutral may be talked round
+## (charisma roll, as in _happy_meets), angry never (greyed out).
+static func _willing(p: Agent, t: Agent) -> bool:
+	if t.opinion_of(p.id) <= Cfg.GRUDGE:
+		return false
+	if t.is_happy():
+		return t.opinion_of(p.id) >= 0.0
+	return cha_roll(p, t)
+
+
+static func _player_invite(p: Agent, t: Agent) -> String:
+	if not _willing(p, t):
+		t.change_opinion(p.id, -2.0)
+		return _say(&"p_refused", "%s turns down your invite." % t.short(), p, t)
+	if p.faction.solo:
+		Factions.form(p, t)
+	else:
+		Factions.join(t, p.faction)
+	return _say(&"p_invite", "%s agrees to join you." % t.short(), p, t)
+
+
+static func _player_ask_join(p: Agent, t: Agent) -> String:
+	var f := t.faction
+	if not _willing(p, t):
+		return _say(&"p_refused", "%s won't take you into %s." % [t.short(), f.name], p, t)
+	Factions.join(p, f)
+	return _say(&"p_join", "%s takes you into %s." % [t.short(), f.name], p, t)
+
+
+static func _player_trade(p: Agent, t: Agent) -> String:
+	var got: Array = _trade(p, t)
+	if got[0] == "" and got[1] == "":
+		return _say(&"p_trade", "You and %s have nothing the other needs." % t.short(), p, t)
+	var parts: Array[String] = []
+	if got[0] != "":
+		parts.append("you give 2 %s" % Items.label(got[0]))
+	if got[1] != "":
+		parts.append("%s gives 2 %s" % [t.short(), Items.label(got[1])])
+	return _say(&"p_trade", "Trade with %s: %s." % [t.short(), " and ".join(parts)], p, t)
+
+
+## "Verbal rob" (Player Social Plan §4.3): the target is talked down, stands up, flees, or
+## drops half of each stack at its feet and backs off.
+static func _player_demand(p: Agent, t: Agent) -> String:
+	var dominant: bool = p.stats.auth >= t.stats.auth * Cfg.AUTH_DOMINANCE
+	if not dominant and t.is_happy() and cha_roll(t, p, Cfg.TALK_DOWN_MULT):
+		Brain.flee(t, p.pos, p.id, Job.PRIO_NEEDS, Cfg.TALK_DOWN_FLEE)
+		return _say(&"p_demand", "%s talks you down and walks away." % t.short(), p, t)
+	if t.power() >= p.power() * 1.2:
+		Combat.start_fight(t, p)
+		return _say(&"p_demand", "%s stands up to you!" % t.short(), p, t)
+	if t.speed() > p.speed() or p.has_bow_ready():
+		Brain.flee(t, p.pos, p.id)
+		return _say(&"p_demand", "%s runs for it." % t.short(), p, t)
+	var stacks := {}
+	var n := 0
+	for k in t.inv.stacks.keys():
+		var c := int(floor(t.inv.count(k) * Cfg.DEMAND_FRACTION))
+		if c <= 0:
+			continue
+		t.inv.remove(k, c)
+		stacks[k] = c
+		n += c
+	World.social_counts.robberies += 1
+	t.change_mood(-15.0)
+	t.change_opinion(p.id, -40.0)
+	if n == 0:
+		return _say(&"p_demand", "%s has nothing worth taking." % t.short(), p, t)
+	World.drop_loot(t.cell(), stacks, [], t.id, "dropped for %s" % p.short())
+	Relations.change(p.faction, t.faction, Cfg.REL_ROB)
+	Brain.flee(t, p.pos, p.id, Job.PRIO_NEEDS, 5) # backs off from the pile
+	var what: Array[String] = []
+	for k in stacks:
+		what.append("%d %s" % [stacks[k], Items.label(k)])
+	return _say(&"p_demand", "%s drops %s." % [t.short(), ", ".join(what)], p, t, n)
+
+
+static func _player_recruit(p: Agent, t: Agent) -> String:
+	if cha_roll(p, t):
+		if p.faction.solo:
+			Factions.form(p, t)
+		else:
+			Factions.join(t, p.faction)
+		return _say(&"p_recruit", "%s runs with you now." % t.short(), p, t)
+	Combat.start_fight(t, p, true) # a lost roll: a fight to the death, as between NPCs
+	return _say(&"p_recruit", "%s takes it as an insult: a fight to the death!" % t.short(), p, t)

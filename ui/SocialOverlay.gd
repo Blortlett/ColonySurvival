@@ -102,7 +102,7 @@ func _draw_all() -> void:
 		var npc: Agent = World.agents.get(asking)
 		if npc and npc.alive and npc != hov:
 			_ask_marker(_screen(npc.pos - Vector2(0, HEAD)))
-	if hov:
+	if hov and hov.id != player.radial_id: # the radial menu shows its own name
 		_card(me, hov)
 
 

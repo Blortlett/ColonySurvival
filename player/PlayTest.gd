@@ -151,6 +151,8 @@ func run(main: Node, pc: PlayerController, cam: Node) -> void:
 		var other := _free_npc(a)
 		if other:
 			Social._demand(other, a, false)
+			pc.offers.answer(false)
+			_steps(1)
 			_check(other.job != null and other.job.kind == Job.Kind.FIGHT and other.job.target_id == a.id, "refused a demand: the NPC attacks")
 			Brain.set_job(other, null)
 		await _feed_checks(a)
@@ -181,6 +183,8 @@ func _feed_checks(a: Agent) -> void:
 			break
 	if other:
 		Social._demand(other, a, false)
+		_pc.offers.answer(false)
+		_steps(1)
 		_check(_has(feed, 1, "demands your goods"), "feed: the refused demand is tier 1: %s" % _last(feed))
 		Brain.set_job(other, null)
 	# Tier 3: a fight between two NPCs a few cells away.
@@ -275,6 +279,7 @@ func _social_checks(a: Agent) -> void:
 	if not a.faction.solo:
 		Factions.leave(a)
 		Factions.make_solo(a)
+	pc.offers.clear() # NPCs may have asked the player something during the earlier tests
 	var other := _free_npc(a)
 	_check(other != null, "found a solo NPC to talk to")
 	if other == null:
@@ -351,6 +356,190 @@ func _social_checks(a: Agent) -> void:
 		_check(pc.pick_agent(g.pos + Vector2(0.3, 0.2)) == g, "the hover pick finds the character under the mouse")
 		_check(pc.pick_agent(a.pos) != a, "the hover pick skips the player's own body")
 	_check(_overlay_words(), "hover card words: mood and opinion")
+	await _prompt_checks_4(a)
+	await _radial_checks(a)
+
+
+## Makes `t` a pushover for a demand: neutral, slow, weak (so it doesn't talk you down,
+## run or stand up), carrying 10 stone.
+func _pushover(a: Agent, t: Agent) -> void:
+	t.pos = a.pos + Vector2(1.5, 0)
+	t.mood = 0.0
+	t.stats.agi = 1
+	t.hp = 40.0
+	t.inv.remove("stone", t.inv.count("stone"))
+	t.inv.add("stone", 10)
+	Brain.set_job(t, null)
+	a.set_cooldown(t.id, 0.0)
+	t.set_cooldown(a.id, 0.0)
+
+
+## Phase 4: demands and pleas ask the player (Player Social Plan §3.1).
+func _prompt_checks_4(a: Agent) -> void:
+	var pc := _pc
+	var feed = _main._feed
+	pc.offers.clear()
+	# Demand: hand over.
+	var d := _free_npc(a)
+	if d == null:
+		_check(false, "found an NPC to make demands")
+		return
+	d.pos = a.pos + Vector2(2, 0)
+	a.inv.remove("wood", a.inv.count("wood"))
+	a.inv.add("wood", 10)
+	Social._demand(d, a, false)
+	_check(pc.offers.current().get("kind", &"") == &"demand", "a demand asks the player (and jumps the queue)")
+	_check(d.job != null and d.job.kind == Job.Kind.IDLE and d.job.prio == Job.PRIO_NEEDS, "the robber holds its ground for the answer")
+	pc.offers.answer(true)
+	_steps(1)
+	_check(a.inv.count("wood") == 5 and _has(feed, 1, "You hand"), "handing over gives up half (wood 10 -> %d): %s" % [a.inv.count("wood"), _last(feed)])
+	# Demand: no answer means a refusal and a fight.
+	Social._demand(d, a, false)
+	_steps(int(Cfg.OFFER_SECS_DEMAND * 60.0) + 5)
+	_check(not pc.offers.has_from(d.id) and d.job != null and d.job.kind == Job.Kind.FIGHT and d.job.target_id == a.id,
+		"an unanswered demand is a refusal: the NPC attacks")
+	_check(_has(feed, 1, "You don't answer"), "feed: the unanswered demand: %s" % _last(feed))
+	Brain.set_job(d, null)
+	Brain.set_job(a, null)
+	# Plea: spare.
+	var v := _free_npc(a, d)
+	if v == null:
+		return
+	v.pos = a.pos + Vector2(1, 0)
+	v.hp = Cfg.MAX_HP * Cfg.PLEAD_HP + 5.0
+	Combat.apply_damage(v, 10.0, a)
+	_check(pc.offers.current().get("kind", &"") == &"plead" and pc.offers.current().from_id == v.id, "a beaten NPC begs the player (prompt)")
+	_check(v.job != null and v.job.kind == Job.Kind.IDLE and v.job.prio == Job.PRIO_CRITICAL, "the pleading NPC stops fighting")
+	_check(_has(feed, 1, "begs you for mercy"), "feed: the plea: %s" % _last(feed))
+	pc.offers.answer(true)
+	_steps(1)
+	_check(v.master_id == a.id or _has(feed, 1, "spares"), "sparing makes %s your servant (master %d)" % [v.short(), v.master_id])
+	# Plea: hitting them again finishes it.
+	var v2 := _free_npc(a, v)
+	if v2:
+		v2.pos = a.pos + Vector2(-1, 0)
+		v2.hp = Cfg.MAX_HP * Cfg.PLEAD_HP + 5.0
+		Combat.apply_damage(v2, 10.0, a)
+		_check(pc.offers.has_from(v2.id), "a second NPC begs")
+		Combat.apply_damage(v2, 1.0, a)
+		_check(not pc.offers.has_from(v2.id) and v2.job != null and v2.job.kind == Job.Kind.FIGHT and v2.job.to_death,
+			"hitting a pleading NPC finishes it: a fight to the death")
+		_check(_has(feed, 1, "You refuse %s's plea" % v2.short()), "feed: the refused plea: %s" % _last(feed))
+		Brain.set_job(v2, null)
+		v2.death_match.erase(a.id)
+		a.death_match.erase(v2.id)
+	# Plea: no answer, the usual roll decides.
+	var v3 := _free_npc(a, v2)
+	if v3:
+		v3.pos = a.pos + Vector2(0, 1)
+		v3.hp = Cfg.MAX_HP * Cfg.PLEAD_HP + 5.0
+		Combat.apply_damage(v3, 10.0, a)
+		_steps(int(Cfg.OFFER_SECS_PLEAD * 60.0) + 5)
+		var spared := v3.master_id == a.id or (v3.job != null and v3.job.kind == Job.Kind.FLEE)
+		var fought := v3.job != null and v3.job.kind == Job.Kind.FIGHT and v3.job.to_death
+		_check(not pc.offers.has_from(v3.id) and (spared or fought or not v3.alive), "an unanswered plea falls back to the 50/50 roll (%s)" % ("spared" if spared else "refused"))
+		Brain.set_job(v3, null)
+		v3.death_match.erase(a.id)
+		a.death_match.erase(v3.id)
+	_solo(a)
+
+
+## Back to a solo player with no servants.
+func _solo(a: Agent) -> void:
+	for sid in a.servants.duplicate():
+		var s: Agent = World.agents.get(sid)
+		if s:
+			Factions.free_agent(s)
+	if not a.faction.solo:
+		Factions.leave(a)
+		Factions.make_solo(a)
+	Brain.set_job(a, null)
+
+
+## Phase 5: the radial menu's actions (Player Social Plan §4), through the same intent the
+## menu sets; and the menu's direction pick.
+func _radial_checks(a: Agent) -> void:
+	var pc := _pc
+	var feed = _main._feed
+	var R = preload("res://ui/SocialRadial.gd")
+	_check(R.pick(Vector2.ZERO, Vector2(0, -60), 6) == 0 and R.pick(Vector2.ZERO, Vector2(0, 60), 6) == 3
+		and R.pick(Vector2.ZERO, Vector2(52, 30), 6) == 2 and R.pick(Vector2.ZERO, Vector2(5, 5), 6) == -1,
+		"radial: the mouse direction picks the option (dead zone picks none)")
+	# Demand goods: a pushover drops half its stone at its feet and backs off.
+	var t := _free_npc(a)
+	if t == null:
+		return
+	_pushover(a, t)
+	var cell := t.cell()
+	_check(Social.player_why(a, t, &"demand") == "", "demand is available on a solo stranger")
+	pc._social = [&"demand", t.id]
+	_steps(1)
+	var bag: LootBag = World.loot.get(cell)
+	_check(bag != null and bag.stacks.get("stone", 0) == 5 and t.inv.count("stone") == 5, "demand: %s drops 5 stone at its feet (%s)" % [t.short(), pc.message])
+	_check(_has(feed, 1, "%s drops" % t.short()) and _has(feed, 1, "5 stone"), "feed: the demand: %s" % _last(feed))
+	_check(Social.player_why(a, t, &"invite").begins_with("Ask again"), "the pair cooldown greys out the next action: %s" % Social.player_why(a, t, &"invite"))
+	if bag:
+		World.loot.erase(cell)
+	# Invite: a happy NPC that likes you joins.
+	var u := _free_npc(a, t)
+	if u:
+		u.pos = a.pos + Vector2(0, 1.5)
+		u.mood = 60.0
+		u.change_opinion(a.id, 60.0)
+		Brain.set_job(u, null)
+		pc._social = [&"invite", u.id]
+		_steps(1)
+		_check(not a.faction.solo and u.faction == a.faction, "invite: %s joins you (%s)" % [u.short(), pc.message])
+		_check(Social.player_why(a, u, &"challenge") != "" and Social.player_why(a, u, &"trade") == "They're in your group.", "greyed: no challenging or trading with your own group")
+		_solo(a)
+	# Ask to join an existing group.
+	var g: Faction = null
+	for f in World.factions.values():
+		if not f.solo and f.has_room() and f.kingdom == null and not f.is_gang():
+			g = f
+			break
+	if g:
+		var m: Agent = null
+		for mid in g.members:
+			var x: Agent = World.agents.get(mid)
+			if x and not x.in_combat():
+				m = x
+				break
+		if m:
+			m.pos = a.pos + Vector2(-1.5, 0)
+			m.mood = 60.0
+			m.change_opinion(a.id, 60.0)
+			a.set_cooldown(m.id, 0.0)
+			m.set_cooldown(a.id, 0.0)
+			pc._social = [&"ask_join", m.id]
+			_steps(1)
+			_check(a.faction == g, "ask to join: %s takes you into %s (%s)" % [m.short(), g.name, pc.message])
+			_solo(a)
+	# Greyed reasons.
+	var w := _free_npc(a, t)
+	if w:
+		w.pos = a.pos + Vector2(1, 1)
+		w.mood = 0.0
+		a.mood = 60.0
+		a.set_cooldown(w.id, 0.0)
+		_check(Social.player_why(a, w, &"recruit") == "Only angry people run gangs.", "greyed: recruiting needs you angry")
+		_check(Social.player_why(a, w, &"trade") == "Trade is between groups.", "greyed: trade needs two groups")
+		w.pos = a.pos + Vector2(20, 0)
+		_check(Social.player_why(a, w, &"invite") == "Too far away.", "greyed: too far away")
+	# The menu itself: open on a target, a greyed hover shows the reason, LMB confirms.
+	var q := _free_npc(a, t)
+	if q:
+		q.pos = a.pos + Vector2(2, 0)
+		a.set_cooldown(q.id, 0.0)
+		q.set_cooldown(a.id, 0.0)
+		pc.radial_id = q.id
+		await _main.get_tree().process_frame
+		var radial = _main._radial
+		_check(radial._options.size() == 6, "the radial menu lists 6 options for %s" % q.short())
+		if _shots:
+			await _seconds(0.1)
+		await _shot("playtest_radial")
+		pc.close_radial()
 
 
 static func _overlay_words() -> bool:
@@ -742,6 +931,43 @@ func run_input(main: Node, pc: PlayerController, cam: Node) -> void:
 		_check(npc != null and not a.faction.solo and a.faction == npc.faction, "F1 accepts the invite (%s)" % pc.message)
 		Factions.leave(a)
 		Factions.make_solo(a)
+	# Radial menu (Player Social Plan §4): hold F over an NPC, move the mouse down to
+	# "Demand goods", LMB confirms it (no swing) and closes the menu; releasing F closes it.
+	var rt := _free_npc(a)
+	if rt:
+		pc.offers.clear()
+		_pushover(a, rt)
+		rt.pos = a.pos + Vector2(2, 0)
+		var cpos: Vector2 = main.get_viewport().get_canvas_transform() * (rt.pos * Cfg.CELL)
+		_mouse_move(cpos)
+		await _frames(3)
+		_check(pc.hover_id == rt.id, "hovering %s picks them" % rt.short())
+		_key(KEY_F, true)
+		await _frames(3)
+		var radial: CanvasLayer = main._radial
+		_check(pc.radial_id == rt.id and radial._options.size() == 6, "holding F opens the radial menu on %s" % rt.short())
+		_mouse_move(radial.centre() + Vector2(0, radial.RADIUS))
+		await _frames(3)
+		_check(pc.radial_sel == &"demand", "moving the mouse down highlights Demand goods (%s %s)" % [pc.radial_sel, pc.radial_why])
+		var swung := a.last_swing
+		_click(MOUSE_BUTTON_LEFT, radial.centre() + Vector2(0, radial.RADIUS))
+		await _frames(4)
+		_check(pc.radial_id == -1 and not a.can_interact(rt.id) and a.last_swing == swung,
+			"LMB confirms the option and closes the menu, without a swing (%s)" % pc.message)
+		_key(KEY_F, false)
+		await _frames(2)
+		var rt2 := _free_npc(a, rt)
+		if rt2:
+			rt2.pos = a.pos + Vector2(-2, 0)
+			Brain.set_job(rt2, null)
+			_mouse_move(main.get_viewport().get_canvas_transform() * (rt2.pos * Cfg.CELL))
+			await _frames(3)
+			_key(KEY_F, true)
+			await _frames(3)
+			var opened := pc.radial_id == rt2.id
+			_key(KEY_F, false)
+			await _frames(3)
+			_check(opened and pc.radial_id == -1, "releasing F closes the menu without choosing")
 	# Death (§5a): the panel shows; N starts fresh as a solo agent, which WASD then moves.
 	var old := pc.body
 	World.kill_agent(old, null)
@@ -754,10 +980,16 @@ func run_input(main: Node, pc: PlayerController, cam: Node) -> void:
 	var nb := pc.body
 	_check(nb != old and nb.alive and nb.controller == pc and nb.faction.solo and not panel.visible, "N starts fresh as %s (solo)" % nb.short())
 	start = nb.pos
-	_key(KEY_A, true)
+	# Walk towards open ground: the respawn spot is random and may have a wall or node beside it.
+	var walk: Key = KEY_A
+	for kd in [[KEY_A, Vector2i(-1, 0)], [KEY_D, Vector2i(1, 0)], [KEY_W, Vector2i(0, -1)], [KEY_S, Vector2i(0, 1)]]:
+		if World.is_walkable(nb.cell() + kd[1]) and World.is_walkable(nb.cell() + kd[1] * 2):
+			walk = kd[0]
+			break
+	_key(walk, true)
 	await _seconds(0.5)
-	_key(KEY_A, false)
-	_check(nb.pos.distance_to(start) > 0.3, "A moves the new body (%.2f cells)" % nb.pos.distance_to(start))
+	_key(walk, false)
+	_check(nb.pos.distance_to(start) > 0.3, "%s moves the new body (%.2f cells)" % [OS.get_keycode_string(walk), nb.pos.distance_to(start)])
 	print("INPUTTEST %s (%d failed)" % ["PASSED" if _fails == 0 else "FAILED", _fails])
 	main.get_tree().quit()
 

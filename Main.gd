@@ -16,6 +16,7 @@ var _build: CanvasLayer = null # build menu (ui/BuildMenu.gd)
 var _inv_ui: CanvasLayer = null # hotbar, pack, armour and chest slots (ui/InventoryUI.gd)
 var _prompt: CanvasLayer = null # incoming social prompt (ui/OfferPrompt.gd)
 var _overlay: CanvasLayer = null # hover card and mood icons (ui/SocialOverlay.gd)
+var _radial: CanvasLayer = null # hold-F social radial menu (ui/SocialRadial.gd)
 var _sim_usec := 0 # time spent stepping the sim in _process (--frames)
 
 
@@ -90,6 +91,10 @@ func _ready() -> void:
 	_overlay.prompt = _prompt
 	add_child(_overlay)
 	move_child(_overlay, _hud.get_index())
+	_radial = preload("res://ui/SocialRadial.gd").new()
+	_radial.player = _player
+	_radial.layer = 2
+	add_child(_radial)
 	_player.hit_landed.connect(func(): _camera.shake())
 	_player.hurt.connect(func(): _camera.shake(Cfg.PLAYER_SHAKE * 0.6))
 	_player.possess(_start_agent())

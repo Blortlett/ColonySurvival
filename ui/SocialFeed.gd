@@ -154,12 +154,12 @@ func _format(ev: Dictionary, tier: int) -> String:
 			match ev.kind:
 				&"invite": return ("%s's invite runs out. You don't join." if ev.n == 1 else "You turn down %s's invite.") % other
 				&"gang_refused": return ("%s's gang offer runs out. You don't join." if ev.n == 1 else "You refuse to run with %s.") % other
-				&"demand": return "%s demands your goods. You refuse and fight back!" % other
+				&"demand": return ("%s demands your goods. You don't answer, and they attack!" if ev.n == 1 else "%s demands your goods. You refuse and fight back!") % other
 				&"fight": return ("%s attacks you! You fight back." % other) if i == 1 else ("You attack %s." % other)
 				&"hit": return ("%s hits you" % other) if i == 1 else ("You hit %s" % other)
 				&"killed": return ("%s killed you." % other) if i == 1 else ("You killed %s." % other)
 				&"robbed": return ("%s robbed you: %d items." % [other, ev.n]) if i == 1 else ("You take %d items from %s." % [ev.n, other])
-				&"plead": return ("%s begs you for mercy. You refuse." % other) if i == 1 else ("You beg %s for mercy." % other)
+				&"plead": return ("You refuse %s's plea." % other) if i == 1 else ("You beg %s for mercy." % other)
 				&"surrender": return ("%s surrenders to you." % other) if i == 1 else ("You surrender to %s." % other)
 				&"servant": return ("%s is now your servant." % other) if i == 1 else ("You are now %s's servant." % other)
 				&"freed": return "You are a free agent again."
@@ -171,6 +171,8 @@ func _format(ev: Dictionary, tier: int) -> String:
 				&"tax": return "%s taxes your group: %d items taken." % [g1, ev.n]
 				&"tax_refused": return "Your group refuses %s's tax: war!" % g1
 				&"takeover", &"respawn": return ev.text # already written for you (phase 6)
+			if String(ev.kind).begins_with("p_"):
+				return ev.text # player-social lines are written for you (Player Social Plan)
 			return _you(ev.text, me.short())
 		2:
 			match ev.kind:

@@ -153,6 +153,11 @@ static func apply_damage(t: Agent, dmg: float, a: Agent) -> void:
 	t.hp -= dmg
 	if EventBus.feed_on:
 		EventBus.social(&"hit", "", [a, t], [], t.pos, int(ceil(dmg)))
+	if a.is_player() and "offers" in a.controller and t.hp > 0.0:
+		# Hitting an NPC that is begging you answers its plea: finish (Player Social Plan §3.1).
+		if not a.controller.offers.take(&"plead", t.id).is_empty():
+			Social.release_asker(t.id)
+			refuse_plea(t, a)
 	if t.hp <= 0.0:
 		World.kill_agent(t, a)
 		return
@@ -162,20 +167,34 @@ static func apply_damage(t: Agent, dmg: float, a: Agent) -> void:
 		plead(t, a)
 
 
-## The victim begs. 50/50 (agreed), nudged by the attacker's opinion of them.
+## The victim begs. 50/50 (agreed), nudged by the attacker's opinion of them. A player
+## attacker is asked instead (Player Social Plan §3); unanswered, the same roll decides.
 static func plead(v: Agent, a: Agent) -> void:
 	v.pleaded[a.id] = true
+	if a.is_player() and Social.ask_player(a, &"plead", v, " begs you for mercy.", "Spare", "Finish",
+			Cfg.OFFER_SECS_PLEAD, Job.PRIO_CRITICAL, true):
+		EventBus.social(&"p_plea", "%s begs you for mercy." % v.short(), [v, a])
+		return
+	plead_roll(v, a)
+
+
+static func plead_roll(v: Agent, a: Agent) -> void:
 	var chance: float = Cfg.SURRENDER_ACCEPT + clamp(a.opinion_of(v.id) / 100.0, -1.0, 1.0) * Cfg.SURRENDER_OPINION_SWING
 	if World.rng.randf() < chance:
 		accept_surrender(a, v)
 	else:
-		EventBus.social(&"plead", "%s begs %s for mercy... and is refused." % [v.short(), a.short()], [v, a])
-		v.death_match[a.id] = true
-		a.death_match[v.id] = true
-		var j := Job.new(Job.Kind.FIGHT, Job.PRIO_CRITICAL)
-		j.target_id = a.id
-		j.to_death = true
-		Brain.set_job(v, j)
+		refuse_plea(v, a)
+
+
+## The plea is refused: a fight to the death.
+static func refuse_plea(v: Agent, a: Agent) -> void:
+	EventBus.social(&"plead", "%s begs %s for mercy... and is refused." % [v.short(), a.short()], [v, a])
+	v.death_match[a.id] = true
+	a.death_match[v.id] = true
+	var j := Job.new(Job.Kind.FIGHT, Job.PRIO_CRITICAL)
+	j.target_id = a.id
+	j.to_death = true
+	Brain.set_job(v, j)
 
 
 static func accept_surrender(a: Agent, v: Agent) -> void:

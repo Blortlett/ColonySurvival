@@ -1,6 +1,6 @@
 # Anarchy Colony Sim — Player Social Plan (draft)
 
-**Status: phases 1–3 built (2026-11-24); phases 4–5 to do.** See §9 for implementation notes. This is roadmap phase 3 ("Player social", `Docs/Summer_Roadmap.md`). It replaces the placeholder default rules from `Docs/Player_Controller_Plan.md` §5 with real choices, and follows that roadmap's "rules from day one": the sim never depends on rendering, player input is applied only inside the sim step, and the sim never pauses for the player.
+**Status: all five phases built (2026-11-24).** See §9 for implementation notes. Next steps are in §7 (later). This is roadmap phase 3 ("Player social", `Docs/Summer_Roadmap.md`). It replaces the placeholder default rules from `Docs/Player_Controller_Plan.md` §5 with real choices, and follows that roadmap's "rules from day one": the sim never depends on rendering, player input is applied only inside the sim step, and the sim never pauses for the player.
 
 **Builds on:** Player Controller (`Docs/Player_Controller_Plan.md`, phases 1–6 built), the social feed (§5.1 there), Godot 4.7.2, GDScript.
 **Goal:** the player takes part in the social system that NPCs already run. NPCs can ask the player things, and the player answers with quick prompts. The player can start social actions on NPCs from a radial menu. UI shows social state (mood, opinion, health), so the player can read a situation before acting. All of it should be obvious but not intrusive.
@@ -65,7 +65,7 @@ NPCs ask, the player answers. The game never pauses. Each prompt has a timeout, 
 - Social and Combat call `World.player.offer(kind, npc, data)` where they now apply the default rule. The sim never knows whether a UI exists: if there's no controller (bench, `--shot`), they apply the default rule straight away, as today.
 - **One prompt shown at a time.** Others wait in the queue (max 3, start). An older one that expires while queued just applies its default. `plead` and `demand` jump the queue, because they're time-critical.
 - F1, F2 and button clicks set an intent. The answer is applied in `control()` (inside the sim step), like all player input.
-- Death, takeover, respawn and watch mode clear the queue, and the askers stop waiting. The defaults built so far (`invite`, `gang`) are plain refusals, so nothing else needs applying. `demand` and `plead` (phase 4) will need their defaults applied here.
+- Death, takeover, respawn and watch mode clear the queue, and the askers stop waiting. Nothing else is applied: the old body is dead or back with the AI, and a pleading NPC just walks away, because its fight stopped while it begged.
 
 ### 3.3 Prompt UI (agreed: obvious, not intrusive)
 
@@ -178,7 +178,7 @@ When a character is hovered (same rule as §4.1, no F needed), show a compact la
 
 ## 9. Implementation notes – phases 1–3 (2026-11-24)
 
-Phases 1–3 are built. Phases 4 (`demand` and `plead` prompts) and 5 (the radial menu) are still to do.
+Phases 1–3 are built. Phases 4 and 5 are covered in the next section.
 
 **Phase 1: input**
 - F no longer eats (`_eat` intent and `KEY_F` branch removed from `PlayerController`). Eating is LMB with berries in the active slot (`_use_held`, unchanged). F is free for the radial menu (phase 5).
@@ -203,3 +203,40 @@ Phases 1–3 are built. Phases 4 (`demand` and `plead` prompts) and 5 (the radia
 - `--playtest`: an invite asks instead of refusing; the inviter waits; the card shows the right text and buttons; declining (and the feed line); the inviter stops waiting; a timeout refuses (and the feed line); clicking Join forms a group; **a groupmate defends the player**; an angry NPC's gang offer, accepted; the hover pick; the opinion words. It also frees any servant left from the fight test first, since a player with a servant is a group, not solo. All pass, headless and windowed. Windowed, it saves `user://playtest_prompt.png`.
 - `--inputtest`: F3 opens and closes the debug menu, F2 declines and F1 accepts a real invite. The F1 check retries with a fresh NPC if the asker joined someone else first (the sim runs in real time there). The old "LMB places a wall at the cursor" flake (the real mouse over the window) still shows up in some runs, as noted in the Player Controller Plan.
 - `--bench=40` (seed 12345): every line matches the build before, compared against a run of HEAD with the same seed (121.9 s real).
+
+## 9. Implementation notes – phases 4–5 (2026-11-24)
+
+**Phase 4: demand and plead prompts**
+- `Social._demand` asks a player target (`demand`, `OFFER_SECS_DEMAND` 5 s). The robber waits with an `IDLE` job at `PRIO_NEEDS`.
+  - **Hand over** (`Social._hand_over`): `Combat.rob` at `DEMAND_FRACTION`, with the same mood, opinion and relations effects as an NPC complying. Feed: "You hand 5 items to Bram."
+  - **Refuse, timeout, or walking more than 2 × `SOCIAL_RANGE` away:** the NPC attacks, as the old default did. Feed: "… You refuse and fight back!" or "… You don't answer, and they attack!"
+- `Combat.plead` asks a player attacker (`plead`, `OFFER_SECS_PLEAD` 5 s). The victim stops fighting (`IDLE` at `PRIO_CRITICAL`). The old body of `plead` is split into `plead_roll` (the 50/50 roll) and `refuse_plea` (the fight to the death). NPC-only behaviour is unchanged (same RNG order, and the bench matches).
+  - **Spare:** `Combat.accept_surrender(player, npc)`, which makes them a servant, or spares and robs them if your group is full.
+  - **Finish:** `refuse_plea`.
+  - **Hitting them while the prompt is up counts as Finish** (`Combat.apply_damage` takes the offer back out of the queue).
+  - **No answer:** the usual `plead_roll`.
+  - Feed: "Bram begs you for mercy." then "Bram surrenders to you." or "You refuse Bram's plea."
+- Demand and plea prompts are **urgent**: they jump to the front of the queue and may go one past `OFFER_QUEUE_MAX`.
+- Feed: kinds named `p_*` carry text already written for the player and are shown as they are.
+
+**Phase 5: radial menu**
+- **Input (agreed):** F press opens the menu on the hovered character within `SOCIAL_RANGE` (otherwise a hint: "Hover someone…" or "Get closer to Bram."). Releasing F closes it (checked per frame with `Input.is_physical_key_pressed`). While it's open, LMB only confirms the highlighted usable option, which closes the menu; clicking a greyed option shows its reason. RMB does nothing. WASD still moves. The menu also closes if the target dies or gets more than 1.5 × `SOCIAL_RANGE` away.
+- `ui/SocialRadial.gd` (CanvasLayer 2): centred on the target (kept on screen), 6 bubbles at `RADIUS` 84 px, a dead zone of 24 px, a gold highlight and pointer. A greyed option is drawn grey, and its reason shows under the ring when highlighted. It reads only `Social.player_options` and sets `player.radial_sel` / `radial_why`. The choice is applied in `control()` → `Social.player_act`, and the result shows as the HUD message and a feed line.
+- **Options and positions** (clockwise from the top): Invite to group, Ask to join, Trade, Demand goods (bottom), Challenge, Recruit to gang.
+- **Rules as built** (`Social.player_why` / `player_act`):
+  - Common: the target must be within 1.5 × `SOCIAL_RANGE` and not fighting (Challenge excepted). Structural reasons ("They're in your group.") show before the pair cooldown ("Ask again in 12 s"). Every action except Challenge sets the 30 s pair cooldown.
+  - **Invite:** target solo, not a servant, not angry; your group (if any) has room. Any member can invite, as with NPCs, not only the leader. Accepts if happy and their opinion of you ≥ 0, or neutral and you win the CHA roll. Never if their opinion is at or below `GRUDGE`. A refusal costs −2 opinion.
+  - **Ask to join:** you're solo; their group has room; they're not angry. Same willingness rule.
+  - **Trade:** both in groups, different groups, they're not angry. It runs the existing `_trade` (which now returns what changed hands). Feed: "Trade with Bram: you give 2 Wood and Bram gives 2 Stone."
+  - **Demand goods:** anyone not on your side (your group or kingdom). §4.3 as planned: the talk-down roll if they're happy and you aren't dominant; they stand up if their power ≥ 1.2 × yours; they flee if faster or you hold a ready bow. Otherwise they drop half of each stack as a loot bag at their feet and back off 5 cells. Same robbery effects as NPCs.
+  - **Challenge:** anyone not in your group. `Combat.start_fight(player, t, true)`.
+  - **Recruit to gang:** you and they are both angry; they're solo; your gang has room. CHA roll: a win forms or joins the gang. **A loss means a fight to the death, the same as between NPCs.**
+- HUD hint: "hold F talk" in the controls line. While the menu is open: "Move the mouse to an option, LMB to confirm, release F to cancel". The hover card hides for the menu's target.
+
+**Tests**
+- `--playtest`:
+  - Phase 4: a demand prompt jumps the queue and the robber holds its ground; handing over gives up half; an unanswered demand means a fight. A plea prompt stops the victim; Spare makes a servant; a hit finishes; an unanswered plea rolls.
+  - Phase 5: the direction pick and the dead zone; Demand drops a loot bag and greys the next action with the cooldown; Invite and Ask to join work; greyed reasons (recruit while not angry, trade while solo, too far, own group); the menu lists 6 options. Windowed, it saves `user://playtest_radial.png`.
+  - It also clears offers NPCs made naturally during the earlier steps.
+- `--inputtest`, with real input: hovering picks the NPC; holding F opens the menu; moving the mouse down highlights Demand goods; LMB confirms it without a swing and closes the menu; releasing F closes it. The respawn walk check now walks towards open ground, because the random respawn spot sometimes has a wall beside it.
+- `--bench=40` (seed 12345): every line matches a run of HEAD with the same seed (118.3 s vs 118.0 s real).
