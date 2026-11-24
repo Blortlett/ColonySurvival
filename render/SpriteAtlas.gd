@@ -5,7 +5,8 @@ extends RefCounted
 ##
 ## Compiled anim: {"uv": Array[Vector4] (u, v, w, h per frame), "fps", "loop", "px" (frame
 ## size in world px), "alt": Array[Vector4] or [], "stride" (0 = fixed rate)}.
-## Compiled set: {"name", "weight", "angle", "tints", "legs": {idle, walk, run}, "torso": {...}}.
+## Compiled set: {"name", "weight", "angle", "tints", "legs": {idle, walk, run}, "torso": {...},
+## "items": {torso anim name -> anim drawn over it}}.
 
 const BodySets := preload("res://render/BodySets.gd")
 
@@ -22,8 +23,8 @@ static func ensure() -> void:
 	# 1. Load every distinct sheet.
 	var paths: Array[String] = []
 	for s in BodySets.SETS.values():
-		for part in ["legs", "torso"]:
-			for anim in s[part].values():
+		for part in ["legs", "torso", "items"]:
+			for anim in s.get(part, {}).values():
 				for key in ["sheet", "alt"]:
 					if anim.has(key) and not paths.has(anim[key]):
 						paths.append(anim[key])
@@ -55,13 +56,20 @@ static func ensure() -> void:
 	for set_name in BodySets.SETS:
 		var s: Dictionary = BodySets.SETS[set_name]
 		var c := {"name": set_name, "weight": int(s.get("weight", 1)), "angle": float(s.get("angle", 0.0)),
-			"tints": s.get("tints", [Color.WHITE]), "legs": {}, "torso": {}}
+			"tints": s.get("tints", [Color.WHITE]), "legs": {}, "torso": {}, "items": {}}
 		var scale: float = s.get("scale", 1.0)
-		for part in ["legs", "torso"]:
-			for anim_name in s[part]:
+		for part in ["legs", "torso", "items"]:
+			for anim_name in s.get(part, {}):
 				c[part][anim_name] = _compile(s[part][anim_name], images, rows, size, scale)
 		var t: Dictionary = c.torso
 		var l: Dictionary = c.legs
+		# An item plays frame-for-frame with its torso animation: same rate, same looping.
+		for anim_name in c.items:
+			assert(t.has(anim_name), "BodySets %s: item %s has no torso animation" % [set_name, anim_name])
+			var it: Dictionary = c.items[anim_name]
+			assert(it.uv.size() == t[anim_name].uv.size(), "BodySets %s: item %s frame count differs from the torso" % [set_name, anim_name])
+			it.fps = t[anim_name].fps
+			it.loop = t[anim_name].loop
 		assert(t.has("idle") and t.has("death") and l.has("idle"), "BodySets %s needs torso idle/death and legs idle" % set_name)
 		for pair in [["walk", "run"], ["run", "walk"], ["walk", "idle"], ["run", "idle"]]:
 			if not t.has(pair[0]) and t.has(pair[1]):

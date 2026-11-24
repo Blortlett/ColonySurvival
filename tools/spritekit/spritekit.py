@@ -176,28 +176,37 @@ HIP_R = (22.5, 26.5)
 
 
 def body_layer(skin, pose):
-	"""pose: twist (rad), hand_l, hand_r (x, y)."""
+	"""pose: twist (rad), hand_l, hand_r (x, y). Optional (used by death): ox shifts the
+	whole body along x, torso_rx stretches the torso, feet draws legs under it (lying down)."""
 	tw = pose.get("twist", 0.0)
+	ox = pose.get("ox", 0.0)
+	trx = pose.get("torso_rx", 4.6)
+	lie = pose.get("lie", 0.0)  # 0 standing .. 1 flat on the back (head and shoulders to -x)
+	sdx, sdy = -lie * trx * 0.6, lie * 2.4
 	lay = Layer()
 	sk, hr = SKINS[skin], HAIR[skin]
+	if "feet" in pose:
+		for hy, foot in zip((21.5, 26.5), pose["feet"]):
+			hip = (C - 1.6 + ox + trx * 0.45, C + (hy - C) * 0.8)
+			lay.draw_part(union(capsule(*hip, *foot, 1.7), ellipse(foot[0] + 0.6, foot[1], 2.0, 1.5)), sk, bands=(0.4, 0.85))
 	# torso + shoulders (twisted around the centre)
 	torso = union(
-		ellipse(C - 1.6, C, 4.6, 8.4, tw),
-		ellipse(*rot(22.6, 17.6, tw), 2.9, 2.9),
-		ellipse(*rot(22.6, 30.4, tw), 2.9, 2.9),
+		ellipse(C - 1.6 + ox, C, trx, 8.4 - 2.4 * lie, tw),
+		ellipse(*rot(22.6 + ox + sdx, 17.6 + sdy, tw), 2.9, 2.9),
+		ellipse(*rot(22.6 + ox + sdx, 30.4 - sdy, tw), 2.9, 2.9),
 	)
 	body = lay.draw_part(torso, sk)
 	# arms: shoulder -> elbow -> hand, one continuous part each (no inner outline at the
 	# elbow or the shoulder); right arm first so the left reads on top where hands meet
 	arm_cov = set()
-	for sh, hand, side in ((rot(*SHOULDER_R, tw), pose["hand_r"], 1), (rot(*SHOULDER_L, tw), pose["hand_l"], -1)):
+	for sh, hand, side in ((rot(SHOULDER_R[0] + ox + sdx, SHOULDER_R[1] - sdy, tw), pose["hand_r"], 1), (rot(SHOULDER_L[0] + ox + sdx, SHOULDER_L[1] + sdy, tw), pose["hand_l"], -1)):
 		el = elbow(sh, hand, side, pose.get("bend"))
 		arm = union(capsule(*sh, *el, 1.45), capsule(*el, *hand, 1.25), ellipse(*hand, 1.6, 1.6))
 		seam = lambda x, y, sh=sh: (x - sh[0]) ** 2 + (y - sh[1]) ** 2 < 2.3 ** 2
 		arm_cov |= footprint(arm)
 		body |= lay.draw_part(arm, sk, bands=(0.5, 0.86), inner=body, seam=seam)
 	# head: hair over the back/top, face and nose at the front
-	hx, hy = rot(C + 0.2, C, tw * 0.5)
+	hx, hy = rot(C + 0.2 + ox - lie * (trx + 3.2), C, tw * 0.5)
 	head = union(ellipse(hx, hy, 3.2, 3.5), ellipse(hx + 3.0, hy, 0.9, 0.7))
 
 	def head_mat(px, py, h):
@@ -288,6 +297,24 @@ def gather_poses(n=8):
 
 
 D = math.radians
+
+# Unarmed jab with the right hand (the left guards); the left jab mirrors it.
+PUNCH_R = [
+	{"twist": D(10), "hand_l": (29.0, 17.5), "hand_r": (25.5, 32.0)},   # chamber
+	{"twist": D(-14), "hand_l": (28.5, 18.0), "hand_r": (35.5, 25.5)},  # hit
+	{"twist": D(-10), "hand_l": (28.5, 18.0), "hand_r": (34.0, 26.5)},  # hold
+	{"twist": D(2), "hand_l": (29.0, 17.0), "hand_r": (29.5, 31.0)},    # back to guard
+]
+PUNCH_L = [{"twist": -p["twist"], "hand_l": (p["hand_r"][0], 2 * C - p["hand_r"][1]),
+	"hand_r": (p["hand_l"][0], 2 * C - p["hand_l"][1])} for p in PUNCH_R]
+
+# Falls backwards onto its back; the last frame is the corpse.
+DEATH = [
+	{"twist": D(8), "ox": -0.8, "hand_l": (27.5, 12.5), "hand_r": (26.5, 35.0)},
+	{"ox": -1.5, "lie": 0.45, "torso_rx": 5.4, "feet": [(28.5, 21.5), (28.0, 26.5)], "hand_l": (17.0, 12.0), "hand_r": (18.0, 36.0)},
+	{"ox": -2.0, "lie": 0.85, "torso_rx": 6.2, "feet": [(32.0, 21.0), (31.5, 27.0)], "hand_l": (13.0, 13.0), "hand_r": (14.0, 35.5)},
+	{"ox": -2.0, "lie": 1.0, "torso_rx": 6.4, "feet": [(33.5, 20.5), (33.0, 27.5)], "hand_l": (12.0, 14.0), "hand_r": (13.0, 34.5)},
+]
 # Horizontal two-handed chop: wind up over the right shoulder, sweep across to the front.
 AXE_SWING = [
 	{"twist": D(14), "pommel": (25.0, 30.5), "ang": D(110)},   # ready / lift
@@ -323,6 +350,9 @@ def build():
 	sheets["human_body_idle"] = {s: [body_layer(s, IDLE_HANDS)[0].image()] for s in SKINS}
 	sheets["human_body_walk"] = {s: [body_layer(s, p)[0].image() for p in walk] for s in SKINS}
 	sheets["human_body_gather"] = {s: [body_layer(s, p)[0].image() for p in gather_poses()] for s in SKINS}
+	sheets["human_body_punch_right"] = {s: [body_layer(s, p)[0].image() for p in PUNCH_R] for s in SKINS}
+	sheets["human_body_punch_left"] = {s: [body_layer(s, p)[0].image() for p in PUNCH_L] for s in SKINS}
+	sheets["human_body_death"] = {s: [body_layer(s, p)[0].image() for p in DEATH] for s in SKINS}
 	for name, poses in (("axe_idle", [AXE_IDLE]), ("axe_swing", AXE_SWING)):
 		body, item = {}, []
 		for s in SKINS:
@@ -350,6 +380,8 @@ def preview(sheets, path, scale=8):
 		rows.append([Image.alpha_composite(legs_i, b) for b in sheets["human_body_idle"][s]])
 		rows.append([Image.alpha_composite(l, b) for l, b in zip(sheets["human_legs_walk"][s], sheets["human_body_walk"][s])])
 		rows.append([Image.alpha_composite(legs_i, b) for b in sheets["human_body_gather"][s]])
+		rows.append([Image.alpha_composite(legs_i, b) for b in sheets["human_body_punch_right"][s] + sheets["human_body_punch_left"][s]])
+		rows.append(list(sheets["human_body_death"][s]))
 		for name in ("axe_idle", "axe_swing"):
 			rows.append([Image.alpha_composite(Image.alpha_composite(legs_i, b), it)
 				for b, it in zip(sheets["human_body_" + name][s], sheets["item_" + name][""])])

@@ -2,7 +2,8 @@ extends Node2D
 ## Agents as layered top-down sprites (Summer Roadmap §3), or the old discs.
 ##
 ## Sprites: legs turn to the movement direction (idle / walk / run by speed); the torso turns
-## to the facing (see facing_of) and plays idle, walk, run, attack, use, pain and death. All
+## to the facing (see facing_of) and plays idle, walk, run, attack, use, chop, pain and death;
+## a torso animation with an item (the axe in chop) draws it as a third sprite on top. All
 ## sprites are one MultiMesh over a packed atlas (SpriteAtlas, mapped in BodySets), so 120+
 ## agents cost one draw call. Under each agent a disc shows faction colour (grey if solo)
 ## with a mood rim; servant / leader pips, raider pennants, selection, path and labels draw
@@ -33,6 +34,7 @@ const MAX_CORPSES := 60
 const FLOATS := 16 # per instance: 2D transform 8, colour 4, custom 4
 
 var selected_id := -1
+var player: PlayerController = null # its E-harvest drives the body's use / chop (Main sets it)
 var show_labels := false
 var mode := Mode.AUTO
 var _font: Font
@@ -183,7 +185,7 @@ func _update(real_dt: float) -> void:
 	var turn := 1.0 - exp(-TURN_RATE * maxf(real_dt, anim_dt))
 	var n := World.agent_list.size()
 	var count := 0
-	_reserve((n + _corpses.size()) * 2)
+	_reserve(n * 3 + _corpses.size())
 	# Only agents on screen (plus a frame of margin) animate and draw; the rest just track
 	# position, hp and swings so nothing jumps when they come into view.
 	var view := _view
@@ -263,9 +265,9 @@ func _update(real_dt: float) -> void:
 		if torso == "":
 			if moving:
 				torso = legs
-			elif a.job and USE_JOBS.has(a.job.kind):
-				torso = "use"
 			else:
+				torso = _work_anim(a, st)
+			if torso == "":
 				torso = "idle"
 			if torso != st.torso_anim:
 				st.torso_t = 0.0
@@ -279,6 +281,10 @@ func _update(real_dt: float) -> void:
 		count = _put(count, a.pos, st.legs_ang + st.body.angle, la.px, col, Atlas.frame(la, st.legs_t))
 		count = _put(count, a.pos, st.torso_ang + st.body.angle, ta.px, col,
 			Atlas.frame(ta, st.torso_t, torso == "attack" and st.alt))
+		var item: Dictionary = st.body.items.get(torso, {})
+		if not item.is_empty():
+			var icol := Color.WHITE.lerp(Color(1.0, 0.25, 0.2), st.flash / FLASH_SECS) if st.flash > 0.0 else Color.WHITE
+			count = _put(count, a.pos, st.torso_ang + st.body.angle, item.px, icol, Atlas.frame(item, st.torso_t))
 	# Agents gone since last frame died (or left): leave a body.
 	if _states.size() > n:
 		for id in _states.keys():
@@ -295,6 +301,25 @@ func _update(real_dt: float) -> void:
 			_corpses.remove_at(0)
 	_mm.buffer = _buf
 	_mm.visible_instance_count = count
+
+
+## Standing still at work: chop with an axe at a tree, otherwise the two-handed gather
+## ("use") for work jobs and the player's held E; "" when not working.
+func _work_anim(a: Agent, st: AnimState) -> String:
+	var node: ResourceNode = null
+	var working := false
+	if player != null and a == player.body and player.harvest_node != null:
+		node = player.harvest_node
+		working = true
+	elif a.job and USE_JOBS.has(a.job.kind):
+		working = true
+		if a.job.kind == Job.Kind.GATHER:
+			node = a.job.node
+	if not working:
+		return ""
+	if node != null and node.type == ResourceNode.Type.TREE and a.inv.has_tool("axe") and st.body.torso.has("chop"):
+		return "chop"
+	return "use"
 
 
 func _new_state(a: Agent) -> AnimState:

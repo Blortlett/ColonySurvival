@@ -65,6 +65,7 @@ func _ready() -> void:
 	_player = PlayerController.new()
 	add_child(_player)
 	player_layer.player = _player
+	_agents.player = _player
 	player_hud.player = _player
 	inv_ui.player = _player
 	_inv_ui = inv_ui
