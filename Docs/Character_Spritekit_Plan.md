@@ -1,6 +1,6 @@
 # Anarchy Colony Sim — Character Spritekit Plan (draft)
 
-**Status: the naked human is built and wired in (2026-11-24).** All the unarmed, tool and weapon animations below are in the game. Clothing (§4–§7) is the next phase and not started.
+**Status: the naked human is built and wired in (2026-11-24).** All the unarmed, tool and weapon animations below are in the game. **Clothing phases 1–3 are done:** the peasant outfit (tunic, trousers, hood) has outfit sheets for every animation and both skins (§8.2), and is wired into the game as craftable cloth armour that draws on whoever wears it (§8.3). Next: iron armour art (phase 4).
 
 **Builds on:** the agent sprite renderer (`render/AgentLayer.gd`, `render/SpriteAtlas.gd`, `render/BodySets.gd`; Summer Roadmap §3), Godot 4.7.2, GDScript, Python 3 + Pillow for the generator.
 **Goal:** one shared, extendable top-down human for every agent and the player. Bodies come in skin tones, carry and use every weapon and tool, and take clothing and armour as separate layers, so pants and shirts are independent. All art comes from one script, so a change to the rig or a palette updates every sheet at once.
@@ -13,7 +13,7 @@
 
 ### 1.1 The generator
 
-`tools/spritekit/spritekit.py` draws every sheet from code. Nothing is hand-painted. Running it rewrites `art/characters/human/` (70 PNGs today).
+`tools/spritekit/spritekit.py` draws every sheet from code. Nothing is hand-painted. Running it rewrites `art/characters/human/` (172 PNGs today: 70 naked body/legs/item sheets + 102 peasant outfit sheets).
 
 - **Frame:** 48 × 48 px, character centred at (24, 24), facing **+X**, the same as the old Sci-Fi TDS pack (agreed).
 - **Rig:**
@@ -51,11 +51,11 @@ Unless noted, every row has one body sheet per skin tone and, for tools, one ite
 
 ### 1.3 How the game uses them
 
-- **`BodySets.gd`:** one set per skin tone (`human_light`, `human_dark`, equal weight), both built by `_human(skin)`. Each set has `legs`, `torso` and `items`, where `items` maps a torso animation name to the tool sheet drawn over it.
+- **`BodySets.gd`:** one set per skin tone (`human_light`, `human_dark`, equal weight), both built by `_human(skin)`. Each set has `legs`, `torso`, `items` (torso animation name → the tool sheet drawn over it) and `outfits` (slot → outfit → animation → sheet, §8.3).
 - **`SpriteAtlas.gd`:**
   - Packs every sheet into one mipmapped texture, so all agents draw in **one MultiMesh call**.
   - An item copies its torso animation's fps and looping, so the two can't drift apart. A mismatch in frame count is an assert (agreed, after the axe bug).
-- **`AgentLayer.gd` draws per agent:** legs → torso → item (when the torso animation has one). The torso animation is chosen like this:
+- **`AgentLayer.gd` draws per agent:** legs → legs outfit → torso → torso outfit → head outfit → item (outfits when worn, the item when the torso animation has one). The torso animation is chosen like this:
 
 | Situation | Animation | Rule |
 |---|---|---|
@@ -63,7 +63,7 @@ Unless noted, every row has one body sheet per skin tone and, for tools, one ite
 | Standing at work | `chop` (axe on a tree), `mine` (pickaxe on rock or metal), else `use` (gather) | The player's held-E harvest counts too (`player.harvest_node`). |
 | Idle / walk / run | `<anim>_<weapon>` if the set has it, else plain | The weapon shown is `_shown_weapon()`: melee weapon, else the player's held tool (`CARRY_ALIAS` maps `pickaxe_t2 → pickaxe`), else the axe or pickaxe on the way to a tree or rock, else a bow with arrows. |
 
-- **Debug kit:** with the F3 menu open, numpad 1 gives every weapon and tool, 60 arrows, 40 wood and 40 stone (`DebugMenu.give_kit`).
+- **Debug kit:** with the F3 menu open, numpad 1 gives every weapon and tool, 60 arrows, 40 wood, 40 stone and 20 hemp, and puts the cloth outfit on (tunic, trousers, hood into empty worn slots; `DebugMenu.give_kit`).
 
 ---
 
@@ -205,9 +205,9 @@ Each slot is independent, so any mix works: tunic + greaves, chest plate + bare 
 
 | # | Phase | Contents | Size (start) |
 |---|---|---|---|
-| 1 | Generator outfit support | Garment shapes and materials on the rig, the dressed/naked difference, outfit sheet output, outfit previews and GIFs | ~1 day |
-| 2 | Peasant tunic + trousers | Design and tune both over every animation (24 body animations + legs), both skins; review loop as in §2 | ~1 day with review |
-| 3 | Engine wiring | `BodySets.outfits`, 2D atlas packing, `AgentLayer` outfit instances, tints, corpses, slot selection; load-check | ~1 day |
+| 1 ✅ | Generator outfit support | Garment shapes and materials on the rig, the dressed/naked difference, outfit sheet output, outfit previews and GIFs | ~1 day |
+| 2 ✅ | Peasant tunic + trousers (+ hood) | Design and tune both over every animation (24 body animations + legs), both skins; review loop as in §2 | ~1 day with review |
+| 3 ✅ | Engine wiring | `BodySets.outfits`, 2D atlas packing, `AgentLayer` outfit instances, tints, corpses, slot selection; load-check | ~1 day |
 | 4 | Iron armour | Chest plate + pauldrons, greaves, helmet; wired to `Agent.worn` | ~1 day with review |
 | 5 | Polish (later) | Hood; gauntlets; a palette-swap skin shader (one sheet per animation instead of per skin, unlocking more skin tones cheaply); pain animation; a pickaxe dust puff on the strike | as wanted |
 
@@ -232,7 +232,58 @@ Do phase 2 before phase 3 so the look is agreed on still frames and GIFs before 
 - **Hood:** a round `WOOL` cowl, a little bigger than the head and shifted back, with the face opening at +X. Review: the first opening covered everything but the nose ("like he can't see"). Now the opening's edge sits just ahead of the head centre in the middle (`HOOD_OPEN`) and sweeps well back at the sides (`HOOD_SIDE`), so the whole face crescent and the cheeks show. Inside the opening the head draws as skin, with the hair tucked under the hood. A pointed back tail read as an arrowhead and was dropped.
 - **Tinting:** cloth is light and near neutral, so a multiply gives clean earth tones. A green close to the grass loses the silhouette, so the green is a darker sage.
 
+### 8.2 Peasant outfit built for every animation (2026-11-24)
+
+`python tools/spritekit/spritekit.py` now also writes the peasant outfit sheets next to the naked ones (the naked body, legs and item sheets come out byte-identical to before). `python tools/spritekit/spritekit.py --outfit-gifs` rebuilds everything and writes the review GIFs `tools/spritekit/preview/peasant_<set>.gif` (`unarmed`, `axe`, `pickaxe`, `spear`, `club`, `sword`, `bow`; each plays idle → walk → action at the in-game fps, columns naked light, dressed light, naked dark, dressed dark). The cloth is undyed; tinting is the game's job (§4.3).
+
+**Sheets** (`art/characters/human/`, all 48 px frames, frame for frame with the naked sheet of the same anim, one per skin):
+
+| Slot | Garment | Anims | Name |
+|---|---|---|---|
+| `legs` | trousers | legs `idle`, `walk`; body `death` | `human_outfit_legs_peasant_<anim>_<skin>_Sheet.png` |
+| `torso` | tunic | all 24 body anims | `human_outfit_torso_peasant_<anim>_<skin>_Sheet.png` |
+| `head` | hood | all 24 body anims | `human_outfit_head_peasant_<anim>_<skin>_Sheet.png` |
+
+Body anims: `idle`, `walk`, `gather`, `punch_right`, `punch_left`, `death`, and `<tool>_idle` / `<tool>_walk` / `axe_swing`, `pickaxe_swing`, `spear_thrust`, `club_swing`, `sword_swing`, `bow_fire` for axe, pickaxe, spear, club, sword, bow. 102 sheets in all.
+
+- **Death:** the corpse draws its own legs, so the trousers for it are the legs-slot sheet `human_outfit_legs_peasant_death`, diffed against the body death sheet. A corpse draws body death → legs-outfit death → torso-outfit death → head-outfit death (§6.3).
+- **Generator:** `build()` collects `(kind, anim, poses)` jobs and `outfit_sheets()` writes every slot of every `OUTFITS` entry, so iron armour later is one more `OUTFITS` row plus its garment drawing.
+- **Check:** stacking legs → legs outfit → body → torso outfit → head outfit reproduces a single render with all three garments on **exactly** (0 differing pixels in every frame of every anim, both skins). The slots are independent, so any mix works.
+- **Tools:** item sheets stay shared and still read right over the tunic: the pick rests on the tunic shoulder, the raised pick draws over the hood in the `over` frames, and the spear passes under the right shoulder. Because the tunic shoulder is 0.6 px bigger, the spear butt and a few hafts overlap the tunic edge by 1 px, as accepted in §4.2.
+
+**Learned in review:**
+- **Sleeve over its own tunic: no line.** The sleeve's soft inner outline over the tunic shoulder broke up into dark dots that read as dirt, worst in the overhead pickaxe and the corpse. The sleeve now draws no line where it lies on tunic cloth, and along its sides the tunic colour is restored over the bare arm's outline, which otherwise showed through as skin-coloured dots. The hem over the bare forearm keeps its soft line. (This also fixed the only 2 pixels where the stacked slots didn't match the full render, in the `over` frames.)
+- The concept preview (`--peasant`) was regenerated with these fixes.
+
 ---
+
+### 8.3 Cloth wired into the game (2026-11-24)
+
+**Game data (agreed 2026-11-24, values are start):**
+
+| Item | Worn slot (`Agent.worn` key) | Outfit slot | Reduction | Durability | Recipe (hand, anywhere) |
+|---|---|---|---|---|---|
+| `tunic` | `chest_armor` | torso | 6 % | 40 | 4 hemp |
+| `trousers` | `leg_armor` | legs | 3 % | 40 | 3 hemp |
+| `hood` | `helmet` | head | 3 % | 40 | 2 hemp |
+
+- A full cloth set is −12 % damage, against −40 % for iron. `Items.CLOTH`, `Items.WEAR_SLOT` and `Items.wear_slot(item)` map an item to its worn slot; `Items.ARMOR` is still the slot list (and the iron piece per slot). `ARMOR_REDUCTION` is now keyed by item type, not slot.
+- **Iron replaces cloth** in the same slot: `auto_equip` puts on any piece for an empty slot and swaps iron in over cloth (the cloth goes back into the pack where the iron was; `Stock.surplus` then counts it as surplus, so it ends up in storage). The inventory's worn slots take either piece for their slot (`InvMoves`). `GoalLadder.lacks` checks the worn piece's type, so an agent in a tunic still fetches an iron chest piece.
+- **AI (agreed):** a last goal-ladder step (after the fuel stockpile) crafts, or gathers hemp for, the first cloth piece whose slot is empty; `auto_equip` puts it on at the next think. In a 20 sim-minute headless bench, 80 of ~120 agents were wearing 225 cloth pieces by the end.
+- **Side effect:** `Agent.is_armoured()` is true for cloth too (it gates the damage reduction in `Combat.apply_damage`). So the debug grey "armoured" ring, the bench's armoured-agent / gear-fight counters and the `--shot` "most geared" pick include cloth now. Split it into cloth and iron if the v3 gear stats need it.
+
+**Renderer:**
+- **`BodySets.outfits`** is built by `_outfits()` from the sheet names: for each slot in `BodySets.OUTFITS` (`{"legs": ["peasant"], "torso": ["peasant"], "head": ["peasant"]}`) and each body animation, `human_body_<x>` / `human_legs_<x>` becomes `human_outfit_<slot>_<outfit>_<x>`, kept if the file exists (a warning lists missing ones). The legs slot follows the legs animations plus `death` (the torso death); torso and head follow every torso animation, `alt` included (punch left). Run reuses walk because the body does. A new outfit is one word in `OUTFITS` once its sheets exist.
+- **`SpriteAtlas`** compiles `outfits` like items: fps, loop and stride come from the body animation, and frame or alt-frame count mismatches are asserts. **The atlas is shelf-packed in 2D:** strips sit side by side in a 2,048 px wide atlas on a 16 px grid, tallest then widest first. **172 sheets → 2,048 × 864** (was 384 × 3,360); it prints its size on load.
+- **`AgentLayer`:**
+  - Draw order is legs → legs outfit → torso → torso outfit → head outfit → item. The legs outfit uses the legs animation and timer; the torso and head outfits use the torso animation and timer, including `attack_<weapon>`, carry, `chop` / `mine` / `use` and the alternate punch.
+  - `WEAR_OUTFIT` maps a worn item type to `[slot, outfit]`: cloth → `peasant`; `chest_armor` / `leg_armor` / `helmet` → `iron`. A piece whose outfit the body set has no art for draws nothing, so iron shows a bare slot until its sheets exist. **Iron hook:** draw `OUTFITS["iron"]` in spritekit, add `"iron"` to `BodySets.OUTFITS` for each slot; no AgentLayer change.
+  - Outfits get the hit flash. `OUTFIT_TINT` (white) is where per-agent dye goes later.
+  - Corpses remember what was worn (tracked off screen too) and draw body death → legs, torso and head outfit death.
+  - Reserves 6 instances per agent and 4 per corpse; still one draw call.
+- **Checked in-game** (close-up screenshots of dressed agents with sword, spear, club, bow, pickaxe and axe, plus corpses): the layers line up with the body, tools draw over the tunic, the hood sits on the head, and corpses wear their death outfits. The scripted `--playtest` passes, including the armour on/off check.
+
+**Left:** iron armour art (phase 4: chest plate, greaves, helmet as `OUTFITS["iron"]` in spritekit); per-agent earth-tone dye (§8.2, `OUTFIT_TINT`); cloth item icons in the inventory are placeholder colours; balance of cloth values and hemp supply.
 
 ## 9. Sheet and memory budget
 
@@ -240,9 +291,9 @@ Do phase 2 before phase 3 so the look is agreed on still frames and GIFs before 
 |---|---|---|
 | Body (24 anims × 2 skins) + legs (2 × 2) | 52 | 52 |
 | Items | 18 | 18 |
-| Torso outfits (tunic, iron × 24 × 2) | — | 96 |
-| Legs outfits (trousers, iron × idle/walk/death × 2) | — | 12 |
-| Head outfits (helmet × 24 × 2) | — | 48 |
-| **Total** | **70** | **~226** |
+| Torso outfits (tunic, iron × 24 × 2) | 48 (tunic) | 96 |
+| Legs outfits (trousers, iron × idle/walk/death × 2) | 6 (trousers) | 12 |
+| Head outfits (hood, helmet × 24 × 2) | 48 (hood) | 96 |
+| **Total** | **172** | **~274** |
 
-At 48 px frames that's roughly a 2,048 × 2,300 RGBA atlas with mips, about 25 MB of VRAM. That's fine on desktop, but it's why the 2D packing in §6.2 comes before more skins. With the palette-swap shader, the body and outfit sheets halve.
+Measured with the 2D packing (§8.3): today's 172 sheets fit in 2,048 × 864, so ~274 should be about 2,048 × 1,400 (about 15 MB with mips). That's fine on desktop. With the palette-swap shader, the body and outfit sheets halve.

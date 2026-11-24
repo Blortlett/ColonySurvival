@@ -66,6 +66,18 @@ static func next(a: Agent) -> Job:
 	# 6. Stockpile fuel.
 	if a.inv.count("wood") < 10:
 		return Brain._gather_job("wood", 10)
+	# 7. Dress: hemp cloth for each empty worn slot, one piece at a time (2026-11-24).
+	return _cloth_job(a)
+
+
+## Craft (or gather hemp for) the first cloth piece whose slot is empty; Brain.think's
+## auto_equip puts it on.
+static func _cloth_job(a: Agent) -> Job:
+	for item in Items.CLOTH:
+		if not a.worn.has(Items.wear_slot(item)) and not a.inv.has_tool(item):
+			var j := craft_or_gather(a, item)
+			if j:
+				return j
 	return null
 
 
@@ -160,7 +172,8 @@ static func _gear_job(a: Agent) -> Job:
 
 
 static func lacks(a: Agent, item: String) -> bool:
-	return not a.worn.has(item) and not a.inv.has_tool(item)
+	var w = a.worn.get(Items.wear_slot(item))
+	return not (w != null and w.type == item) and not a.inv.has_tool(item)
 
 
 ## 0 leader, 1 fighter (any other free member), 2 servant.

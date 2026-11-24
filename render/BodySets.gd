@@ -19,16 +19,28 @@ extends RefCounted
 ##   items   - optional: torso animation name -> {sheet} drawn over the torso with the same
 ##             frame (a tool in the hands); its pixels already leave out hands and head. It
 ##             takes fps and loop from that torso animation and must have as many frames
+##   outfits - optional: slot (legs / torso / head) -> outfit name -> {anim name -> {sheet, alt}}.
+##             A clothing layer drawn over that slot's body layer, frame for frame: legs-slot
+##             anims follow the legs anim (plus "death", diffed against the torso death, since
+##             a corpse has no legs layer); torso and head anims follow the torso anim. Like
+##             items they take fps / loop from that body anim and must have as many frames.
+##             The human builds it from the sheet names (_outfits), so new outfits or anims
+##             need no typing here beyond OUTFITS.
 ## A torso animation may be missing; AgentLayer falls back (pain -> idle with a red flash,
 ## use -> attack, attack -> use, walk -> run, run -> walk). idle and death must exist.
 
 const DIR := "res://art/characters/"
 
+## Outfits the human has art for, per slot. Sheet names come from the body sheet each one is
+## diffed against: human_body_<x> / human_legs_<x> -> human_outfit_<slot>_<outfit>_<x>
+## (tools/spritekit/spritekit.py writes them). Iron armour adds e.g. "iron" here once drawn.
+const OUTFITS := {"legs": ["peasant"], "torso": ["peasant"], "head": ["peasant"]}
+
 
 ## The shared human (tools/spritekit/spritekit.py makes these sheets); one set per skin tone.
 static func _human(skin: String, weight: int) -> Dictionary:
 	var h := "human/human_"
-	return {
+	var s := {
 		"weight": weight,
 		"scale": 1.0,
 		"angle": 0.0,
@@ -97,6 +109,46 @@ static func _human(skin: String, weight: int) -> Dictionary:
 			"run_spear": {"sheet": "human/item_spear_walk_Sheet.png"},
 		},
 	}
+	s.outfits = _outfits(s.legs, s.torso)
+	return s
+
+
+## slot -> outfit -> anim -> {sheet, alt}, one entry per body anim whose outfit sheet exists.
+## The legs slot follows the legs anims plus the torso death (corpses draw no legs layer).
+static func _outfits(legs: Dictionary, torso: Dictionary) -> Dictionary:
+	var out := {}
+	for slot in OUTFITS:
+		out[slot] = {}
+		var body: Dictionary = torso
+		if slot == "legs":
+			body = legs.duplicate()
+			body["death"] = torso.death
+		for outfit in OUTFITS[slot]:
+			var anims := {}
+			var missing: Array[String] = []
+			for anim in body:
+				var e := {}
+				for key in ["sheet", "alt"]:
+					if body[anim].has(key):
+						var path := _outfit_sheet(body[anim][key], slot, outfit)
+						if not ResourceLoader.exists(DIR + path):
+							missing.append(path)
+							e = {}
+							break
+						e[key] = path
+				if not e.is_empty():
+					anims[anim] = e
+			if not missing.is_empty():
+				push_warning("BodySets: %s outfit %s has no sheet for %s" % [slot, outfit, ", ".join(missing)])
+			if not anims.is_empty():
+				out[slot][outfit] = anims
+	return out
+
+
+## human/human_body_walk_light_Sheet.png -> human/human_outfit_torso_peasant_walk_light_Sheet.png
+static func _outfit_sheet(body_sheet: String, slot: String, outfit: String) -> String:
+	var to := "human_outfit_%s_%s_" % [slot, outfit]
+	return body_sheet.replace("human_body_", to).replace("human_legs_", to)
 
 
 static var SETS := {

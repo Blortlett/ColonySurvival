@@ -38,6 +38,8 @@ const LOOK := {
 	"sword": [Color(0.7, 0.75, 0.85), "Sword"], "raiding_axe": [Color(0.6, 0.35, 0.3), "R.Axe"],
 	"iron_raiding_axe": [Color(0.7, 0.45, 0.4), "IR.Axe"], "helmet": [Color(0.5, 0.55, 0.65), "Helm"],
 	"chest_armor": [Color(0.5, 0.55, 0.65), "Chest"], "leg_armor": [Color(0.5, 0.55, 0.65), "Legs"],
+	"tunic": [Color(0.82, 0.78, 0.66), "Tunic"], "trousers": [Color(0.72, 0.66, 0.54), "Pants"],
+	"hood": [Color(0.72, 0.66, 0.54), "Hood"],
 }
 const WORN_EMPTY := ["Head", "Body", "Legs"] # shown in empty armour slots, Items.ARMOR order
 

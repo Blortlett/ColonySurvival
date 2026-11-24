@@ -114,8 +114,11 @@ static func surplus(a: Agent) -> Dictionary:
 	for t in a.inv.tools:
 		seen[t.type] = seen.get(t.type, 0) + 1
 	for k in seen:
-		if seen[k] > 1:
-			out["tool:" + k] = seen[k] - 1
+		var keep := 1
+		if k in Items.CLOTH and a.worn.has(Items.wear_slot(k)):
+			keep = 0 # replaced by iron (or a spare): goes to storage
+		if seen[k] > keep:
+			out["tool:" + k] = seen[k] - keep
 	return out
 
 

@@ -63,7 +63,7 @@ func _ready() -> void:
 	var hint := Label.new()
 	hint.add_theme_font_size_override("font_size", 11)
 	hint.add_theme_color_override("font_color", Color(0.7, 0.7, 0.7))
-	hint.text = "Speed-up works in watch mode only:\nthe player always runs at 1x.\nIn watch mode: LMB inspect, RMB pan,\nC takes control of the selected agent.\nNumpad 1: debug kit (weapons, tools,\narrows, wood, stone)."
+	hint.text = "Speed-up works in watch mode only:\nthe player always runs at 1x.\nIn watch mode: LMB inspect, RMB pan,\nC takes control of the selected agent.\nNumpad 1: debug kit (weapons, tools,\narrows, wood, stone, hemp;\ncloth outfit worn)."
 	box.add_child(hint)
 	visible = false
 
@@ -145,16 +145,25 @@ func _toggle_watch() -> void:
 
 
 const KIT_TOOLS := ["spear", "club", "sword", "bow", "axe", "pickaxe", "pickaxe_t2"]
-const KIT_STACKS := {"arrow": 60, "wood": 40, "stone": 40} # wood/stone: 2 full stacks each
+const KIT_WEAR := ["tunic", "trousers", "hood"] # put on straight away (into empty worn slots)
+const KIT_STACKS := {"arrow": 60, "wood": 40, "stone": 40, "hemp": 20} # wood/stone: 2 full stacks each; hemp for cloth
 
 
-## Numpad 1: every weapon and gathering tool, arrows, wood and stone into the player's pack.
+## Numpad 1: every weapon and gathering tool, arrows, wood, stone and hemp into the player's
+## pack, and the cloth outfit worn (a piece goes into the pack instead if that slot is taken).
 ## Says what didn't fit if the pack fills up.
 func give_kit() -> void:
 	if player == null or not player.alive():
 		return
-	var inv: Inventory = player.body.inv
+	var a: Agent = player.body
+	var inv: Inventory = a.inv
 	var missed: Array[String] = []
+	for t in KIT_WEAR:
+		var slot := Items.wear_slot(t)
+		if not a.worn.has(slot):
+			a.worn[slot] = {"type": t, "dur": Items.DURABILITY[t]}
+		elif not inv.add_tool(t):
+			missed.append(t)
 	for t in KIT_TOOLS:
 		if not inv.add_tool(t):
 			missed.append(t)

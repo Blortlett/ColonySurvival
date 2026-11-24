@@ -49,7 +49,7 @@ static func move(a: Agent, station, src: String, si: int, dst: String, di: int) 
 	return true
 
 
-## Armour: only the matching piece goes into a worn slot; taking one off needs an empty
+## Armour: only a matching piece (iron or cloth for that slot) goes into a worn slot; taking one off needs an empty
 ## slot or a piece of the same kind to swap with.
 static func _move_armour(a: Agent, station, src: String, si: int, dst: String, di: int) -> bool:
 	if src == WORN and dst == WORN:
@@ -61,7 +61,7 @@ static func _move_armour(a: Agent, station, src: String, si: int, dst: String, d
 		if from == null:
 			return false
 		var e = from.entry(si)
-		if not Inventory.is_tool_entry(e) or e.type != Items.ARMOR[di]:
+		if not Inventory.is_tool_entry(e) or Items.wear_slot(e.type) != Items.ARMOR[di]:
 			return false
 		return _wear(a, from, si)
 	# src == WORN: take it off into slot di of dst.
@@ -76,7 +76,7 @@ static func _move_armour(a: Agent, station, src: String, si: int, dst: String, d
 		to.put_slot(di, a.worn[slot])
 		a.worn.erase(slot)
 		return true
-	if Inventory.is_tool_entry(cur) and cur.type == slot:
+	if Inventory.is_tool_entry(cur) and Items.wear_slot(cur.type) == slot:
 		return _wear(a, to, di)
 	return false
 
@@ -84,11 +84,12 @@ static func _move_armour(a: Agent, station, src: String, si: int, dst: String, d
 ## Put on the armour in slot i of `inv`; whatever was worn there takes its place.
 static func _wear(a: Agent, inv: Inventory, i: int) -> bool:
 	var e = inv.take_slot(i)
-	if not Inventory.is_tool_entry(e) or not e.type in Items.ARMOR:
+	if not Inventory.is_tool_entry(e) or Items.wear_slot(e.type) == "":
 		inv.put_slot(i, e)
 		return false
-	var old = a.worn.get(e.type)
-	a.worn[e.type] = e
+	var slot := Items.wear_slot(e.type)
+	var old = a.worn.get(slot)
+	a.worn[slot] = e
 	if old != null:
 		inv.put_slot(i, old)
 	return true
@@ -114,7 +115,7 @@ static func quick(a: Agent, station, src: String, si: int) -> bool:
 	var e = from.entry(si)
 	if e == null:
 		return false
-	if src == INV and chest == null and Inventory.is_tool_entry(e) and e.type in Items.ARMOR:
+	if src == INV and chest == null and Inventory.is_tool_entry(e) and Items.wear_slot(e.type) != "":
 		return _wear(a, from, si)
 	e = from.take_slot(si)
 	var left

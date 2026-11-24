@@ -274,7 +274,8 @@ func _gear_text(a: Agent) -> String:
 	parts.append("%s%s" % [w, " (%d/%d)" % [tool.dur, Items.DURABILITY[w]] if tool else ""])
 	for slot in Items.ARMOR:
 		if a.worn.has(slot):
-			parts.append("%s (%d/%d)" % [Items.label(slot), a.worn[slot].dur, Items.DURABILITY[slot]])
+			var piece: Dictionary = a.worn[slot]
+			parts.append("%s (%d/%d)" % [Items.label(piece.type), piece.dur, Items.DURABILITY[piece.type]])
 	if a.is_armoured():
 		parts.append("-%d%% damage" % int(round(a.armor_reduction() * 100)))
 	return ", ".join(parts)

@@ -19,13 +19,22 @@ const RECIPES := {
 	"chest_armor": {"iron_bar": 1},
 	"leg_armor": {"iron_bar": 1},
 	"iron_raiding_axe": {"iron_bar": 2, "handle": 1},
+	# Cloth (2026-11-24, start): weak peasant armour, hand-crafted from hemp anywhere.
+	"tunic": {"hemp": 4},
+	"trousers": {"hemp": 3},
+	"hood": {"hemp": 2},
 }
 const WORKSHOP_RECIPES := ["raiding_axe", "pickaxe_t2"] # must be crafted at a workshop (agreed)
 const ANVIL_RECIPES := ["sword", "helmet", "chest_armor", "leg_armor", "iron_raiding_axe"] # (agreed)
-const ARMOR := ["helmet", "chest_armor", "leg_armor"]
+const ARMOR := ["helmet", "chest_armor", "leg_armor"] # the worn slots (Agent.worn keys), and the iron piece for each
+## Cloth goes in the same worn slots as iron; iron replaces it (agreed 2026-11-24).
+const CLOTH := ["tunic", "trousers", "hood"]
+const WEAR_SLOT := {"tunic": "chest_armor", "trousers": "leg_armor", "hood": "helmet"}
 const GEAR_SET := ["sword", "helmet", "chest_armor", "leg_armor"] # one spare set per smeltery's crates
 const RAID_AXES := ["raiding_axe", "iron_raiding_axe"]
-const ARMOR_REDUCTION := {"helmet": 0.10, "chest_armor": 0.20, "leg_armor": 0.10} # add up: -40% for a set (v3, start)
+## Per worn piece (item type); they add up: -40% for an iron set (v3, start), -12% for cloth (start).
+const ARMOR_REDUCTION := {"helmet": 0.10, "chest_armor": 0.20, "leg_armor": 0.10,
+	"hood": 0.03, "tunic": 0.06, "trousers": 0.03}
 const ARROWS_PER_CRAFT := 5
 
 # Build costs (agreed).
@@ -69,7 +78,8 @@ const UPGRADE_COSTS := {
 }
 
 const DURABILITY := {"axe": 100, "pickaxe": 100, "spear": 60, "club": 60, "bow": 80, "raiding_axe": 60, "pickaxe_t2": 150,
-	"sword": 150, "helmet": 100, "chest_armor": 100, "leg_armor": 100, "iron_raiding_axe": 80} # v3 (start)
+	"sword": 150, "helmet": 100, "chest_armor": 100, "leg_armor": 100, "iron_raiding_axe": 80, # v3 (start)
+	"tunic": 40, "trousers": 40, "hood": 40} # cloth (start)
 
 # Workshop processing: machine, input per batch, output per batch, seconds per batch.
 const PROCESS := {
@@ -98,6 +108,18 @@ const WEAPONS := {
 
 static func is_tool(item: String) -> bool:
 	return DURABILITY.has(item)
+
+
+## The worn slot (an ARMOR entry) an item goes in, or "" if it isn't worn.
+static func wear_slot(item: String) -> String:
+	if item in ARMOR:
+		return item
+	return WEAR_SLOT.get(item, "")
+
+
+## Iron (1) beats cloth (0) in the same slot.
+static func armor_tier(item: String) -> int:
+	return 0 if item in CLOTH else 1
 
 
 ## Highest door / chest tier the economy can make yet (metal needs the anvil's recipes).

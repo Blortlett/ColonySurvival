@@ -30,7 +30,7 @@ var inv := Inventory.new(Cfg.AGENT_SLOTS)
 ## Hotbar slot the body holds (0-5), set by the player's controller. -1: the AI, which
 ## always fights with its best weapon.
 var held := -1
-var worn := {} # armour slot (helmet / chest_armor / leg_armor) -> {type, dur}; takes no inventory slots (v3)
+var worn := {} # armour slot (helmet / chest_armor / leg_armor) -> {type, dur}; takes no inventory slots (v3). Cloth (hood / tunic / trousers) uses the same slots (Items.WEAR_SLOT)
 var job: Job = null
 var path: Array[Vector2i] = []
 var path_i := 0
@@ -201,7 +201,7 @@ func fight_power() -> float:
 func armor_reduction() -> float:
 	var r := 0.0
 	for slot in worn:
-		r += Items.ARMOR_REDUCTION[slot]
+		r += Items.ARMOR_REDUCTION[worn[slot].type]
 	return r
 
 
@@ -210,11 +210,21 @@ func is_armoured() -> bool:
 
 
 ## Put on any armour carried for an empty slot (agents equip the best they own; agreed).
+## Iron replaces cloth in its slot; the cloth goes back into the pack where the iron was.
 func auto_equip() -> void:
 	for t in inv.tools.duplicate():
-		if t.type in Items.ARMOR and not worn.has(t.type):
+		var slot := Items.wear_slot(t.type)
+		if slot == "":
+			continue
+		var old = worn.get(slot)
+		if old == null:
 			inv.take_tool(t)
-			worn[t.type] = t
+			worn[slot] = t
+		elif Items.armor_tier(t.type) > Items.armor_tier(old.type):
+			var i := inv.slot_of(t)
+			inv.take_slot(i)
+			inv.put_slot(i, old)
+			worn[slot] = t
 
 
 ## Every hit taken costs each worn piece 1 durability; a piece at 0 breaks (agreed).

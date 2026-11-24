@@ -4,9 +4,16 @@ extends Node2D
 ## Sprites: legs turn to the movement direction (idle / walk / run by speed); the torso turns
 ## to the facing (see facing_of) and plays idle, walk, run, attack (attack_<weapon> when the
 ## set has one, e.g. the spear thrust), use, chop, pain and death;
-## a torso animation with an item (the axe in chop) draws it as a third sprite on top. All
-## sprites are one MultiMesh over a packed atlas (SpriteAtlas, mapped in BodySets), so 120+
-## agents cost one draw call. Under each agent a disc shows faction colour (grey if solo)
+## a torso animation with an item (the axe in chop) draws it as a sprite on top. Worn
+## clothing draws as outfit layers (BodySets outfits, one per slot), so the full stack per
+## agent is legs -> legs outfit -> torso -> torso outfit -> head outfit -> item (up to 6
+## sprites). The legs outfit follows the legs anim and timer; the torso and head outfits
+## follow the torso anim and timer (attack_<weapon>, carry, chop / mine / use, the alternate
+## punch). Which outfit a slot shows comes from Agent.worn via WEAR_OUTFIT; a worn piece
+## with no art yet (iron) draws nothing in its slot. Outfits get the hit flash too. A corpse
+## draws the torso death plus the death sheet of each outfit it wore. All sprites are one
+## MultiMesh over a packed atlas (SpriteAtlas, mapped in BodySets), so 120+ agents cost one
+## draw call. Under each agent a disc shows faction colour (grey if solo)
 ## with a mood rim; servant / leader pips, raider pennants, selection, path and labels draw
 ## on top. Zoomed far out the discs read better, so mode AUTO switches to them.
 ##
@@ -34,6 +41,18 @@ const CORPSE_SECS := 30.0 # sim seconds a body stays, fading over the last FADE
 const CORPSE_FADE := 6.0
 const MAX_CORPSES := 60
 const FLOATS := 16 # per instance: 2D transform 8, colour 4, custom 4
+const PER_AGENT := 6 # legs, legs outfit, torso, torso outfit, head outfit, item
+const PER_CORPSE := 4 # death, legs / torso / head outfit death
+const SLOTS := ["legs", "torso", "head"]
+## Worn item type -> [outfit slot, BodySets outfit name]. A slot whose outfit the body set has
+## no art for draws nothing (the body shows bare). Hook for iron armour: once spritekit draws
+## it and BodySets.OUTFITS lists "iron", these rows show it with no code change.
+const WEAR_OUTFIT := {
+	"tunic": ["torso", "peasant"], "trousers": ["legs", "peasant"], "hood": ["head", "peasant"],
+	"chest_armor": ["torso", "iron"], "leg_armor": ["legs", "iron"], "helmet": ["head", "iron"],
+}
+const OUTFIT_TINT := Color.WHITE # undyed for now; per-agent dye (plan §8.2) would go here
+const FLASH_COLOR := Color(1.0, 0.25, 0.2)
 
 var selected_id := -1
 var player: PlayerController = null # its E-harvest drives the body's use / chop (Main sets it)
@@ -79,6 +98,7 @@ class AnimState:
 	var last_arrows := 0 # an attack that used an arrow was a bow shot
 	var flash := 0.0
 	var stamp := 0
+	var wear := {} # outfit slot -> outfit name, from Agent.worn (see _update_wear)
 
 
 class Corpse:
@@ -88,6 +108,7 @@ class Corpse:
 	var ang: float
 	var t := 0.0 # animation time
 	var age := 0.0 # sim seconds
+	var wear := {} # outfit slot -> outfit name it died in
 
 
 func _ready() -> void:
@@ -192,7 +213,7 @@ func _update(real_dt: float) -> void:
 	var turn := 1.0 - exp(-TURN_RATE * maxf(real_dt, anim_dt))
 	var n := World.agent_list.size()
 	var count := 0
-	_reserve(n * 3 + _corpses.size())
+	_reserve(n * PER_AGENT + _corpses.size() * PER_CORPSE)
 	# Only agents on screen (plus a frame of margin) animate and draw; the rest just track
 	# position, hp and swings so nothing jumps when they come into view.
 	var view := _view
@@ -211,7 +232,12 @@ func _update(real_dt: float) -> void:
 		var col := c.tint
 		col.a = clampf((CORPSE_SECS - c.age) / CORPSE_FADE, 0.0, 1.0)
 		var death: Dictionary = c.body.torso.death
-		count = _put(count, c.pos, c.ang + c.body.angle, death.px, col, Atlas.frame(death, c.t))
+		var cang: float = c.ang + c.body.angle
+		count = _put(count, c.pos, cang, death.px, col, Atlas.frame(death, c.t))
+		var ocol := OUTFIT_TINT
+		ocol.a = col.a
+		for slot in SLOTS:
+			count = _put_outfit(count, c.body, c.wear, slot, "death", c.pos, cang, ocol, c.t)
 		i += 1
 	for a in World.agent_list:
 		var st: AnimState = _states.get(a.id)
@@ -226,6 +252,7 @@ func _update(real_dt: float) -> void:
 			st.last_cd = a.attack_cd
 			st.last_hp = a.hp
 			st.last_arrows = a.inv.count("arrow")
+			_update_wear(a, st) # so a body that dies off screen still has its clothes
 			continue
 		# Movement.
 		if sim_dt > 0.0:
@@ -285,18 +312,28 @@ func _update(real_dt: float) -> void:
 				st.torso_t = 0.0
 		st.torso_anim = torso
 		st.torso_t += anim_dt
-		# Instances: legs, then torso.
+		# Instances: legs, legs outfit, torso, torso outfit, head outfit, item.
+		_update_wear(a, st)
 		var col := st.tint
+		var ocol := OUTFIT_TINT
+		var icol := Color.WHITE
 		if st.flash > 0.0:
-			col = col.lerp(Color(1.0, 0.25, 0.2), st.flash / FLASH_SECS)
+			var f := st.flash / FLASH_SECS
+			col = col.lerp(FLASH_COLOR, f)
+			ocol = ocol.lerp(FLASH_COLOR, f)
+			icol = icol.lerp(FLASH_COLOR, f)
 		var ta: Dictionary = st.body.torso[torso]
-		count = _put(count, a.pos, st.legs_ang + st.body.angle, la.px, col, Atlas.frame(la, st.legs_t))
-		count = _put(count, a.pos, st.torso_ang + st.body.angle, ta.px, col,
-			Atlas.frame(ta, st.torso_t, torso == "attack" and st.alt))
+		var lang: float = st.legs_ang + st.body.angle
+		var tang: float = st.torso_ang + st.body.angle
+		var alt := torso == "attack" and st.alt
+		count = _put(count, a.pos, lang, la.px, col, Atlas.frame(la, st.legs_t))
+		count = _put_outfit(count, st.body, st.wear, "legs", legs, a.pos, lang, ocol, st.legs_t)
+		count = _put(count, a.pos, tang, ta.px, col, Atlas.frame(ta, st.torso_t, alt))
+		count = _put_outfit(count, st.body, st.wear, "torso", torso, a.pos, tang, ocol, st.torso_t, alt)
+		count = _put_outfit(count, st.body, st.wear, "head", torso, a.pos, tang, ocol, st.torso_t, alt)
 		var item: Dictionary = st.body.items.get(torso, {})
 		if not item.is_empty():
-			var icol := Color.WHITE.lerp(Color(1.0, 0.25, 0.2), st.flash / FLASH_SECS) if st.flash > 0.0 else Color.WHITE
-			count = _put(count, a.pos, st.torso_ang + st.body.angle, item.px, icol, Atlas.frame(item, st.torso_t))
+			count = _put(count, a.pos, tang, item.px, icol, Atlas.frame(item, st.torso_t))
 	# Agents gone since last frame died (or left): leave a body.
 	if _states.size() > n:
 		for id in _states.keys():
@@ -308,6 +345,7 @@ func _update(real_dt: float) -> void:
 				c.tint = st.tint
 				c.pos = st.last_pos
 				c.ang = st.torso_ang
+				c.wear = st.wear
 				_corpses.append(c)
 		while _corpses.size() > MAX_CORPSES:
 			_corpses.remove_at(0)
@@ -374,6 +412,35 @@ func _work_anim(a: Agent, st: AnimState) -> String:
 	if _mines(a, node) and st.body.torso.has("mine"):
 		return "mine"
 	return "use"
+
+
+## Which outfit each slot shows: the body set's art for what the agent wears there (worn
+## pieces with no art, like iron for now, leave the slot bare).
+func _update_wear(a: Agent, st: AnimState) -> void:
+	if a.worn.is_empty():
+		if not st.wear.is_empty():
+			st.wear = {}
+		return
+	var w := {}
+	for k in a.worn:
+		var e = a.worn[k]
+		var m: Array = WEAR_OUTFIT.get(e.type, [])
+		if not m.is_empty() and st.body.outfits.get(m[0], {}).has(m[1]):
+			w[m[0]] = m[1]
+	st.wear = w
+
+
+## The outfit layer for `slot` over body anim `anim` at time t, if the body wears one there
+## with art for that anim; returns the next instance index.
+func _put_outfit(i: int, body: Dictionary, wear: Dictionary, slot: String, anim: String, pos: Vector2,
+		ang: float, col: Color, t: float, alt := false) -> int:
+	var outfit: String = wear.get(slot, "")
+	if outfit == "":
+		return i
+	var o: Dictionary = body.outfits[slot][outfit].get(anim, {})
+	if o.is_empty():
+		return i
+	return _put(i, pos, ang, o.px, col, Atlas.frame(o, t, alt))
 
 
 func _new_state(a: Agent) -> AnimState:

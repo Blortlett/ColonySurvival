@@ -254,6 +254,8 @@ def body_layer(skin, pose, outfit=()):
 		px_ |= lay.draw_part(lambda px, py: None if face_open(px, py) else cap(px, py), WOOL, bands=(0.35, 0.93), inner=px_)
 		return px_
 	# arms raised over the head ("over": an overhead swing) draw after it, so on top
+	tunic_px = set(body)  # the tunic's own cloth: a sleeve lying on it draws no line there
+	tunic_col = {k: lay.px[k] for k in tunic_px}
 	over = pose.get("over", False)
 	if over:
 		body |= draw_head()
@@ -269,7 +271,17 @@ def body_layer(skin, pose, outfit=()):
 		arm_px = lay.draw_part(arm, sk, bands=(0.5, 0.86), inner=body, seam=seam)
 		if tunic:  # short sleeve from the shoulder to just above the elbow; its hem is a soft line
 			cuff = (sh[0] + (el[0] - sh[0]) * SLEEVE, sh[1] + (el[1] - sh[1]) * SLEEVE)
-			arm_px |= lay.draw_part(capsule(*sh, *cuff, 1.7), LINEN, bands=(0.5, 0.86), inner=body | arm_px, seam=seam)
+			sleeve = capsule(*sh, *cuff, 1.7)
+			sl_px = lay.draw_part(sleeve, LINEN, bands=(0.5, 0.86), inner=body | arm_px,
+				seam=lambda x, y, seam=seam: seam(x, y) or (int(x), int(y)) in tunic_px)
+			# along the sleeve's sides on the tunic, the bare arm's soft outline would peek out
+			# where the sleeve drew no line: the tunic shows there (not at the hem)
+			vx, vy = cuff[0] - sh[0], cuff[1] - sh[1]
+			L2 = vx * vx + vy * vy or 1e-6
+			for k in footprint(sleeve) - sl_px - arm_px - (body - tunic_px):
+				if k in tunic_px and ((k[0] + 0.5 - sh[0]) * vx + (k[1] + 0.5 - sh[1]) * vy) / L2 < 0.8:
+					lay.px[k] = tunic_col[k]
+			arm_px |= sl_px
 		body |= arm_px
 	if pose.get("tool_on_arm"):  # resting on the shoulder/arm: only the hands cover it
 		arm_cov = hand_cov
@@ -811,20 +823,40 @@ def strip(frames):
 	return im
 
 
+LEGS_IDLE = {"dl": 0.5, "dr": -0.5}
+
+
+def outfit_sheets(sheets, outfit, kind, anim, poses):
+	"""Per-slot outfit sheets for one animation, frame for frame with its naked sheet, per
+	skin: kind "legs" diffs legs_layer (legs slot only), kind "body" diffs body_layer for the
+	torso and head slots, plus the legs slot when the body draws legs itself (death)."""
+	slots = OUTFITS[outfit]
+	naked = sheets[f"human_{kind}_{anim}"]
+	if kind == "legs":
+		todo = [("legs", lambda s, p: legs_layer(s, p, slots["legs"]).image())]
+	else:
+		todo = [(slot, lambda s, p, g=slots[slot]: body_layer(s, p, g)[0].image()) for slot in ("torso", "head")]
+		if any("feet" in p for p in poses):
+			todo.insert(0, ("legs", lambda s, p: body_layer(s, p, slots["legs"])[0].image()))
+	for slot, dressed in todo:
+		sheets[f"human_outfit_{slot}_{outfit}_{anim}"] = {
+			s: [outfit_layer(dressed(s, p), n) for p, n in zip(poses, naked[s])] for s in SKINS}
+
+
 def build():
 	os.makedirs(OUT, exist_ok=True)
 	sheets = {}
 	walk = walk_poses()
-	sheets["human_legs_idle"] = {s: [legs_layer(s, {"dl": 0.5, "dr": -0.5}).image()] for s in SKINS}
+	body_anims = [("idle", [IDLE_HANDS]), ("walk", walk), ("gather", gather_poses()),
+		("punch_right", PUNCH_R), ("punch_left", PUNCH_L), ("death", DEATH)]
+	sheets["human_legs_idle"] = {s: [legs_layer(s, LEGS_IDLE).image()] for s in SKINS}
 	sheets["human_legs_walk"] = {s: [legs_layer(s, p).image() for p in walk] for s in SKINS}
-	sheets["human_body_idle"] = {s: [body_layer(s, IDLE_HANDS)[0].image()] for s in SKINS}
-	sheets["human_body_walk"] = {s: [body_layer(s, p)[0].image() for p in walk] for s in SKINS}
-	sheets["human_body_gather"] = {s: [body_layer(s, p)[0].image() for p in gather_poses()] for s in SKINS}
-	sheets["human_body_punch_right"] = {s: [body_layer(s, p)[0].image() for p in PUNCH_R] for s in SKINS}
-	sheets["human_body_punch_left"] = {s: [body_layer(s, p)[0].image() for p in PUNCH_L] for s in SKINS}
-	sheets["human_body_death"] = {s: [body_layer(s, p)[0].image() for p in DEATH] for s in SKINS}
+	for anim, poses in body_anims:
+		sheets["human_body_" + anim] = {s: [body_layer(s, p)[0].image() for p in poses] for s in SKINS}
+	outfit_jobs = [("legs", "idle", [LEGS_IDLE]), ("legs", "walk", walk)] + [("body", a, ps) for a, ps in body_anims]
 	for name, draw_item, to_pose, poses in TOOL_ANIMS:
 		body, item = {}, []
+		outfit_jobs.append(("body", name, [to_pose(p) for p in poses]))
 		for s in SKINS:
 			body[s] = []
 			for p in poses:
@@ -841,6 +873,9 @@ def build():
 					item.append(il.image())
 		sheets["human_body_" + name] = body
 		sheets["item_" + name] = {"": item}
+	for outfit in OUTFITS:
+		for kind, anim, poses in outfit_jobs:
+			outfit_sheets(sheets, outfit, kind, anim, poses)
 	for name, by_skin in sheets.items():
 		for s, frames in by_skin.items():
 			fn = f"{name}_{s}_Sheet.png" if s else f"{name}_Sheet.png"
@@ -942,7 +977,60 @@ def peasant_preview(png_path, gif_path, scale=7):
 	gif[0].save(gif_path, save_all=True, append_images=gif[1:], duration=100, loop=0, disposal=2, optimize=False)
 
 
+# Outfit review GIFs: (gif name, [(body anim, fps, loops)]); a 1-frame idle holds ~0.8 s and
+# death holds its last frame. Walk anims use the walk legs, the rest the idle legs.
+OUTFIT_GIFS = [("unarmed", [("idle", 1, 1), ("walk", 10, 2), ("gather", 9, 2), ("punch_right", 14, 2),
+	("punch_left", 14, 2), ("death", 8, 1)])] + [
+	(t, [(f"{t}_idle", 1, 1), (f"{t}_walk", 10, 2), (act, fps, 3)]) for t, act, fps in (
+		("axe", "axe_swing", 10), ("pickaxe", "pickaxe_swing", 9), ("spear", "spear_thrust", 14),
+		("club", "club_swing", 14), ("sword", "sword_swing", 16), ("bow", "bow_fire", 10))]
+
+
+def outfit_gifs(sheets, outfit, out_dir, scale=7):
+	"""One GIF per entry of OUTFIT_GIFS: naked, then dressed, light skin then dark, side by side,
+	every layer composited in game order (legs, legs outfit, body, torso, head outfit, item)."""
+	S = F * scale
+	big = lambda im: im.resize((S, S), Image.NEAREST)
+	paths = []
+	for gif_name, seq in OUTFIT_GIFS:
+		frames, durs = [], []
+		for anim, fps, loops in seq:
+			legs = "walk" if anim.endswith("walk") else "idle"
+			body = sheets["human_body_" + anim]
+			n = len(body["light"])
+			for _ in range(loops):
+				for i in range(n):
+					im = Image.new("RGBA", (4 * S, S), GRASS + (255,))
+					for j, (s, dressed) in enumerate((("light", False), ("light", True), ("dark", False), ("dark", True))):
+						ls = sheets["human_legs_" + legs][s]
+						parts = [] if anim == "death" else [ls[i % len(ls)]]  # the corpse draws its own legs
+						if dressed and parts:
+							parts.append(sheets[f"human_outfit_legs_{outfit}_{legs}"][s][i % len(ls)])
+						parts.append(body[s][i])
+						if dressed:
+							if anim == "death":
+								parts.append(sheets[f"human_outfit_legs_{outfit}_death"][s][i])
+							parts += [sheets[f"human_outfit_{sl}_{outfit}_{anim}"][s][i] for sl in ("torso", "head")]
+						if "item_" + anim in sheets:
+							parts.append(sheets["item_" + anim][""][i])
+						c = Image.new("RGBA", (F, F), (0, 0, 0, 0))
+						for p in parts:
+							c = Image.alpha_composite(c, p)
+						im.alpha_composite(big(c), (j * S, 0))
+					frames.append(im.convert("RGB"))
+					durs.append(800 if n == 1 else (1200 if anim == "death" and i == n - 1 else round(1000 / fps)))
+		path = os.path.join(out_dir, f"{outfit}_{gif_name}.gif")
+		frames[0].save(path, save_all=True, append_images=frames[1:], duration=durs, loop=0, disposal=2, optimize=False)
+		paths.append(path)
+	return paths
+
+
 if __name__ == "__main__":
+	if len(sys.argv) > 1 and sys.argv[1] == "--outfit-gifs":  # rebuilds art/, then the outfit review GIFs
+		d = os.path.join(os.path.dirname(os.path.abspath(__file__)), "preview")
+		for p in outfit_gifs(build(), "peasant", d):
+			print("wrote", p)
+		sys.exit(0)
 	if len(sys.argv) > 1 and sys.argv[1] == "--peasant":  # look test only; leaves art/ untouched
 		d = os.path.join(os.path.dirname(os.path.abspath(__file__)), "preview")
 		peasant_preview(os.path.join(d, "peasant_preview.png"), os.path.join(d, "peasant_walk.gif"))
