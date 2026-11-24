@@ -196,6 +196,8 @@ def body_layer(skin, pose):
 		ellipse(*rot(22.6 + ox + sdx, 30.4 - sdy, tw), 2.9, 2.9),
 	)
 	body = lay.draw_part(torso, sk)
+	# a tool held low on the right (spear) passes under the right shoulder
+	under = footprint(ellipse(*rot(22.6 + ox + sdx, 30.4 - sdy, tw), 2.9, 2.9)) if pose.get("under_r_shoulder") else set()
 	# arms: shoulder -> elbow -> hand, one continuous part each (no inner outline at the
 	# elbow or the shoulder); right arm first so the left reads on top where hands meet
 	arm_cov = set()
@@ -214,7 +216,7 @@ def body_layer(skin, pose):
 		return hr if dx < 0.9 - 1.6 * dy * dy else sk
 	head_cov = footprint(head)
 	lay.draw_part(head, head_mat, bands=(0.4, 0.9))
-	return lay, arm_cov | head_cov
+	return lay, arm_cov | head_cov | under
 
 
 def legs_layer(skin, pose):
@@ -245,6 +247,21 @@ def axe(pommel, ang):
 		P(L - 4.6, -4.6), P(L - 2.2, -1.2)])
 	edge = lambda x, y: (x - px) * vx + (y - py) * vy < -3.6
 	return haft, head, edge
+
+
+def spear(butt, ang):
+	"""Wooden spear with an iron leaf head, butt at `butt`, pointing along `ang`."""
+	ux, uy = math.cos(ang), math.sin(ang)
+	vx, vy = -uy, ux
+	px, py = butt
+
+	def P(u, v):
+		return px + ux * u + vx * v, py + uy * u + vy * v
+	L = 20.0
+	shaft = capsule(*P(0, 0), *P(L, 0), 0.65)
+	head = polygon([P(L - 0.8, 0.9), P(L + 1.0, 1.6), P(L + 3.8, 0), P(L + 1.0, -1.6), P(L - 0.8, -0.9)])
+	edge = lambda x, y: abs((x - px) * vx + (y - py) * vy) < 0.5  # bright spine down the blade
+	return shaft, head, edge
 
 
 def item_layer(item, occlude):
@@ -327,9 +344,39 @@ AXE_SWING = [
 AXE_IDLE = {"twist": D(6), "pommel": (26.0, 31.5), "ang": D(60)}
 
 
+# Two-handed spear thrust from a side-on stance: the shoulders turn left-side-forward (positive
+# twist puts the right shoulder back) so the right hand sits just in front of the right
+# shoulder on the butt, then the right shoulder drives through as the point goes straight
+# ahead; hold, recover. The left hand guides further up the shaft and stays forward, in front
+# of the head, while the shaft slides through it (grip_l = its distance from the butt).
+SPEAR_THRUST = [
+	{"twist": D(25), "pommel": (12.5, 26.8), "ang": D(-2), "grip_l": 15.0},   # ready (side-on)
+	{"twist": D(36), "pommel": (10.5, 27.2), "ang": D(-1), "grip_l": 16.5},   # draw back: shaft slides through the left hand
+	{"twist": D(14), "pommel": (18.5, 26.6), "ang": D(0), "grip_l": 11.0},    # drive: right shoulder comes through
+	{"twist": D(4), "pommel": (23.0, 26.8), "ang": D(0), "grip_l": 8.0},      # full reach, arms out past the head
+	{"twist": D(5), "pommel": (22.3, 26.9), "ang": D(0), "grip_l": 8.0},      # hold
+	{"twist": D(16), "pommel": (16.0, 26.8), "ang": D(-1), "grip_l": 12.0},   # recover
+]
+SPEAR_IDLE = SPEAR_THRUST[0]
+
+
 def axe_pose(p):
 	hl, hr = grip(p["pommel"], p["ang"])
 	return dict(p, hand_l=hl, hand_r=hr)
+
+
+def spear_pose(p):
+	hr, hl = grip(p["pommel"], p["ang"], 3.0, p.get("grip_l", 8.0))  # right hand near the butt, left forward
+	return dict(p, hand_l=hl, hand_r=hr, under_r_shoulder=True)
+
+
+# name -> (item drawing, pose -> hands); each tool has <tool>_idle and an action strip.
+TOOL_ANIMS = [
+	("axe_idle", axe, axe_pose, [AXE_IDLE]),
+	("axe_swing", axe, axe_pose, AXE_SWING),
+	("spear_idle", spear, spear_pose, [SPEAR_IDLE]),
+	("spear_thrust", spear, spear_pose, SPEAR_THRUST),
+]
 
 
 # ---------------------------------------------------------------- output
@@ -353,16 +400,16 @@ def build():
 	sheets["human_body_punch_right"] = {s: [body_layer(s, p)[0].image() for p in PUNCH_R] for s in SKINS}
 	sheets["human_body_punch_left"] = {s: [body_layer(s, p)[0].image() for p in PUNCH_L] for s in SKINS}
 	sheets["human_body_death"] = {s: [body_layer(s, p)[0].image() for p in DEATH] for s in SKINS}
-	for name, poses in (("axe_idle", [AXE_IDLE]), ("axe_swing", AXE_SWING)):
+	for name, draw_item, to_pose, poses in TOOL_ANIMS:
 		body, item = {}, []
 		for s in SKINS:
 			body[s] = []
 			for p in poses:
-				p = axe_pose(p)
+				p = to_pose(p)
 				lay, occ = body_layer(s, p)
 				body[s].append(lay.image())
 				if s == "light":
-					item.append(item_layer(axe(p["pommel"], p["ang"]), occ).image())
+					item.append(item_layer(draw_item(p["pommel"], p["ang"]), occ).image())
 		sheets["human_body_" + name] = body
 		sheets["item_" + name] = {"": item}
 	for name, by_skin in sheets.items():
@@ -382,7 +429,7 @@ def preview(sheets, path, scale=8):
 		rows.append([Image.alpha_composite(legs_i, b) for b in sheets["human_body_gather"][s]])
 		rows.append([Image.alpha_composite(legs_i, b) for b in sheets["human_body_punch_right"][s] + sheets["human_body_punch_left"][s]])
 		rows.append(list(sheets["human_body_death"][s]))
-		for name in ("axe_idle", "axe_swing"):
+		for name in [t[0] for t in TOOL_ANIMS]:
 			rows.append([Image.alpha_composite(Image.alpha_composite(legs_i, b), it)
 				for b, it in zip(sheets["human_body_" + name][s], sheets["item_" + name][""])])
 	cols = max(len(r) for r in rows)

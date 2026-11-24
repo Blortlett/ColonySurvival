@@ -2,7 +2,8 @@ extends Node2D
 ## Agents as layered top-down sprites (Summer Roadmap §3), or the old discs.
 ##
 ## Sprites: legs turn to the movement direction (idle / walk / run by speed); the torso turns
-## to the facing (see facing_of) and plays idle, walk, run, attack, use, chop, pain and death;
+## to the facing (see facing_of) and plays idle, walk, run, attack (attack_<weapon> when the
+## set has one, e.g. the spear thrust), use, chop, pain and death;
 ## a torso animation with an item (the axe in chop) draws it as a third sprite on top. All
 ## sprites are one MultiMesh over a packed atlas (SpriteAtlas, mapped in BodySets), so 120+
 ## agents cost one draw call. Under each agent a disc shows faction colour (grey if solo)
@@ -66,7 +67,7 @@ class AnimState:
 	var legs_t := 0.0
 	var torso_anim := "idle"
 	var torso_t := 0.0
-	var oneshot := "" # "attack" / "pain" while playing
+	var oneshot := "" # "attack" (or "attack_<weapon>") / "pain" while playing
 	var alt := false # alternate punch arm
 	var last_hp := 0.0
 	var last_cd := 0.0
@@ -233,12 +234,13 @@ func _update(real_dt: float) -> void:
 		var hurry := a.job != null and HURRY_JOBS.has(a.job.kind)
 		# Swings and hits (attack_cd jumps up when a swing lands, hp drops on a hit).
 		if a.attack_cd > st.last_cd + 0.01:
-			st.oneshot = "attack"
+			var w := "attack_" + a.melee_weapon()
+			st.oneshot = w if st.body.torso.has(w) else "attack"
 			st.torso_t = 0.0
 			st.alt = not st.alt
 		if a.hp < st.last_hp - 0.001:
 			st.flash = FLASH_SECS
-			if st.oneshot != "attack" and st.body.torso.has("pain"):
+			if not st.oneshot.begins_with("attack") and st.body.torso.has("pain"):
 				st.oneshot = "pain"
 				st.torso_t = 0.0
 		st.last_cd = a.attack_cd
