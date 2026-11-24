@@ -38,6 +38,8 @@ IRON = [(22, 22, 30), (92, 96, 108), (148, 154, 166), (214, 220, 230)]
 LINEN = [(48, 40, 32), (170, 160, 136), (208, 200, 176), (232, 226, 206)]   # tunic
 WOOL = [(44, 34, 28), (146, 130, 106), (180, 166, 140), (202, 190, 164)]    # trousers, hood
 ROPE = (128, 108, 78)                                                       # belt (darker band)
+# Iron armour: plate in IRON, mail (upper arms, thighs) a darker steel with a ring dither.
+MAIL = [(16, 16, 22), (66, 70, 82), (106, 110, 124), (136, 142, 156)]
 
 
 # ---------------------------------------------------------------- shapes
@@ -182,14 +184,26 @@ HIP_L = (22.5, 21.5)
 HIP_R = (22.5, 26.5)
 
 
-def _leg(lay, sk, hip, foot, toe, trousers):
+def mail_mat(px, py, h):
+	"""Mail: a 1px checker of two tones reads as rings at this size."""
+	return MAIL if (int(px) + int(py)) % 2 else [MAIL[0], MAIL[1], MAIL[1], MAIL[1]]
+
+
+def _leg(lay, sk, hip, foot, toe, outfit=()):
 	"""One leg, hip -> foot (bare foot ellipse ahead of it along `toe` = +-1). Trousers draw
-	over it in wool to the ankle; their cuff over the foot is a soft line, not an outline."""
+	over it in wool to the ankle; their cuff over the foot is a soft line, not an outline.
+	Greaves: a mail thigh, an iron greave from the knee to the ankle and an iron sabaton
+	over the foot (the greave's edge over the sabaton is a soft line)."""
 	leg = union(capsule(*hip, *foot, 1.7), ellipse(foot[0] + 0.6 * toe, foot[1], 2.0, 1.5))
 	skin_px = lay.draw_part(leg, sk, bands=(0.4, 0.85))
-	if trousers:
-		ax, ay = foot[0] - 0.5 * toe, foot[1]  # ankle, just behind the foot's centre
+	ax, ay = foot[0] - 0.5 * toe, foot[1]  # ankle, just behind the foot's centre
+	if "trousers" in outfit:
 		lay.draw_part(union(capsule(*hip, ax, ay, 1.95), ellipse(*hip, 2.1, 2.1)), WOOL, bands=(0.4, 0.85), inner=skin_px)
+	if "greaves" in outfit:
+		kx, ky = hip[0] + (ax - hip[0]) * 0.45, hip[1] + (ay - hip[1]) * 0.45  # knee
+		px_ = lay.draw_part(union(capsule(*hip, kx, ky, 2.0), ellipse(*hip, 2.2, 2.2)), mail_mat, bands=(0.4, 0.85), inner=skin_px)
+		px_ |= lay.draw_part(ellipse(foot[0] + 0.7 * toe, foot[1], 2.4, 1.85), IRON, bands=(0.4, 0.9), inner=skin_px | px_)
+		lay.draw_part(capsule(kx, ky, ax, ay, 2.05), IRON, bands=(0.45, 0.9), inner=skin_px | px_)
 
 
 def body_layer(skin, pose, outfit=()):
@@ -198,6 +212,7 @@ def body_layer(skin, pose, outfit=()):
 	outfit: garments to draw dressed ("tunic", "hood", "trousers" for the death legs), in the
 	same draw order as the naked body, so outfit layer = dressed - naked (see outfit_layer)."""
 	tunic, hood = "tunic" in outfit, "hood" in outfit
+	plate, helmet = "plate" in outfit, "helmet" in outfit
 	tw = pose.get("twist", 0.0)
 	ox = pose.get("ox", 0.0)
 	trx = pose.get("torso_rx", 4.6)
@@ -208,16 +223,27 @@ def body_layer(skin, pose, outfit=()):
 	if "feet" in pose:
 		for hy, foot in zip((21.5, 26.5), pose["feet"]):
 			hip = (C - 1.6 + ox + trx * 0.45, C + (hy - C) * 0.8)
-			_leg(lay, sk, hip, foot, 1, "trousers" in outfit)
+			_leg(lay, sk, hip, foot, 1, outfit)
 	# torso + shoulders (twisted around the centre); the tunic is the same shape grown a little
-	g = 0.6 if tunic else 0.0
+	g = 0.6 if tunic else (PLATE_G if plate else 0.0)
 	tcx = C - 1.6 + ox
+	sball = (rot(22.6 + ox + sdx, 30.4 - sdy, tw), rot(22.6 + ox + sdx, 17.6 + sdy, tw))  # right, left
 	torso = union(
 		ellipse(tcx, C, trx + g, 8.4 - 2.4 * lie + g, tw),
-		ellipse(*rot(22.6 + ox + sdx, 17.6 + sdy, tw), 2.9 + g, 2.9 + g),
-		ellipse(*rot(22.6 + ox + sdx, 30.4 - sdy, tw), 2.9 + g, 2.9 + g),
+		ellipse(*sball[1], 2.9 + g, 2.9 + g),
+		ellipse(*sball[0], 2.9 + g, 2.9 + g),
 	)
-	if tunic:
+	if plate:
+		ca, sa = math.cos(tw), math.sin(tw)
+
+		def plate_mat(px, py, h):
+			u = (px - tcx) * ca + (py - C) * sa   # along the facing
+			v = -(px - tcx) * sa + (py - C) * ca  # across
+			if abs(u - PLATE_RIM) < 0.5 and h > 0:  # the breastplate's lower rim
+				return [IRON[0], IRON[1], IRON[1], IRON[1]]
+			return IRON
+		body = lay.draw_part(torso, plate_mat, bands=PLATE_BANDS)
+	elif tunic:
 		ca, sa = math.cos(tw), math.sin(tw)
 
 		def torso_mat(px, py, h):
@@ -245,7 +271,23 @@ def body_layer(skin, pose, outfit=()):
 		dx, dy = px - hx, (py - hy) / 3.5
 		return dx > HOOD_OPEN - HOOD_SIDE * dy * dy
 
+	def helm_open(px, py):
+		dx, dy = px - hx, (py - hy) / 3.5
+		return dx > HELM_OPEN - HELM_SIDE * dy * dy
+
 	def draw_head():
+		if helmet:
+			# round iron cap over the hair, the face showing below its brow, and a nose guard
+			px_ = lay.draw_part(head, lambda px, py, h: sk if helm_open(px, py) else hr, bands=(0.4, 0.9))
+			cap = ellipse(hx - HELM_BACK, hy, HELM_R, HELM_R)
+
+			def helm_mat(px, py, h):
+				if abs(py - hy) < 0.5 and px < hx + 0.2 and h > 0.5:  # the ridge over the crown
+					return [IRON[0], IRON[3], IRON[3], IRON[3]]
+				return IRON
+			px_ |= lay.draw_part(lambda px, py: None if helm_open(px, py) else cap(px, py), helm_mat, bands=(0.35, 0.86), inner=px_)
+			px_ |= lay.draw_part(capsule(hx + 1.0, hy, hx + NOSE_GUARD, hy, 0.6), IRON, bands=(0.3, 0.9), inner=px_)
+			return px_
 		if not hood:
 			return lay.draw_part(head, head_mat, bands=(0.4, 0.9))
 		# hooded: the whole opening is face (the hair is tucked under the cloth)
@@ -282,6 +324,21 @@ def body_layer(skin, pose, outfit=()):
 				if k in tunic_px and ((k[0] + 0.5 - sh[0]) * vx + (k[1] + 0.5 - sh[1]) * vy) / L2 < 0.8:
 					lay.px[k] = tunic_col[k]
 			arm_px |= sl_px
+		if plate:  # mail down the upper arm, then the pauldron caps the shoulder over it
+			cuff = (sh[0] + (el[0] - sh[0]) * MAIL_LEN, sh[1] + (el[1] - sh[1]) * MAIL_LEN)
+			arm_px |= lay.draw_part(capsule(*sh, *cuff, 1.75), mail_mat, bands=(0.5, 0.86), inner=body | arm_px, seam=seam)
+			bx, by = sball[0] if side > 0 else sball[1]
+			cw, sw = math.cos(tw), math.sin(tw)  # back along the facing, out to this side
+			pcx = bx - cw * PAUL_BACK - sw * side * PAUL_OUT
+			pcy = by - sw * PAUL_BACK + cw * side * PAUL_OUT
+			ox_, oy_ = -sw * side, cw * side  # outward, to this side
+
+			def paul_mat(px, py, h, pcx=pcx, pcy=pcy, ox_=ox_, oy_=oy_):
+				o = (px - pcx) * ox_ + (py - pcy) * oy_
+				if PAUL_LAME[0] < o < PAUL_LAME[1] and h > 0:  # the lame: a second plate below the cap
+					return [IRON[0], IRON[1], IRON[1], IRON[1]]
+				return IRON
+			arm_px |= lay.draw_part(ellipse(pcx, pcy, PAUL_R, PAUL_R), paul_mat, bands=(0.4, 0.9), inner=body | arm_px)
 		body |= arm_px
 	if pose.get("tool_on_arm"):  # resting on the shoulder/arm: only the hands cover it
 		arm_cov = hand_cov
@@ -296,7 +353,7 @@ def legs_layer(skin, pose, outfit=()):
 	lay = Layer()
 	sk = SKINS[skin]
 	for (hx, hy), d in ((HIP_L, pose["dl"]), (HIP_R, pose["dr"])):
-		_leg(lay, sk, (hx, hy), (hx + d, hy), 1 if d >= 0 else -1, "trousers" in outfit)
+		_leg(lay, sk, (hx, hy), (hx + d, hy), 1 if d >= 0 else -1, outfit)
 	return lay
 
 
@@ -305,9 +362,26 @@ BELT_U = 3.6      # rope belt: distance ahead of the torso centre, along the fac
 SLEEVE = 0.35     # sleeve length as a fraction of shoulder -> elbow
 HOOD_OPEN = 0.4   # x of the hood's face opening at its middle, ahead of the head centre
 HOOD_SIDE = 3.2   # how far back the opening sweeps toward the sides of the face
+# Iron armour tuning (start values).
+PLATE_G = 0.9            # breastplate: the torso grown by this much (tunic: 0.6)
+PLATE_BANDS = (0.45, 0.94) # plate shading bands (a wider highlight than skin reads as metal)
+PLATE_RIM = 3.4          # breastplate's lower rim: distance ahead of the torso centre
+MAIL_LEN = 0.8           # mail sleeve length as a fraction of shoulder -> elbow
+PAUL_R = 2.8             # pauldron radius (shoulder ball: 2.9)
+PAUL_OUT = 0.5           # pauldron centre: out past the shoulder ball, sideways ...
+PAUL_BACK = 0.8          # ... and back, so it caps the shoulder and leaves the elbow free
+PAUL_LAME = (1.0, 1.9)   # the darker lame band across the pauldron, distance out from its centre
+HELM_R = 3.9             # helmet cap radius (head: 3.2 x 3.5)
+HELM_BACK = 0.4          # cap centre behind the head centre
+HELM_OPEN = 1.0          # face opening below the brow (like HOOD_OPEN, but lower on the face)
+HELM_SIDE = 3.0
+NOSE_GUARD = 3.4         # nose guard tip, ahead of the head centre
 
 # Outfit slots and the garments drawn for each (plan §4.1).
-OUTFITS = {"peasant": {"legs": ("trousers",), "torso": ("tunic",), "head": ("hood",)}}
+OUTFITS = {
+	"peasant": {"legs": ("trousers",), "torso": ("tunic",), "head": ("hood",)},
+	"iron": {"legs": ("greaves",), "torso": ("plate",), "head": ("helmet",)},
+}
 
 
 def outfit_layer(dressed, naked):
@@ -977,6 +1051,60 @@ def peasant_preview(png_path, gif_path, scale=7):
 	gif[0].save(gif_path, save_all=True, append_images=gif[1:], duration=100, loop=0, disposal=2, optimize=False)
 
 
+# Iron concept sets: name -> outfit per slot (legs, torso, head); None = bare. Slots are independent.
+IRON_SETS = [
+	("naked", (None, None, None)),
+	("iron", ("iron", "iron", "iron")),
+	("peasant", ("peasant", "peasant", "peasant")),
+	("iron chest, trousers, hood", ("peasant", "iron", "peasant")),
+	("tunic, trousers, iron helmet", ("peasant", "peasant", "iron")),
+	("tunic, iron greaves + helmet", ("iron", "peasant", "iron")),
+]
+
+
+def mixed_frame(skin, wear, bp, lp):
+	"""One composited frame in game order for a mixed set: each slot's layer is diffed against
+	the naked render on its own, as the outfit sheets are."""
+	legs = legs_layer(skin, lp).image()
+	body = body_layer(skin, bp)[0].image()
+	im = legs
+	if wear[0]:
+		im = Image.alpha_composite(im, outfit_layer(legs_layer(skin, lp, OUTFITS[wear[0]]["legs"]).image(), legs))
+	im = Image.alpha_composite(im, body)
+	for o, slot in ((wear[1], "torso"), (wear[2], "head")):
+		if o:
+			im = Image.alpha_composite(im, outfit_layer(body_layer(skin, bp, OUTFITS[o][slot])[0].image(), body))
+	return im
+
+
+def iron_preview(png_path, gif_path, scale=7):
+	"""Look test for iron armour: IRON_SETS, idle + walk, both skins. Still sheet: one row per
+	skin x set, idle then the 6 walk frames. GIF: the walk at 10 fps, sets across, skins down."""
+	walk = walk_poses()
+	S, pad = F * scale, 4
+	big = lambda im: im.resize((S, S), Image.NEAREST)
+	rows, cells = [], {}
+	for s in SKINS:
+		for name, wear in IRON_SETS:
+			rows.append([mixed_frame(s, wear, bp, lp) for bp, lp in zip([IDLE_HANDS] + walk, [LEGS_IDLE] + walk)])
+			cells[(s, name)] = rows[-1][1:]
+	cols = max(len(r) for r in rows)
+	canvas = Image.new("RGBA", (cols * (S + pad), len(rows) * (S + pad)), GRASS + (255,))
+	for j, r in enumerate(rows):
+		for i, f in enumerate(r):
+			canvas.alpha_composite(big(f), (i * (S + pad), j * (S + pad)))
+	canvas.save(png_path)
+	gif = []
+	for k in range(len(walk)):
+		im = Image.new("RGBA", (len(IRON_SETS) * S, len(SKINS) * S), GRASS + (255,))
+		for j, s in enumerate(SKINS):
+			for i, (name, _) in enumerate(IRON_SETS):
+				im.alpha_composite(big(cells[(s, name)][k]), (i * S, j * S))
+		gif.append(im.convert("RGB"))
+	gif[0].save(gif_path, save_all=True, append_images=gif[1:], duration=100, loop=0, disposal=2, optimize=False)
+	return rows
+
+
 # Outfit review GIFs: (gif name, [(body anim, fps, loops)]); a 1-frame idle holds ~0.8 s and
 # death holds its last frame. Walk anims use the walk legs, the rest the idle legs.
 OUTFIT_GIFS = [("unarmed", [("idle", 1, 1), ("walk", 10, 2), ("gather", 9, 2), ("punch_right", 14, 2),
@@ -1030,6 +1158,11 @@ if __name__ == "__main__":
 		d = os.path.join(os.path.dirname(os.path.abspath(__file__)), "preview")
 		for p in outfit_gifs(build(), "peasant", d):
 			print("wrote", p)
+		sys.exit(0)
+	if len(sys.argv) > 1 and sys.argv[1] == "--iron":  # look test only; leaves art/ untouched
+		d = os.path.join(os.path.dirname(os.path.abspath(__file__)), "preview")
+		iron_preview(os.path.join(d, "iron_preview.png"), os.path.join(d, "iron_walk.gif"))
+		print("wrote iron preview to", d)
 		sys.exit(0)
 	if len(sys.argv) > 1 and sys.argv[1] == "--peasant":  # look test only; leaves art/ untouched
 		d = os.path.join(os.path.dirname(os.path.abspath(__file__)), "preview")
