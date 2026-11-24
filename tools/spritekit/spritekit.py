@@ -374,6 +374,47 @@ def pickaxe(pommel, ang, fs=1.0, scale=1.0, edge_on=False):
 	return haft, head, tips
 
 
+def sword(pommel, ang):
+	"""Arming sword: leather grip, iron crossguard and pommel, steel blade with a bright
+	fuller down the middle, tapering to a point."""
+	ux, uy = math.cos(ang), math.sin(ang)
+	vx, vy = -uy, ux
+	px, py = pommel
+
+	def P(u, v):
+		return px + ux * u + vx * v, py + uy * u + vy * v
+	grip_ = capsule(*P(0.4, 0), *P(3.4, 0), 0.75)
+	metal = union(
+		polygon([P(3.9, -1.15), P(12.6, -0.95), P(15.0, 0), P(12.6, 0.95), P(3.9, 1.15)], 0.7),  # blade
+		capsule(*P(3.6, -2.7), *P(3.6, 2.7), 0.75),  # crossguard
+		ellipse(*P(-0.2, 0), 1.1, 1.1),              # pommel
+	)
+	fuller = lambda x, y: abs((x - px) * vx + (y - py) * vy) < 0.45 and (x - px) * ux + (y - py) * uy > 4.5
+	return grip_, metal, fuller
+
+
+SMEAR = (236, 240, 248)
+
+
+def smear_arc(lay, centre, a0, a1, r0=8.0, r1=13.6, occlude=()):
+	"""Pale motion arc swept by a blade from angle a0 to a1 around `centre` (thicker toward
+	the tip), drawn under the blade; skips the last few degrees so it trails the blade."""
+	lo, hi = min(a0, a1), max(a0, a1)
+	trail = D(10)
+	for y in range(F):
+		for x in range(F):
+			dx, dy = x + 0.5 - centre[0], y + 0.5 - centre[1]
+			r = math.hypot(dx, dy)
+			if not (r0 <= r <= r1) or (x, y) in lay.px or (x, y) in occlude:
+				continue
+			a = math.atan2(dy, dx)
+			for base in (a, a + 2 * math.pi, a - 2 * math.pi):
+				if lo <= base <= hi and abs(base - a1) > trail:
+					t = (r - r0) / (r1 - r0)  # fade toward the inside of the arc
+					lay.px[(x, y)] = SMEAR + (int(70 + 120 * t),)
+					break
+
+
 def item_layer(item, occlude, head_mat=None):
 	lay = Layer()
 	haft, head, edge = item
@@ -635,6 +676,39 @@ def pick_pose(p):
 	return q
 
 
+# Sword, one-handed slash: cock to the right, then the arm reaches forward and the blade sweeps
+# across the front (front-right -> ahead -> front-left, where the hit lands) with a smear;
+# recover. "smear" = the blade's angle sweep this frame (from, to).
+SWORD_SWING = [
+	{"twist": D(6), "hand": (29.0, 29.0), "ang": D(20), "hand_l": (28.5, 17.0)},                               # ready
+	{"twist": D(28), "hand": (25.5, 32.5), "ang": D(115), "hand_l": (29.5, 18.5)},                             # wind-up, cocked right
+	{"twist": D(0), "hand": (32.0, 29.0), "ang": D(45), "hand_l": (28.5, 17.0), "smear": (D(115), D(45))},     # arm out, cut comes in front
+	{"twist": D(-20), "hand": (32.5, 24.0), "ang": D(-8), "hand_l": (26.0, 15.5), "smear": (D(45), D(-8))},    # dead ahead: the hit
+	{"twist": D(-30), "hand": (31.0, 20.5), "ang": D(-55), "hand_l": (24.5, 14.5), "smear": (D(-8), D(-55))},  # through to front-left
+	{"twist": D(-6), "hand": (29.5, 27.0), "ang": D(15), "hand_l": (28.0, 16.5)},                              # recover
+]
+SWORD_IDLE = {"twist": D(3), "hand": (27.8, 32.6), "ang": D(26), "hand_l": (29.0, 16.0)}
+
+
+def sword_walk(n=6):
+	out = []
+	for i in range(n):
+		s = math.sin(2 * math.pi * i / n)
+		out.append({
+			"twist": -0.08 * s,
+			"hand_l": (27.5 + 3.0 * s, 15.5 - 0.5 * abs(s)),
+			"hand": (27.8 - 1.6 * s, 32.6 + 0.3 * abs(s)),
+			"ang": D(26 - 6 * s),
+		})
+	return out
+
+
+def sword_pose(p):
+	ux, uy = math.cos(p["ang"]), math.sin(p["ang"])
+	h = p["hand"]
+	return dict(p, hand_r=h, pommel=(h[0] - ux * 1.9, h[1] - uy * 1.9))
+
+
 # name -> (item drawing, pose -> hands); each tool has <tool>_idle and an action strip.
 TOOL_ANIMS = [
 	("axe_idle", axe, axe_pose, [AXE_IDLE]),
@@ -649,6 +723,9 @@ TOOL_ANIMS = [
 	("pickaxe_idle", pickaxe, pick_pose, [PICK_IDLE]),
 	("pickaxe_walk", pickaxe, pick_pose, pick_walk()),
 	("pickaxe_swing", pickaxe, pick_pose, PICK_SWING),
+	("sword_idle", sword, sword_pose, [SWORD_IDLE]),
+	("sword_walk", sword, sword_pose, sword_walk()),
+	("sword_swing", sword, sword_pose, SWORD_SWING),
 	("bow_idle", "bow", bow_pose, [BOW_IDLE]),
 	("bow_walk", "bow", bow_pose, bow_walk()),
 	("bow_fire", "bow", bow_pose, BOW_FIRE),
@@ -688,8 +765,11 @@ def build():
 				if s == "light" and draw_item == "bow":
 					item.append(bow_layer(p, occ).image())
 				elif s == "light":
-					item.append(item_layer(draw_item(p["pommel"], p["ang"], **p.get("item_kw", {})), occ,
-						"wood" if name.split("_")[0] in WOOD_TOOLS else None).image())
+					il = item_layer(draw_item(p["pommel"], p["ang"], **p.get("item_kw", {})), occ,
+						"wood" if name.split("_")[0] in WOOD_TOOLS else None)
+					if "smear" in p:
+						smear_arc(il, p["hand"], *p["smear"], occlude=occ)
+					item.append(il.image())
 		sheets["human_body_" + name] = body
 		sheets["item_" + name] = {"": item}
 	for name, by_skin in sheets.items():
