@@ -288,14 +288,14 @@ static func side_order(first: Vector2i) -> Array[Vector2i]:
 
 ## Why the doorway on side `dir` doesn't work ("" if it does). Cells come from
 ## House.door_layout, so they match where the building puts its door and mailbox.
-static func _door_why(interior: Rect2i, dir: Vector2i) -> String:
+static func _door_why(interior: Rect2i, dir: Vector2i, clear_nodes: bool = false) -> String:
 	var lay := House.door_layout(interior, dir)
 	# The cell outside the door must stay open, or the house is sealed (diagonals past walls are blocked).
-	if not World.is_walkable(lay[1]):
+	if not _open(lay[1], clear_nodes):
 		return "the doorway would be blocked"
 	# The mailbox goes beside the cell outside the door (D10): one side must be free.
-	if not (World.is_walkable(lay[2]) and not World.furniture.has(lay[2])) \
-			and not (World.is_walkable(lay[3]) and not World.furniture.has(lay[3])):
+	if not (_open(lay[2], clear_nodes) and not World.furniture.has(lay[2])) \
+			and not (_open(lay[3], clear_nodes) and not World.furniture.has(lay[3])):
 		return "no room for a mailbox by the door"
 	# The way to the door must not run into another building (R4).
 	var two_out := lay[1] + (lay[1] - lay[0])
@@ -305,9 +305,16 @@ static func _door_why(interior: Rect2i, dir: Vector2i) -> String:
 	return ""
 
 
+## Walkable, or (with `clear_nodes`) only a resource node stands there, which the builders
+## clear once the fire is placed (_ensure_piece_tasks).
+static func _open(c: Vector2i, clear_nodes: bool) -> bool:
+	return World.is_walkable(c) or (clear_nodes and World.in_bounds(c) and World.nodes.has(c))
+
+
 ## The first door side in `order` whose doorway works, and why the site fails ("" if it
 ## doesn't): [side, reason]. The side is Vector2i.ZERO when no doorway works.
-static func site_side(interior: Rect2i, f: Faction, workshop: bool, order: Array[Vector2i]) -> Array:
+## `clear_nodes` (the player's base only): resource nodes don't block; they get cleared.
+static func site_side(interior: Rect2i, f: Faction, workshop: bool, order: Array[Vector2i], clear_nodes: bool = false) -> Array:
 	var outer := interior.grow(1)
 	if outer.position.x < 1 or outer.position.y < 1 or outer.end.x > Cfg.MAP_W - 1 or outer.end.y > Cfg.MAP_H - 1:
 		return [Vector2i.ZERO, "too close to the map edge"]
@@ -315,7 +322,7 @@ static func site_side(interior: Rect2i, f: Faction, workshop: bool, order: Array
 	var dir := Vector2i.ZERO
 	var door_why := ""
 	for d in order:
-		var why := _door_why(interior, d)
+		var why := _door_why(interior, d, clear_nodes)
 		if why == "":
 			dir = d
 			break
@@ -323,17 +330,17 @@ static func site_side(interior: Rect2i, f: Faction, workshop: bool, order: Array
 			door_why = why
 	if dir == Vector2i.ZERO:
 		return [dir, door_why]
-	return [dir, _ground_why(interior, f, workshop)]
+	return [dir, _ground_why(interior, f, workshop, clear_nodes)]
 
 
 ## The side-independent part of the site check ("" if the ground is fine).
-static func _ground_why(interior: Rect2i, f: Faction, workshop: bool) -> String:
+static func _ground_why(interior: Rect2i, f: Faction, workshop: bool, clear_nodes: bool = false) -> String:
 	var outer := interior.grow(1)
 	var fire_cell := interior.position + Vector2i(interior.size.x / 2, interior.size.y / 2)
 	for x in range(outer.position.x, outer.end.x):
 		for y in range(outer.position.y, outer.end.y):
 			var c := Vector2i(x, y)
-			if World.is_solid(c) or World.loot.has(c):
+			if not _open(c, clear_nodes) or World.loot.has(c):
 				return "something is in the way"
 			var po := World.privilege_owner(c)
 			if po != 0 and not World.same_side(po, f.id):
@@ -387,7 +394,7 @@ static func base_facing(a: Agent, fire_cell: Vector2i) -> Vector2i:
 ## they agree. [side, reason] as in site_side.
 static func base_site(a: Agent, fire_cell: Vector2i) -> Array:
 	var f := a.faction
-	return site_side(base_interior(f, fire_cell), f, false, side_order(base_facing(a, fire_cell)))
+	return site_side(base_interior(f, fire_cell), f, false, side_order(base_facing(a, fire_cell)), true)
 
 
 ## The player founds their group's base (D8): plan the house around the fire, place it, and
@@ -425,8 +432,13 @@ static func _ensure_piece_tasks(f: Faction, h: House) -> void:
 	for t in f.board.tasks:
 		if t.house == h or t.type == Task.Type.CLEAR_NODE:
 			have[Vector3i(t.cell.x, t.cell.y, t.type)] = true
-	# Anything grown on a building cell is cleared first.
-	for c in h.wall_cells + h.floor_cells + [h.door_cell]:
+	# Anything grown on a building cell is cleared first. The player's base is sited over
+	# nodes (base_site), so its doorstep and mailbox spots are cleared too.
+	var cells := h.wall_cells + h.floor_cells + [h.door_cell]
+	var lead: Agent = World.agents.get(f.leader_id)
+	if lead and lead.is_player():
+		cells += [h.door_outside(), h.mailbox_cell, h.mailbox_cell_alt]
+	for c in cells:
 		if World.nodes.has(c) and not have.has(Vector3i(c.x, c.y, Task.Type.CLEAR_NODE)):
 			f.board.post(Task.new(Task.Type.CLEAR_NODE, c, null))
 	for c in h.wall_cells:
