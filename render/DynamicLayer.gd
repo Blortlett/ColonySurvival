@@ -47,6 +47,14 @@ func _draw_body() -> void:
 			var pulse := 0.75 + 0.25 * sin(Time.get_ticks_msec() * 0.006 + fu.cell.y)
 			draw_rect(Rect2(p + Vector2(s * 0.25, s * 0.45), Vector2(s * 0.5, s * 0.35)), Color(GLOW, pulse))
 			Disc.draw(self, p + Vector2(s * 0.5, s * 0.62), s * 0.32, Color(GLOW, 0.18 * pulse))
+	# Sawmills spin while their workshop runs (built, fire burning): draw the moving frame
+	# over the still one PieceLayer cached.
+	var saw_frame := int(Time.get_ticks_msec() * 0.001 * 12.0)
+	for fu in pieces.sawmills:
+		if World.furniture.get(fu.cell) == fu and fu.house != null and fu.house.operational():
+			var f: int = (saw_frame + fu.cell.x) % PieceLayer.SAWMILL_FRAMES
+			if f != 0:
+				draw_texture_rect_region(PieceLayer.SAWMILL_TEX, Rect2(Vector2(fu.cell) * s, Vector2(s, s)), Rect2(f * 32.0, 0, 32.0, 32.0))
 	for fu in pieces.crates:
 		if World.furniture.get(fu.cell) == fu and fu.store.count("iron_bar") + fu.store.count("raw_iron") > 0:
 			var p := Vector2(fu.cell) * s
