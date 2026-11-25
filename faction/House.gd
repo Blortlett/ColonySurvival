@@ -47,19 +47,14 @@ func _init(fid: int, interior_rect: Rect2i, cap: int, k: Kind = Kind.HOUSE, dir:
 	fire_cell = interior.position + Vector2i(interior.size.x / 2, interior.size.y / 2)
 	var outer := interior.grow(1)
 	door_dir = dir
-	# Door one column (or row) beside the fire so the cell inside the door is never the
-	# fire (otherwise the interior is only reachable diagonally = sealed off).
-	var dx := fire_cell.x + 1 if fire_cell.x + 1 < interior.end.x else fire_cell.x - 1
-	var dy := fire_cell.y + 1 if fire_cell.y + 1 < interior.end.y else fire_cell.y - 1
-	match dir:
-		Vector2i(0, -1): door_cell = Vector2i(dx, outer.position.y)
-		Vector2i(1, 0): door_cell = Vector2i(outer.end.x - 1, dy)
-		Vector2i(-1, 0): door_cell = Vector2i(outer.position.x, dy)
-		_: door_cell = Vector2i(dx, outer.end.y - 1)
-	# Someone outside facing the door looks along -door_dir; their left is (-dir.y, dir.x).
-	var side := Vector2i(-door_dir.y, door_dir.x)
-	mailbox_cell = door_outside() + side
-	mailbox_cell_alt = door_outside() - side
+	var lay := door_layout(interior, dir)
+	door_cell = lay[0]
+	mailbox_cell = lay[2]
+	mailbox_cell_alt = lay[3]
+	# Round 2 R5: the mailbox side is a coin flip; the other side stays the fallback.
+	if World.rng.randi() % 2 == 1:
+		mailbox_cell = lay[3]
+		mailbox_cell_alt = lay[2]
 	for x in range(outer.position.x, outer.end.x):
 		for y in range(outer.position.y, outer.end.y):
 			var c := Vector2i(x, y)
@@ -82,6 +77,34 @@ func _init(fid: int, interior_rect: Rect2i, cap: int, k: Kind = Kind.HOUSE, dir:
 			crate_cells = [interior.position + Vector2i(0, interior.size.y - 1), interior.end - Vector2i.ONE]
 		_:
 			chest_cell = top_left # away from the door
+
+
+## The four door sides; south first (the old default).
+const SIDES: Array[Vector2i] = [Vector2i(0, 1), Vector2i(0, -1), Vector2i(1, 0), Vector2i(-1, 0)]
+
+
+## Where the door goes for this interior and side: [door cell, cell outside the door,
+## mailbox left, mailbox right] (left/right as seen from outside, facing the door).
+## Shared by _init and Factions.site_why so the site check and the building can't drift.
+static func door_layout(interior_rect: Rect2i, dir: Vector2i) -> Array[Vector2i]:
+	var outer := interior_rect.grow(1)
+	var fc := interior_rect.position + Vector2i(interior_rect.size.x / 2, interior_rect.size.y / 2)
+	# Door one column (or row) beside the fire so the cell inside the door is never the
+	# fire (otherwise the interior is only reachable diagonally = sealed off).
+	var dx := fc.x + 1 if fc.x + 1 < interior_rect.end.x else fc.x - 1
+	var dy := fc.y + 1 if fc.y + 1 < interior_rect.end.y else fc.y - 1
+	var door: Vector2i
+	match dir:
+		Vector2i(0, -1): door = Vector2i(dx, outer.position.y)
+		Vector2i(1, 0): door = Vector2i(outer.end.x - 1, dy)
+		Vector2i(-1, 0): door = Vector2i(outer.position.x, dy)
+		_:
+			dir = Vector2i(0, 1)
+			door = Vector2i(dx, outer.end.y - 1)
+	var outside := door + dir
+	# Someone outside facing the door looks along -dir; their left is (-dir.y, dir.x).
+	var side := Vector2i(-dir.y, dir.x)
+	return [door, outside, outside + side, outside - side]
 
 
 ## Interior size needed: CELLS_PER_OCCUPANT per occupant + 1 for the fire + 1 per furniture piece.

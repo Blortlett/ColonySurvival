@@ -89,3 +89,29 @@ nothing, switch no branch.
 - While three sessions edit at once, a game run can catch another session's half-finished edit. Each session runs the game only at the end.
 
 D waits for A and B (it needs `player_led` and the mailbox task) and runs here, followed by E.
+
+---
+
+# Round 2 (agreed 2026-11-25)
+
+Status: **in progress**.
+
+## Decisions
+
+| # | Decision |
+|---|---|
+| R1 | Player-started social actions (invite, trade, demand, recruit) have their own cooldown layer. An NPC walking past the player (`Social.scan`) never uses up the player's cooldown when nothing happens. A refused player invite locks that NPC for 10 s. |
+| R2 | "Trade" on a member of the player's own group (servants included) opens full control of that member's pack, hotbar and worn gear. Trade with other groups stays the current swap. The member's AI may re-equip or re-craft afterwards; accepted for now (option a). |
+| R3 | Houses, workshops and smelteries planned **outside** a city get a random door side (N/S/E/W). City plot buildings (`Cities.plan_on_plot`) are **not changed**. |
+| R4 | The site check follows the chosen side: door-outside cell walkable, one mailbox cell free, and the cell 2 out from the door not inside any other building. If the random side fails, the other three are tried before the site is rejected. |
+| R5 | The mailbox side (left/right of the door) is picked 50/50 when the building is planned; the other side stays the fallback. |
+| R6 | The player's base fire faces the side the player stands on when placing it, falling back to the other sides. |
+| R7 | Walking and building use separate checks. Hemp plants and mailboxes don't block walking (player, NPCs, pathfinding). They still block building. |
+| R8 | The player can open any faction's chests and crates. Putting in is always free. Taking from a live group's storage is theft: relations with the owner drop (`REL_ROB`) and owner members who see it turn hostile. Storage of abandoned buildings is free to loot. Doors and walls still keep storage out of reach unless broken. |
+| R9 | Later, not now: raiders looting chests and crates once inside. |
+
+## Work split
+
+- **Here (main session):** R1 (cooldown) and R7 (collision split). Files: `social/Social.gd` (`scan`, `player_why`, `player_act` cooldown lines only), `agent/Agent.gd`, `world/World.gd`, `entities/Furniture.gd`, `entities/ResourceNode.gd`, `agent/Actions.gd` (build checks only).
+- **Session "doors":** R3–R6. Files: `faction/Factions.gd` (`_plan_house`, `site_why`, `base_interior`, `base_why`, `found_base`), `faction/House.gd`, `player/PlayTest.gd` (new check function).
+- **Session "inventory access":** R2 and R8 (both are item-transfer panels). Files: `ui/StationPanel.gd` and/or a new member panel, `player/Station.gd`, `player/PlayerController.gd` (interaction only), `Main.gd`, `social/Social.gd` (trade option and theft helpers only, not `scan`), `agent/Actions.gd` (`can_use_storage` only), `player/PlayTest.gd` (new check function).

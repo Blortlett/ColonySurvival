@@ -23,6 +23,7 @@ var master_id := -1
 var servants: Array[int] = []
 var opinions := {} # agent id -> -100..100 (pairwise memory)
 var cooldowns := {} # agent id -> sim time when interaction is allowed again
+var action_cooldowns := {} # the player's own actions: agent id -> sim time (R1)
 var death_match := {} # agent ids we're fighting to the death with
 var pleaded := {} # attacker ids we've already pleaded to
 
@@ -252,6 +253,16 @@ func can_interact(other_id: int) -> bool:
 
 func set_cooldown(other_id: int, secs: float = Cfg.PAIR_COOLDOWN) -> void:
 	cooldowns[other_id] = SimClock.time + secs
+
+
+## Player-started social actions have their own cooldown layer (Player Group Base Plan R1):
+## NPCs meeting the player never use it up; only the player's own actions do.
+func can_act_on(other_id: int) -> bool:
+	return SimClock.time >= action_cooldowns.get(other_id, 0.0)
+
+
+func set_action_cooldown(other_id: int, secs: float = Cfg.PAIR_COOLDOWN) -> void:
+	action_cooldowns[other_id] = SimClock.time + secs
 
 
 func is_servant() -> bool:

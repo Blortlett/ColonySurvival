@@ -159,6 +159,7 @@ const KEEP_STACKS := {"wood": 15, "stone": 10, "hemp": 5, "arrow": 15, "raw_iron
 # --- Social ---
 const SOCIAL_RANGE := 5.0
 const PAIR_COOLDOWN := 30.0
+const PLAYER_INVITE_RETRY := 10.0 # a refused player invite: ask that NPC again after this (R1)
 const AUTH_DOMINANCE := 1.5 # (agreed)
 const TALK_DOWN_MULT := 0.5 # happy agent's "tiny chance" to talk an angry one down
 const TALK_DOWN_FLEE := 10 # (agreed)

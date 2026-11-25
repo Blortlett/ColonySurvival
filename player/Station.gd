@@ -8,6 +8,10 @@ extends RefCounted
 ## reach, takes a hit bigger than Cfg.PANEL_CLOSE_HIT, dies, or the furniture is gone.
 
 var open: Furniture = null
+## A groupmate whose pack, hotbar and worn gear the player has open (Player Group Base Plan
+## R2: Trade on your own group's member). Only one of `open` / `member` is set.
+var member: Agent = null
+var stolen := false # this opening's theft was already counted (R8: once per opening)
 var why_closed := "" # last reason the panel closed by itself (shown by the controller)
 
 # Processing at a machine: one item at a time, `left` batches to go (-1 = until out of input).
@@ -21,6 +25,40 @@ var _hp := 0.0
 
 func is_chest() -> bool:
 	return open != null and open.is_storage()
+
+
+func is_member() -> bool:
+	return member != null
+
+
+## Anything open (a chest, machine, mailbox or a groupmate's inventory).
+func active() -> bool:
+	return open != null or member != null
+
+
+## Taking from the open chest would be theft (another live group's; R8).
+func is_theft(a: Agent) -> bool:
+	return is_chest() and Actions.storage_theft(a, open)
+
+
+## Something left the open chest for the player: the first time in an opening of a live
+## foreign group's storage, that's theft (relations drop, witnesses attack).
+func took(a: Agent) -> void:
+	if stolen or not is_theft(a):
+		return
+	stolen = true
+	Social.theft(a, open)
+
+
+## Open groupmate `m`'s inventory (Trade on your own group). Returns why not, or "".
+func open_member(a: Agent, m: Agent) -> String:
+	var why := Social.member_trade_why(a, m)
+	if why != "":
+		return why
+	close("")
+	member = m
+	_hp = a.hp
+	return ""
 
 
 func is_machine() -> bool:
@@ -70,9 +108,11 @@ func try_open(a: Agent, fu: Furniture) -> String:
 
 
 func close(reason: String) -> void:
-	if open != null and reason != "":
+	if active() and reason != "":
 		why_closed = reason
 	open = null
+	member = null
+	stolen = false
 	job = ""
 	left = 0
 	t = 0.0
@@ -107,7 +147,7 @@ func progress() -> float:
 # --- Sim step ---
 
 func step(a: Agent, dt: float) -> void:
-	if open == null:
+	if not active():
 		return
 	var hit := _hp - a.hp
 	_hp = a.hp
@@ -116,6 +156,15 @@ func step(a: Agent, dt: float) -> void:
 		return
 	if hit > Cfg.PANEL_CLOSE_HIT:
 		close("hit")
+		return
+	if member != null:
+		if not member.alive or not World.agents.has(member.id):
+			close("%s is gone" % member.short())
+		elif not Social.is_groupmate(a, member):
+			close("%s left your group" % member.short())
+		elif World.dist(a.pos, member.pos) > Cfg.SOCIAL_RANGE * 1.5:
+			close("%s is out of reach" % member.short())
+		_requests.clear() # moves run through InvMoves (PlayerController), nothing queued here
 		return
 	if World.furniture.get(open.cell) != open:
 		close("the %s is gone" % open.label())
@@ -134,7 +183,8 @@ func _apply(a: Agent, r: Array) -> void:
 	match r[0]:
 		"transfer":
 			if is_chest() and Actions.can_use_storage(a, open) == "":
-				Actions.use_chest(a, open, r[1])
+				if Actions.use_chest(a, open, r[1]) > 0 and r[1].values().any(func(n): return n < 0):
+					took(a)
 		"process":
 			if is_machine() and Actions.can_use_machine(a, open) == "" and Items.PROCESS.has(r[1]) and Items.PROCESS[r[1]].machine == open.kind:
 				if job != r[1]:

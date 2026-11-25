@@ -15,6 +15,7 @@ var _panels: CanvasLayer = null # chest / machine panels (ui/StationPanel.gd)
 var _build: CanvasLayer = null # build menu (ui/BuildMenu.gd)
 var _mailbox: CanvasLayer = null # mailbox group panel (ui/MailboxUI.gd)
 var _inv_ui: CanvasLayer = null # hotbar, pack, armour and chest slots (ui/InventoryUI.gd)
+var _member: CanvasLayer = null # a groupmate's gear, opened by Trade on them (ui/MemberPanel.gd)
 var _prompt: CanvasLayer = null # incoming social prompt (ui/OfferPrompt.gd)
 var _overlay: CanvasLayer = null # hover card and mood icons (ui/SocialOverlay.gd)
 var _radial: CanvasLayer = null # hold-F social radial menu (ui/SocialRadial.gd)
@@ -87,6 +88,10 @@ func _ready() -> void:
 	_mailbox = preload("res://ui/MailboxUI.gd").new()
 	_mailbox.player = _player
 	add_child(_mailbox)
+	_member = preload("res://ui/MemberPanel.gd").new()
+	_member.player = _player
+	_member.inv_ui = inv_ui
+	add_child(_member)
 	# Player social (Player Social Plan §3, §5): the prompt card and the social overlay
 	# (hover card, mood icons). The overlay sits under the HUD panels.
 	_prompt = preload("res://ui/OfferPrompt.gd").new()

@@ -281,13 +281,31 @@ static func use_chest(a: Agent, ch: Furniture, plan: Dictionary) -> int:
 
 
 ## Why the agent can't use this chest or crate, or "" if it can: the AI only ever uses
-## storage of its own side (group or kingdom), so the player follows the same rule.
+## storage of its own side (group or kingdom). The player can open anyone's (Player Group
+## Base Plan R8): putting in is free, taking from a live group's is theft (storage_theft).
 static func can_use_storage(a: Agent, ch: Furniture) -> String:
 	if ch == null or World.furniture.get(ch.cell) != ch or not ch.is_storage():
 		return "it's gone"
-	if not World.same_side(ch.owner_id, a.faction.id):
+	if not a.is_player() and not World.same_side(ch.owner_id, a.faction.id):
 		return "it isn't your side's"
 	return ""
+
+
+## Storage nobody lives for any more: its house was abandoned (owner 0, or no longer one of
+## the owner's buildings) or the owner group is gone. Free to loot (R8).
+static func storage_abandoned(ch: Furniture) -> bool:
+	if ch.owner_id == 0:
+		return true
+	var f: Faction = World.factions.get(ch.owner_id)
+	if f == null or f.members.is_empty():
+		return true
+	var h: House = ch.house
+	return h != null and not f.houses.has(h)
+
+
+## Would taking from this chest or crate be theft for `a`? (another side's, not abandoned; R8)
+static func storage_theft(a: Agent, ch: Furniture) -> bool:
+	return ch != null and not World.same_side(ch.owner_id, a.faction.id) and not storage_abandoned(ch)
 
 
 # --- Machines: processing and crafting ---

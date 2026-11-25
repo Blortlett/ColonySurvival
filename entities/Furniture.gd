@@ -62,9 +62,10 @@ func free_for(item: String) -> int:
 	return store.room_for(item)
 
 
-## Blocks movement (the mailbox stands on open ground outside the door).
+## Blocks movement. Nothing does any more: agents walk through mailboxes (R7). Furniture
+## still blocks building (World.can_build checks it).
 func is_solid() -> bool:
-	return kind == Kind.MAILBOX
+	return false
 
 
 ## Swap in a store (chest upgrade, emptied chest); its slot count follows this furniture.

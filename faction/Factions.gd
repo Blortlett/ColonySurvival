@@ -242,18 +242,23 @@ static func _plan_house(f: Faction, cap: int, kind: int) -> House:
 	var workshop := kind != House.Kind.HOUSE # workshops and smelteries follow the workshop rules
 	var size := House.size_for(kind, cap)
 	var best: Rect2i
+	var best_dir := Vector2i(0, 1)
 	var best_d := INF
 	for i in 120 if workshop else 80:
 		var r := Cfg.HOUSE_SITE_SEARCH
 		var c := anchor + Vector2i(World.rng.randi_range(-r, r), World.rng.randi_range(-r, r))
 		var interior := Rect2i(c - size / 2, size)
 		var d := Vector2(anchor).distance_to(Vector2(c))
-		if d < best_d and _site_ok(interior, f, workshop):
-			best_d = d
-			best = interior
+		if d < best_d:
+			# Round 2 R3/R4: a random door side, the other three if it doesn't fit.
+			var pick := site_side(interior, f, workshop, side_order(House.SIDES[World.rng.randi_range(0, 3)]))
+			if pick[1] == "":
+				best_d = d
+				best = interior
+				best_dir = pick[0]
 	if best_d == INF:
 		return null
-	var h := House.new(f.id, best, cap, kind)
+	var h := House.new(f.id, best, cap, kind, best_dir)
 	f.houses.append(h)
 	World.buildings_version += 1
 	f.board.post(Task.new(Task.Type.PLACE_HOUSE_FIRE, h.fire_cell, h))
@@ -264,24 +269,67 @@ static func _site_ok(interior: Rect2i, f: Faction, workshop: bool = false) -> bo
 	return site_why(interior, f, workshop) == ""
 
 
-## Why a building can't go on this interior ("" if it can). Shared by the AI's site search
-## and the player's base fire (Player Group Base Plan D7), so both follow the same rules.
-static func site_why(interior: Rect2i, f: Faction, workshop: bool = false) -> String:
-	var outer := interior.grow(1)
-	if outer.position.x < 1 or outer.position.y < 1 or outer.end.x > Cfg.MAP_W - 1 or outer.end.y > Cfg.MAP_H - 1:
-		return "too close to the map edge"
-	var fire_cell := interior.position + Vector2i(interior.size.x / 2, interior.size.y / 2)
-	# All checks are pure, so the cheap per-cell ones go first (B5); the result is unchanged.
+## Why a building with its door on side `dir` can't go on this interior ("" if it can).
+## Shared by the AI's site search and the player's base fire (Player Group Base Plan D7),
+## so both follow the same rules.
+static func site_why(interior: Rect2i, f: Faction, workshop: bool = false, dir: Vector2i = Vector2i(0, 1)) -> String:
+	var order: Array[Vector2i] = [dir]
+	return site_side(interior, f, workshop, order)[1]
+
+
+## `first`, then the other door sides (House.SIDES order).
+static func side_order(first: Vector2i) -> Array[Vector2i]:
+	var out: Array[Vector2i] = [first]
+	for s in House.SIDES:
+		if s != first:
+			out.append(s)
+	return out
+
+
+## Why the doorway on side `dir` doesn't work ("" if it does). Cells come from
+## House.door_layout, so they match where the building puts its door and mailbox.
+static func _door_why(interior: Rect2i, dir: Vector2i) -> String:
+	var lay := House.door_layout(interior, dir)
 	# The cell outside the door must stay open, or the house is sealed (diagonals past walls are blocked).
-	var outside := Vector2i(fire_cell.x + 1, outer.end.y)
-	if not World.is_walkable(outside):
+	if not World.is_walkable(lay[1]):
 		return "the doorway would be blocked"
 	# The mailbox goes beside the cell outside the door (D10): one side must be free.
-	var left := outside + Vector2i.LEFT
-	var right := outside + Vector2i.RIGHT
-	if not (World.is_walkable(left) and not World.furniture.has(left)) \
-			and not (World.is_walkable(right) and not World.furniture.has(right)):
+	if not (World.is_walkable(lay[2]) and not World.furniture.has(lay[2])) \
+			and not (World.is_walkable(lay[3]) and not World.furniture.has(lay[3])):
 		return "no room for a mailbox by the door"
+	# The way to the door must not run into another building (R4).
+	var two_out := lay[1] + (lay[1] - lay[0])
+	for h in World.all_houses():
+		if h.footprint().has_point(two_out):
+			return "the doorway would face another building"
+	return ""
+
+
+## The first door side in `order` whose doorway works, and why the site fails ("" if it
+## doesn't): [side, reason]. The side is Vector2i.ZERO when no doorway works.
+static func site_side(interior: Rect2i, f: Faction, workshop: bool, order: Array[Vector2i]) -> Array:
+	var outer := interior.grow(1)
+	if outer.position.x < 1 or outer.position.y < 1 or outer.end.x > Cfg.MAP_W - 1 or outer.end.y > Cfg.MAP_H - 1:
+		return [Vector2i.ZERO, "too close to the map edge"]
+	# All checks are pure, so the cheap per-cell ones go first (B5); the result is unchanged.
+	var dir := Vector2i.ZERO
+	var door_why := ""
+	for d in order:
+		var why := _door_why(interior, d)
+		if why == "":
+			dir = d
+			break
+		if door_why == "":
+			door_why = why
+	if dir == Vector2i.ZERO:
+		return [dir, door_why]
+	return [dir, _ground_why(interior, f, workshop)]
+
+
+## The side-independent part of the site check ("" if the ground is fine).
+static func _ground_why(interior: Rect2i, f: Faction, workshop: bool) -> String:
+	var outer := interior.grow(1)
+	var fire_cell := interior.position + Vector2i(interior.size.x / 2, interior.size.y / 2)
 	for x in range(outer.position.x, outer.end.x):
 		for y in range(outer.position.y, outer.end.y):
 			var c := Vector2i(x, y)
@@ -320,14 +368,36 @@ static func base_why(a: Agent, fire_cell: Vector2i) -> String:
 		return "you need followers to found a base"
 	if not f.homes().is_empty():
 		return "your group already has a home"
-	return site_why(base_interior(f, fire_cell), f)
+	return base_site(a, fire_cell)[1]
+
+
+## The side `a` stands on, seen from the fire cell: the larger axis wins, ties go to
+## north/south, and standing on the fire cell means south.
+static func base_facing(a: Agent, fire_cell: Vector2i) -> Vector2i:
+	var to := a.cell() - fire_cell
+	if abs(to.x) > abs(to.y):
+		return Vector2i(signi(to.x), 0)
+	if to.y < 0:
+		return Vector2i(0, -1)
+	return Vector2i(0, 1)
+
+
+## The base fire's door side and site check (R6): the door faces the side `a` stands on
+## relative to the fire, else the other sides. base_why and found_base both use this, so
+## they agree. [side, reason] as in site_side.
+static func base_site(a: Agent, fire_cell: Vector2i) -> Array:
+	var f := a.faction
+	return site_side(base_interior(f, fire_cell), f, false, side_order(base_facing(a, fire_cell)))
 
 
 ## The player founds their group's base (D8): plan the house around the fire, place it, and
 ## the members build the rest through the board like any group. Call base_why first.
 static func found_base(a: Agent, fire_cell: Vector2i) -> House:
 	var f := a.faction
-	var h := House.new(f.id, base_interior(f, fire_cell), base_capacity(f))
+	var dir: Vector2i = base_site(a, fire_cell)[0]
+	if dir == Vector2i.ZERO:
+		dir = Vector2i(0, 1)
+	var h := House.new(f.id, base_interior(f, fire_cell), base_capacity(f), House.Kind.HOUSE, dir)
 	f.houses.append(h)
 	World.buildings_version += 1
 	for mid in f.members:

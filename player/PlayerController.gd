@@ -374,8 +374,8 @@ func _process(dt: float) -> void:
 	var e := Input.is_physical_key_pressed(KEY_E)
 	if not e:
 		_e_latch = false
-	_harvest_held = e and not _e_latch and station.open == null
-	use_target = Station.target(body) if station.open == null else null
+	_harvest_held = e and not _e_latch and not station.active()
+	use_target = Station.target(body) if not station.active() else null
 	aim_point = get_global_mouse_position() / Cfg.CELL
 	hover_cell = Vector2i(aim_point.floor())
 	var h := pick_agent(aim_point)
@@ -419,13 +419,13 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event is InputEventKey and event.pressed and not event.echo:
 		var k: int = event.physical_keycode
 		if k == KEY_E:
-			if station.open != null:
+			if station.active():
 				_use = -1
 				_e_latch = true
 			elif Station.target(body) != null:
 				_use = 1
 				_e_latch = true
-		elif k == KEY_ESCAPE and station.open != null:
+		elif k == KEY_ESCAPE and station.active():
 			_use = -1
 			get_viewport().set_input_as_handled()
 		elif k == KEY_TAB:
@@ -467,7 +467,10 @@ func control(a: Agent, dt: float) -> void:
 	offers.step(a)
 	if not _social.is_empty():
 		var t: Agent = World.agents.get(_social[1])
-		say(Social.player_act(a, t, _social[0]) if t else "They're gone.", 3.0)
+		if t and _social[0] == &"trade" and Social.is_groupmate(a, t):
+			say(open_member(a, t), 3.0) # your own group: their inventory, not a swap (R2)
+		else:
+			say(Social.player_act(a, t, _social[0]) if t else "They're gone.", 3.0)
 		_social = []
 	_use_station(a, dt)
 	_follow_chest()
@@ -651,6 +654,14 @@ func _use_station(a: Agent, dt: float) -> void:
 	if station.why_closed != "":
 		say("Panel closed: %s." % station.why_closed)
 		station.why_closed = ""
+
+
+## Trade on a groupmate (Player Group Base Plan R2): open their pack, hotbar and worn gear
+## beside the player's (ui/MemberPanel.gd). Returns the line for the player.
+func open_member(a: Agent, t: Agent) -> String:
+	build_piece = ""
+	var why: String = station.open_member(a, t)
+	return why if why != "" else "%s's gear is open: drag to move, right click: whole stack across." % t.short()
 
 
 ## Standing by a burning fire warms the body like an NPC's WARM job (10 s next to it).

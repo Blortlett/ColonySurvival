@@ -22,7 +22,7 @@ static func scan(a: Agent) -> void:
 		if a.is_angry() and World.same_side(a.faction.id, b.faction.id):
 			continue # allies don't shake each other down
 		a.set_cooldown(b.id)
-		b.set_cooldown(a.id)
+		b.set_cooldown(a.id) # the player's own actions use action_cooldowns (R1), not this
 		if a.is_happy():
 			if _happy_meets(a, b):
 				return
@@ -326,7 +326,10 @@ const PLAYER_OPTIONS := [
 static func player_options(p: Agent, t: Agent) -> Array:
 	var out := []
 	for o in PLAYER_OPTIONS:
-		out.append({"id": o.id, "label": o.label, "why": player_why(p, t, o.id)})
+		var why := player_why(p, t, o.id)
+		if o.id == &"trade" and is_groupmate(p, t):
+			why = member_trade_why(p, t) # opens their inventory (R2), not a swap
+		out.append({"id": o.id, "label": o.label, "why": why})
 	return out
 
 
@@ -344,8 +347,8 @@ static func player_why(p: Agent, t: Agent, opt: StringName) -> String:
 	if t.in_combat():
 		return "They're fighting."
 	var why := _option_why(p, t, opt, fp, ft, same_side)
-	if why == "" and not p.can_interact(t.id):
-		return "Ask again in %d s." % ceili(p.cooldowns.get(t.id, 0.0) - SimClock.time)
+	if why == "" and not p.can_act_on(t.id):
+		return "Ask again in %d s." % ceili(p.action_cooldowns.get(t.id, 0.0) - SimClock.time)
 	return why
 
 
@@ -389,7 +392,7 @@ static func player_act(p: Agent, t: Agent, opt: StringName) -> String:
 	if why != "":
 		return why
 	if opt != &"challenge":
-		p.set_cooldown(t.id)
+		p.set_action_cooldown(t.id)
 		t.set_cooldown(p.id)
 	match opt:
 		&"invite": return _player_invite(p, t)
@@ -421,6 +424,7 @@ static func _willing(p: Agent, t: Agent) -> bool:
 ## Someone who outranks the player never follows them (Player Group Plan D6); the option
 ## stays open so the player can find that out.
 static func _player_invite(p: Agent, t: Agent) -> String:
+	p.set_action_cooldown(t.id, Cfg.PLAYER_INVITE_RETRY) # refused: try again soon (R1)
 	if Factions.outranks(t, p):
 		t.change_opinion(p.id, -3.0)
 		return _say(&"p_refused", "%s won't follow someone with less standing." % t.short(), p, t)
@@ -497,3 +501,49 @@ static func _player_recruit(p: Agent, t: Agent) -> String:
 		return _say(&"p_recruit", "%s runs with you now." % t.short(), p, t)
 	Combat.start_fight(t, p, true) # a lost roll: a fight to the death, as between NPCs
 	return _say(&"p_recruit", "%s takes it as an insult: a fight to the death!" % t.short(), p, t)
+
+
+# --- Groupmates' gear and other groups' storage (Player Group Base Plan R2, R8) ---
+
+## Is `t` in the player's own group (servants included)? Trade on them opens their
+## inventory (player/Station.gd open_member) instead of a swap.
+static func is_groupmate(p: Agent, t: Agent) -> bool:
+	return t != null and t != p and p.faction == t.faction and not p.faction.solo
+
+
+## Why the player can't open groupmate `t`'s inventory now ("" if they can). No cooldown:
+## it's not a social roll.
+static func member_trade_why(p: Agent, t: Agent) -> String:
+	if t == null or not t.alive or not World.agents.has(t.id):
+		return "They're gone."
+	if not is_groupmate(p, t):
+		return "They aren't in your group."
+	if World.dist(p.pos, t.pos) > Cfg.SOCIAL_RANGE * 1.5:
+		return "Too far away."
+	if t.in_combat():
+		return "They're fighting."
+	return ""
+
+
+## The player took from another live group's chest or crate (once per opening): relations
+## with the owner drop by REL_ROB, and every owner member near enough to see it (walls and
+## doors block the view) attacks. Returns how many turned on the player.
+static func theft(p: Agent, ch: Furniture) -> int:
+	var owner: Faction = World.factions.get(ch.owner_id)
+	if owner == null:
+		return 0
+	Relations.change(p.faction, owner, Cfg.REL_ROB)
+	var n := 0
+	for mid in owner.members:
+		var o: Agent = World.agents.get(mid)
+		if o == null or o == p or not o.alive or o.is_player():
+			continue
+		if World.dist(o.pos, World.center(ch.cell)) > Cfg.DEFEND_RADIUS:
+			continue
+		if not World.line_clear(o.cell(), p.cell()):
+			continue
+		o.change_opinion(p.id, -30.0)
+		Combat.start_fight(o, p)
+		n += 1
+	EventBus.social(&"p_theft", "%s steals from %s's %s%s." % [p.short(), owner.display_name(), ch.label(), (" and is seen by %d" % n) if n > 0 else ""], [p], [], World.center(ch.cell))
+	return n

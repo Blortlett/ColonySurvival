@@ -239,6 +239,8 @@ func in_bounds(c: Vector2i) -> bool:
 	return c.x >= 0 and c.y >= 0 and c.x < Cfg.MAP_W and c.y < Cfg.MAP_H
 
 
+## Blocks building (and site checks). Walking uses passable / blocks_walk: hemp doesn't
+## block it (R7).
 func is_solid(c: Vector2i) -> bool:
 	if nodes.has(c) or walls.has(c) or fires.has(c):
 		return true
@@ -273,9 +275,20 @@ static func center(c: Vector2i) -> Vector2:
 	return Vector2(c) + Vector2(0.5, 0.5)
 
 
+func _node_blocks_walk(c: Vector2i) -> bool:
+	var n: ResourceNode = nodes.get(c)
+	return n != null and not n.walk_through()
+
+
+## Blocks walking for everyone (doors count as blocking): walls, fires, and resource nodes
+## other than hemp (R7). Loot bags can lie wherever people can walk.
+func blocks_walk(c: Vector2i) -> bool:
+	return _node_blocks_walk(c) or walls.has(c) or fires.has(c)
+
+
 ## Can this agent step onto the cell? Doors open for their faction, or to let a trapped agent out.
 func passable(a: Agent, c: Vector2i) -> bool:
-	if not in_bounds(c) or nodes.has(c) or fires.has(c):
+	if not in_bounds(c) or _node_blocks_walk(c) or fires.has(c):
 		return false
 	var fu: Furniture = furniture.get(c)
 	if fu and fu.is_solid():
@@ -353,7 +366,7 @@ static func _is_workshop_fire(f: Campfire) -> bool:
 
 
 func can_build(c: Vector2i, fid: int) -> bool:
-	if not in_bounds(c) or is_solid(c) or loot.has(c):
+	if not in_bounds(c) or is_solid(c) or loot.has(c) or furniture.has(c):
 		return false
 	var po := privilege_owner(c)
 	if po != 0 and not same_side(po, fid):
@@ -481,7 +494,8 @@ func add_node(type: int, c: Vector2i) -> ResourceNode:
 	node_buckets[type][key].append(n)
 	if type == ResourceNode.Type.BUSH:
 		bushes.append(n)
-	astar.set_point_solid(c, true)
+	if not n.walk_through():
+		astar.set_point_solid(c, true)
 	static_dirty = true
 	return n
 
@@ -678,7 +692,7 @@ func footprint_clash(outer: Rect2i, ignore: House = null) -> bool:
 func drop_loot(c: Vector2i, stacks: Dictionary, tools: Array, dropper_id: int = -1, reason: String = "") -> void:
 	if stacks.is_empty() and tools.is_empty():
 		return
-	if is_solid(c):
+	if blocks_walk(c):
 		var alt := random_walkable_near(c, 1)
 		if alt == NO_CELL:
 			return

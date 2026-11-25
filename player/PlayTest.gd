@@ -97,6 +97,7 @@ func run(main: Node, pc: PlayerController, cam: Node) -> void:
 	# the panels' buttons.
 	await _panels(a, cam)
 	await _mailbox_checks(a, cam)
+	_inventory_access_checks(a, cam)
 
 	# 5. Fight: swing at an NPC in front; it fights back. The player gets a sword so the
 	# rest of the test usually survives (an unarmed player tends to lose).
@@ -165,9 +166,51 @@ func run(main: Node, pc: PlayerController, cam: Node) -> void:
 		_check(a.controller == pc and a.job == null, "back from watch mode: the player drives again")
 		# 8. The base fire (Player Group Base Plan); it runs sim time, so it goes last.
 		await _base_fire_checks(a, cam)
+		_round2_main_checks(a)
+		_door_side_checks(a)
 	await _death_tests(main)
 	print("PLAYTEST %s (%d failed)" % ["PASSED" if _fails == 0 else "FAILED", _fails])
 	_main.get_tree().quit()
+
+
+## Player Group Base Plan R1 and R7: an NPC meeting the player doesn't use up the player's
+## invite cooldown; a refused invite can be retried after 10 s; hemp and mailboxes don't
+## block walking but still block building. No sim time.
+func _round2_main_checks(a: Agent) -> void:
+	_solo(a)
+	var t := _free_npc(a)
+	if t == null:
+		_check(false, "found an NPC for the cooldown checks")
+		return
+	t.pos = a.pos + Vector2(1.5, 0)
+	t.mood = 60.0
+	t.cooldowns.erase(a.id)
+	a.action_cooldowns.erase(t.id)
+	Brain.set_job(t, null)
+	Social.scan(t)
+	_check(not "Ask again" in Social.player_why(a, t, &"invite"), "an NPC meeting the player leaves the player's invite open: %s" % Social.player_why(a, t, &"invite"))
+	t.stats.auth = a.stats.auth + 5 # outranks the player: always refuses
+	var said := Social.player_act(a, t, &"invite")
+	var wait: float = a.action_cooldowns.get(t.id, 0.0) - SimClock.time
+	_check("less standing" in said and wait > 0.0 and wait <= Cfg.PLAYER_INVITE_RETRY + 0.01, "a refused invite can be retried after %.0f s" % wait)
+	# Hemp: walk through, can't build on it.
+	var hemp: ResourceNode = null
+	for n in World.nodes.values():
+		if n.type == ResourceNode.Type.HEMP:
+			hemp = n
+			break
+	if hemp:
+		_check(World.passable(a, hemp.cell) and not World.astar.is_point_solid(hemp.cell), "hemp doesn't block walking or paths")
+		_check(not World.can_build(hemp.cell, a.faction.id), "hemp still blocks building")
+	else:
+		print("    (no hemp on the map to test)")
+	# Mailbox: walk through, can't build on it.
+	var c := World.random_walkable_near(a.cell() + Vector2i(4, 4), 3)
+	if c != World.NO_CELL and not World.furniture.has(c):
+		var mb := World.place_furniture(c, Furniture.Kind.MAILBOX, a.faction.id, null)
+		_check(World.passable(a, c) and not World.astar.is_point_solid(c), "a mailbox doesn't block walking or paths")
+		_check(not World.can_build(c, a.faction.id), "a mailbox still blocks building")
+		World.remove_furniture(mb)
 
 
 ## Social feed (Player Controller Plan §5.1): which tier an event lands in, and what never
@@ -404,6 +447,7 @@ func _below(t: Agent, a: Agent) -> void:
 		a.stats.auth = 2
 	t.stats.auth = a.stats.auth - 1
 	a.set_cooldown(t.id, 0.0)
+	a.set_action_cooldown(t.id, 0.0)
 	t.set_cooldown(a.id, 0.0)
 	Brain.set_job(t, null)
 
@@ -422,6 +466,7 @@ func _rank_checks(a: Agent, mate: Agent) -> void:
 	Brain.set_job(h, null)
 	h.stats.auth = a.stats.auth + 3
 	a.set_cooldown(h.id, 0.0)
+	a.set_action_cooldown(h.id, 0.0)
 	h.set_cooldown(a.id, 0.0)
 	_check(Social.player_why(a, h, &"invite") == "", "invite stays open on someone who outranks you: %s" % Social.player_why(a, h, &"invite"))
 	_pc._social = [&"invite", h.id]
@@ -452,10 +497,12 @@ func _pushover(a: Agent, t: Agent) -> void:
 	t.mood = 0.0
 	t.stats.agi = 1
 	t.hp = 40.0
-	t.inv.remove("stone", t.inv.count("stone"))
+	for k in Items.STACKABLES: # only the stone, so the demand drops exactly 5 of it
+		t.inv.remove(k, t.inv.count(k))
 	t.inv.add("stone", 10)
 	Brain.set_job(t, null)
 	a.set_cooldown(t.id, 0.0)
+	a.set_action_cooldown(t.id, 0.0)
 	t.set_cooldown(a.id, 0.0)
 
 
@@ -592,6 +639,7 @@ func _radial_checks(a: Agent) -> void:
 		w.mood = 0.0
 		a.mood = 60.0
 		a.set_cooldown(w.id, 0.0)
+		a.set_action_cooldown(w.id, 0.0)
 		_check(Social.player_why(a, w, &"recruit") == "Only angry people run gangs.", "greyed: recruiting needs you angry")
 		_check(Social.player_why(a, w, &"trade") == "Trade is between groups.", "greyed: trade needs two groups")
 		w.pos = a.pos + Vector2(20, 0)
@@ -601,6 +649,7 @@ func _radial_checks(a: Agent) -> void:
 	if q:
 		q.pos = a.pos + Vector2(2, 0)
 		a.set_cooldown(q.id, 0.0)
+		a.set_action_cooldown(q.id, 0.0)
 		q.set_cooldown(a.id, 0.0)
 		pc.radial_id = q.id
 		await _main.get_tree().process_frame
@@ -732,7 +781,8 @@ func _panels(a: Agent, cam: Node) -> void:
 			break
 	var foreign := World.place_furniture(p0 + Vector2i(4, 3), Furniture.Kind.CHEST, other_fid, null)
 	var why: String = pc.station.try_open(a, foreign)
-	_check(why != "" and pc.station.open == null, "a chest of another side is refused (%s)" % why)
+	_check(why == "" and pc.station.open == foreign, "a chest of another side opens for the player (R8: %s)" % why)
+	pc.station.close("")
 	World.remove_furniture(foreign)
 	# Build menu: greyed out without wood, picks a piece with it.
 	var menu: CanvasLayer = _main._build
@@ -809,6 +859,182 @@ func _mailbox_checks(a: Agent, cam: Node) -> void:
 	_steps(1)
 	World.remove_furniture(fm)
 	await _frames(1)
+
+
+## Player Group Base Plan R2 and R8: Trade on a groupmate opens their gear and items move
+## both ways (worn pieces, hotbar tools); another group's chest opens, putting in is free,
+## taking is theft once per opening (relations drop, a watching owner attacks); an abandoned
+## chest is free to loot. Moves run straight through InvMoves. No sim time and no random
+## rolls, and every agent, group and relation is put back afterwards: anything that shifts
+## the world here changes how the later checks (fights, deaths) play out.
+func _inventory_access_checks(a: Agent, cam: Node) -> void:
+	const IM := preload("res://player/InvMoves.gd")
+	var pc := _pc
+	var st = pc.station
+	st.close("")
+	pc.set_inventory(false)
+	var start_pos := a.pos
+	var snap := _snap_world()
+	var f := a.faction
+	var f_solo := f.solo
+	var mate: Agent = null
+	for o in World.agent_list:
+		if o != a and o.alive and o.faction.solo and o.faction.houses.is_empty() and not o.in_combat() and not o.is_servant() and o.controller == null:
+			mate = o
+			break
+	if mate == null:
+		_check(false, "found an NPC for the groupmate gear checks")
+		return
+	# Into the player's group by hand (Factions.form / leave roll new groups from World.rng).
+	var mf := mate.faction
+	mf.members.erase(mate.id)
+	f.members.append(mate.id)
+	mate.faction = f
+	f.solo = false
+	mate.pos = a.pos + Vector2(1.5, 0.0)
+	var trade: Dictionary = Social.player_options(a, mate).filter(func(o): return o.id == &"trade")[0]
+	_check(trade.why == "" and Social.player_why(a, mate, &"trade") == "They're in your group.", "the radial offers Trade on a groupmate (%s)" % trade.why)
+	pc._social = [&"trade", mate.id]
+	pc.control(a, 0.0) # the controller's own step, without running the world
+
+	_check(st.is_member() and st.member == mate and st.open == null, "Trade on a groupmate opens their gear (%s)" % pc.message)
+	_check(_main._member != null and _main._member.box(IM.M_WORN, 0) != null, "the member panel has the groupmate's armour slots")
+	# A worn piece both ways: the player's helmet onto them (worn to worn), back off them
+	# into the player's pack (worn to pack).
+	var head: String = Items.ARMOR[0]
+	var old_mine = a.worn.get(head)
+	var old_theirs = mate.worn.get(head)
+	a.worn[head] = {"type": "helmet", "dur": Items.DURABILITY.get("helmet", 10)}
+	mate.worn.erase(head)
+	var helm = a.worn[head]
+	_check(IM.move(a, st, IM.WORN, 0, IM.M_WORN, 0) and mate.worn.get(head) == helm and not a.worn.has(head), "moved the player's worn helmet onto the groupmate")
+	var free := _free_pack_slot(a.inv)
+	_check(IM.move(a, st, IM.M_WORN, 0, IM.INV, free) and a.inv.entry(free) == helm and not mate.worn.has(head), "took the groupmate's worn helmet into the player's pack")
+	a.inv.take_slot(free)
+	# A hotbar tool both ways: the player's hotbar slot 0 to theirs, and back.
+	var tool := {"type": "axe", "dur": Items.DURABILITY.get("axe", 10)}
+	var mine0 = a.inv.take_slot(0)
+	var theirs0 = mate.inv.take_slot(0)
+	a.inv.put_slot(0, tool)
+	_check(IM.move(a, st, IM.INV, 0, IM.M_INV, 0) and mate.inv.entry(0) == tool and a.inv.entry(0) == null, "moved a hotbar tool to the groupmate's hotbar")
+	_check(IM.quick(a, st, IM.M_INV, 0) and a.inv.slot_of(tool) >= 0 and mate.inv.entry(0) == null, "right click took the tool back from the groupmate (%s)" % a.inv.summary())
+	a.inv.take_slot(a.inv.slot_of(tool))
+	if mine0 != null:
+		a.inv.put_slot(0, mine0)
+	if theirs0 != null:
+		mate.inv.put_slot(0, theirs0)
+	if old_mine != null:
+		a.worn[head] = old_mine
+	if old_theirs != null:
+		mate.worn[head] = old_theirs
+	# Walking out of reach closes it; so does leaving the group.
+	mate.pos = a.pos + Vector2(Cfg.SOCIAL_RANGE * 2.0, 0.0)
+	st.step(a, 1.0 / 60.0)
+	_check(not st.is_member() and st.why_closed != "", "the gear panel closes when the groupmate is out of reach (%s)" % st.why_closed)
+	st.why_closed = ""
+	mate.pos = a.pos + Vector2(1.5, 0.0)
+	st.open_member(a, mate)
+	f.members.erase(mate.id) # back to their own group
+	mf.members.append(mate.id)
+	mate.faction = mf
+	f.solo = f_solo
+	st.step(a, 1.0 / 60.0)
+	_check(not st.is_member(), "the gear panel closes when they leave the group (%s)" % st.why_closed)
+	st.why_closed = ""
+	_restore_world(snap)
+
+	# R8: another live group's chest by the player, with one of its members watching.
+	var other: Faction = null
+	for o in World.agent_list:
+		if not o.faction.solo and not World.same_side(o.faction.id, a.faction.id) and o.alive and not o.in_combat():
+			other = o.faction
+			break
+	var site := _open_site(a.cell())
+	var c := site + Vector2i(1, 0)
+	if other == null or site == World.NO_CELL or World.furniture.has(c):
+		_check(false, "found a foreign group and a free cell for a test chest")
+		a.pos = start_pos
+		return
+	a.pos = World.center(site)
+	cam.position = a.pos * Cfg.CELL
+	var w: Agent = World.agents.get(other.members[0])
+	w.pos = a.pos + Vector2(-2.0, 0.0)
+	var ch := World.place_furniture(c, Furniture.Kind.CHEST, other.id, null)
+	ch.store.add("stone", 5)
+	var rel0 := Relations.score(a.faction, other)
+	_check(st.try_open(a, ch) == "" and st.open == ch, "another group's chest opens")
+	_check(_main._panels.text().contains("theft"), "the panel says taking is theft")
+	a.inv.add("wood", 2)
+	var ws := _slot_with(a.inv, "wood")
+	_check(IM.quick(a, st, IM.INV, ws) and ch.store.count("wood") >= 2 and Relations.score(a.faction, other) == rel0 and not w.in_combat(), "putting into it is free")
+	_check(IM.quick(a, st, IM.CHEST, _slot_with(ch.store, "stone")) and a.inv.count("stone") >= 5, "took the stone out")
+	var rel1 := Relations.score(a.faction, other)
+	_check(rel1 < rel0, "theft drops relations with the owner (%.0f -> %.0f)" % [rel0, rel1])
+	_check(w.job != null and w.job.kind == Job.Kind.FIGHT and w.job.target_id == a.id, "the owner's member who saw it attacks")
+	IM.quick(a, st, IM.CHEST, _slot_with(ch.store, "wood"))
+	_check(Relations.score(a.faction, other) == rel1, "a second take in the same opening costs nothing more")
+	st.close("")
+	World.remove_furniture(ch)
+	a.inv.remove("stone", 5)
+	a.inv.remove("wood", 2)
+	_restore_world(snap) # undo the fight (and anyone who joined in) and the relations drop
+	# An abandoned chest (owner 0): free to loot.
+	var ab := World.place_furniture(c, Furniture.Kind.CHEST, 0, null)
+	ab.store.add("stone", 3)
+	var rel_before := Relations.score(a.faction, other)
+	_check(st.try_open(a, ab) == "" and not st.is_theft(a) and _main._panels.text().contains("free"), "an abandoned chest opens, free to take")
+	_check(IM.quick(a, st, IM.CHEST, _slot_with(ab.store, "stone")) and a.inv.count("stone") >= 3 and not st.stolen and Relations.score(a.faction, other) == rel_before, "looted the abandoned chest with no penalty")
+	st.close("")
+	World.remove_furniture(ab)
+	a.inv.remove("stone", 3)
+	_restore_world(snap)
+	a.pos = start_pos
+	cam.position = a.pos * Cfg.CELL
+
+
+## Every agent's job, place, mood and memories, every group's relations and the fight count,
+## to put back with _restore_world.
+func _snap_world() -> Dictionary:
+	var agents := {}
+	for o in World.agent_list:
+		var task = o.job.task if o.job and o.job.kind == Job.Kind.TASK and o.job.task else null
+		agents[o] = {"job": o.job, "task": task, "claimed": task.claimed_by if task else -1,
+			"path": o.path.duplicate(), "path_i": o.path_i, "think_t": o.think_t, "pos": o.pos,
+			"mood": o.mood, "opinions": o.opinions.duplicate(), "death_match": o.death_match.duplicate(),
+			"last_attacker": o.last_attacker, "cooldowns": o.cooldowns.duplicate(), "action_cooldowns": o.action_cooldowns.duplicate()}
+	var rels := {}
+	for fx in World.factions.values():
+		rels[fx] = fx.relations.duplicate()
+	return {"agents": agents, "rels": rels, "counts": World.social_counts.duplicate(), "sources": World.fight_sources.duplicate()}
+
+
+func _restore_world(s: Dictionary) -> void:
+	for o in s.agents:
+		var x: Dictionary = s.agents[o]
+		o.job = x.job
+		if x.task:
+			x.task.claimed_by = x.claimed
+		o.path = x.path.duplicate()
+		o.path_i = x.path_i
+		o.think_t = x.think_t
+		o.pos = x.pos
+		o.mood = x.mood
+		o.opinions = x.opinions.duplicate()
+		o.death_match = x.death_match.duplicate()
+		o.last_attacker = x.last_attacker
+		o.cooldowns = x.cooldowns.duplicate()
+		o.action_cooldowns = x.action_cooldowns.duplicate()
+	for fx in s.rels:
+		fx.relations = s.rels[fx].duplicate()
+	World.social_counts = s.counts.duplicate()
+	World.fight_sources = s.sources.duplicate()
+
+
+static func _free_pack_slot(inv: Inventory) -> int:
+	for i in range(Cfg.HOTBAR_SLOTS, Cfg.AGENT_SLOTS):
+		if inv.entry(i) == null:
+			return i
+	return -1
 
 
 ## Player Group Base Plan D7-D10: the base fire is refused alone, the AI waits for it in a
@@ -890,6 +1116,73 @@ func _base_fire_checks(a: Agent, cam: Node) -> void:
 	_solo(a)
 	a.pos = start_pos
 	cam.position = a.pos * Cfg.CELL
+
+
+## Player Group Base Plan R3-R6: buildings planned outside a city get random door sides and
+## mailbox sides, every planned doorway is open, and the base fire's door faces the player.
+## Plans are undone right away; no sim time (it upsets the death tests that follow).
+func _door_side_checks(a: Agent) -> void:
+	_solo(a)
+	var start_pos := a.pos
+	var f := a.faction # a solo group: no kingdom, so _plan_house takes the non-city path
+	var sides := {}
+	var mail_sides := {}
+	var plans := 0
+	var doors_ok := true
+	var bad := ""
+	for i in 16:
+		var kind: int = House.Kind.HOUSE if i % 2 == 0 else House.Kind.WORKSHOP
+		var h := Factions._plan_house(f, 2, kind)
+		if h == null:
+			continue
+		plans += 1
+		sides[h.door_dir] = true
+		var lay := House.door_layout(h.interior, h.door_dir)
+		mail_sides["left" if h.mailbox_cell == lay[2] else "right"] = true
+		var two_out := h.door_outside(2)
+		var clash := false
+		for o in World.all_houses():
+			if o != h and o.footprint().has_point(two_out):
+				clash = true
+		if lay[0] != h.door_cell or not World.is_walkable(h.door_outside()) or clash:
+			doors_ok = false
+			bad = "door %s facing %s" % [h.door_cell, h.door_dir]
+		f.board.remove_for_house(h)
+		f.houses.erase(h)
+		World.buildings_version += 1
+	_check(plans >= 6, "the AI plans buildings outside a city (%d of 16)" % plans)
+	_check(sides.size() > 1, "planned buildings face more than one side (%s)" % [sides.keys()])
+	_check(mail_sides.size() == 2, "the mailbox lands on both sides of the door (%s)" % [mail_sides.keys()])
+	_check(doors_ok, "every planned doorway is open with room in front %s" % bad)
+	# The base fire's door faces the player, wherever they stand (when that side works).
+	var site := World.NO_CELL
+	var from := a.cell()
+	var best_d := INF
+	for x in range(from.x - 40, from.x + 41, 2):
+		for y in range(from.y - 40, from.y + 41, 2):
+			var c := Vector2i(x, y)
+			var d := Vector2(c - from).length()
+			if d < best_d and World.in_bounds(c) and Factions.base_site(a, c)[1] == "":
+				best_d = d
+				site = c
+	_check(site != World.NO_CELL, "found a base fire site for the door check")
+	if site == World.NO_CELL:
+		return
+	var interior := Factions.base_interior(f, site)
+	var faced := 0
+	var faces_ok := true
+	for side in House.SIDES:
+		a.pos = World.center(site + side * 6)
+		var pick := Factions.base_site(a, site)
+		var dir: Vector2i = pick[0]
+		if Factions._door_why(interior, side) == "":
+			faced += 1
+			var h := House.new(f.id, interior, 2, House.Kind.HOUSE, dir)
+			var to := Vector2(a.cell() - h.door_cell)
+			if dir != side or to.dot(Vector2(side)) <= 0.0:
+				faces_ok = false
+	a.pos = start_pos
+	_check(faced > 0 and faces_ok, "the base fire's door faces the player (%d sides tried)" % faced)
 
 
 ## The first slot holding a stack of `item`, or -1.
@@ -1173,7 +1466,7 @@ func run_input(main: Node, pc: PlayerController, cam: Node) -> void:
 		var swung := a.last_swing
 		_click(MOUSE_BUTTON_LEFT, radial.option_pos(2))
 		await _frames(4)
-		_check(pc.radial_id == -1 and not a.can_interact(rt.id) and a.last_swing == swung,
+		_check(pc.radial_id == -1 and not a.can_act_on(rt.id) and a.last_swing == swung,
 			"LMB confirms the option and closes the menu, without a swing (%s)" % pc.message)
 		_key(KEY_F, false)
 		await _frames(2)

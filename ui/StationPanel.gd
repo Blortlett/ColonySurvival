@@ -3,7 +3,9 @@ extends CanvasLayer
 ## station (player/Station.gd) and turns button presses into requests; the sim step applies
 ## them through Actions. Nothing here changes the sim directly, and nothing pauses.
 ##
-## Chests and crates are shown by the slot UI instead (ui/InventoryUI.gd).
+## Chests and crates are shown by the slot UI instead (ui/InventoryUI.gd); for another
+## side's storage this panel only says whose it is and whether taking is theft (Player
+## Group Base Plan R8).
 ## Machine (sawmill, stone cutter, furnace, anvil): process batches (1 or until the input
 ## runs out, with a progress bar) and craft the machine's recipes.
 ## Buttons have keys ("put:wood:all", "process:plank:1", "craft:pickaxe_t2") so the
@@ -45,7 +47,7 @@ func _station():
 
 func _process(dt: float) -> void:
 	var st = _station()
-	visible = st != null and st.open != null and st.is_machine() and player.alive() and not player.watching
+	visible = st != null and st.open != null and (st.is_machine() or _foreign_chest(st)) and player.alive() and not player.watching
 	if not visible:
 		_sig = ""
 		return
@@ -66,6 +68,8 @@ func refresh() -> void:
 	var sig := "%d|%s|%s|%s|%d" % [st.open.get_instance_id(), a.inv.summary(), st.open.store.summary(), st.job, st.left]
 	if st.is_machine():
 		sig += "|" + Actions.can_use_machine(a, st.open)
+	elif st.is_chest():
+		sig += "|%s|%s" % [st.is_theft(a), st.stolen]
 	if sig == _sig:
 		return
 	_sig = sig
@@ -76,6 +80,38 @@ func refresh() -> void:
 		c.queue_free()
 	if st.is_machine():
 		_build_machine(a, st)
+	elif _foreign_chest(st):
+		_build_foreign_chest(a, st)
+
+
+## Every label's text, for the playtest.
+func text() -> String:
+	_sig = ""
+	refresh()
+	var parts: Array[String] = []
+	for l in _box.find_children("*", "Label", true, false):
+		parts.append(l.text)
+	return "
+".join(parts)
+
+
+# --- Another side's chest or crate (R8) ---
+
+func _foreign_chest(st) -> bool:
+	return st.is_chest() and player.body != null and not World.same_side(st.open.owner_id, player.body.faction.id)
+
+
+func _build_foreign_chest(a: Agent, st) -> void:
+	var ch: Furniture = st.open
+	var f: Faction = World.factions.get(ch.owner_id)
+	var abandoned := Actions.storage_abandoned(ch)
+	_header("%s of %s" % [ch.label().capitalize(), "nobody (abandoned)" if abandoned or f == null else f.display_name()])
+	if st.is_theft(a):
+		var l := _label(_box, "Taking from this is theft." if not st.stolen else "You stole from this: they know.", 13)
+		l.add_theme_color_override("font_color", Color(1, 0.35, 0.3))
+		_hint("Putting in is free. Taking drops relations with them, and any of them who see it attack.")
+	else:
+		_label(_box, "Abandoned: free to take.", 12).add_theme_color_override("font_color", Color(0.6, 0.9, 0.5))
 
 
 ## Press a panel button by key, as a click would. Returns false if it's missing or greyed out.

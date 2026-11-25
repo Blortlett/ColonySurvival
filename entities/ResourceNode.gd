@@ -21,6 +21,11 @@ func _init(t: Type, c: Vector2i) -> void:
 		Type.METAL: amount = Cfg.METAL_CAPACITY
 
 
+## Agents walk through it (Player Group Base Plan R7). It still blocks building.
+func walk_through() -> bool:
+	return type == Type.HEMP
+
+
 func item() -> String:
 	match type:
 		Type.TREE: return "wood"
