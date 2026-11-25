@@ -311,21 +311,23 @@ static func _refuse_demand(a: Agent, p: Agent, timed_out: bool) -> void:
 # --- The player starts social actions (Player Social Plan §4, the radial menu) ---
 
 ## Radial options in fixed positions, clockwise from the top: friendly ones on top,
-## hostile ones at the bottom (so muscle memory works).
+## hostile ones at the bottom (so muscle memory works). An angry player sees GANG_OPTION
+## in Invite's slot instead: it's one or the other.
 const PLAYER_OPTIONS := [
 	{"id": &"invite", "label": "Invite to group"},
 	{"id": &"trade", "label": "Trade"},
 	{"id": &"demand", "label": "Demand goods"},
 	{"id": &"challenge", "label": "Challenge"},
-	{"id": &"recruit", "label": "Recruit to gang"},
 ]
+const GANG_OPTION := {"id": &"recruit", "label": "Recruit to gang"}
 
 
 ## Every radial option for the player `p` facing `t`: [{id, label, why}], why = "" if it
 ## can be used now. The menu only reads this, so the rules stay here.
 static func player_options(p: Agent, t: Agent) -> Array:
 	var out := []
-	for o in PLAYER_OPTIONS:
+	for opt in PLAYER_OPTIONS:
+		var o: Dictionary = GANG_OPTION if opt.id == &"invite" and p.is_angry() else opt
 		var why := player_why(p, t, o.id)
 		if o.id == &"trade" and is_groupmate(p, t):
 			why = member_trade_why(p, t) # opens their inventory (R2), not a swap
@@ -355,6 +357,8 @@ static func player_why(p: Agent, t: Agent, opt: StringName) -> String:
 static func _option_why(p: Agent, t: Agent, opt: StringName, fp: Faction, ft: Faction, same_side: bool) -> String:
 	match opt:
 		&"invite":
+			if p.is_angry():
+				return "You're angry: recruit to a gang instead."
 			if not ft.solo:
 				return "They're already in a group."
 			if t.is_servant():

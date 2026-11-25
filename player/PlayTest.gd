@@ -625,6 +625,7 @@ func _radial_checks(a: Agent) -> void:
 	if u:
 		u.pos = a.pos + Vector2(0, 1.5)
 		u.mood = 60.0
+		a.mood = 60.0 # an angry player gets Recruit instead of Invite
 		u.change_opinion(a.id, 60.0)
 		_below(u, a)
 		pc._social = [&"invite", u.id]
@@ -654,8 +655,16 @@ func _radial_checks(a: Agent) -> void:
 		pc.radial_id = q.id
 		await _main.get_tree().process_frame
 		var radial = _main._radial
-		_check(radial._options.size() == 5 and not radial._options.any(func(x): return x.id == &"ask_join"),
-			"the radial menu lists 5 options (no Ask to join) for %s" % q.short())
+		a.mood = 60.0
+		await _main.get_tree().process_frame
+		_check(radial._options.size() == 4 and radial._options[0].id == &"invite" and not radial._options.any(func(x): return x.id == &"recruit" or x.id == &"ask_join"),
+			"the radial menu lists 4 options, Invite on top (no Recruit, no Ask to join) for %s" % q.short())
+		a.mood = -60.0
+		await _main.get_tree().process_frame
+		_check(radial._options.size() == 4 and radial._options[0].id == &"recruit" and not radial._options.any(func(x): return x.id == &"invite"),
+			"angry, Recruit to gang takes Invite's slot")
+		_check(Social.player_why(a, q, &"invite") != "", "angry, invite is refused: %s" % Social.player_why(a, q, &"invite"))
+		a.mood = 60.0
 		if _shots:
 			await _seconds(0.1)
 		await _shot("playtest_radial")
@@ -1462,7 +1471,7 @@ func run_input(main: Node, pc: PlayerController, cam: Node) -> void:
 		_key(KEY_F, true)
 		await _frames(3)
 		var radial: CanvasLayer = main._radial
-		_check(pc.radial_id == rt.id and radial._options.size() == 5, "holding F opens the radial menu on %s" % rt.short())
+		_check(pc.radial_id == rt.id and radial._options.size() == 4, "holding F opens the radial menu on %s" % rt.short())
 		_mouse_move(radial.option_pos(2))
 		await _frames(3)
 		_check(pc.radial_sel == &"demand", "moving the mouse to it highlights Demand goods (%s %s)" % [pc.radial_sel, pc.radial_why])
