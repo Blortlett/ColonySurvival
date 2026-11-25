@@ -189,8 +189,8 @@ func _fire_text(f: Campfire) -> String:
 			var built := 0
 			var paved := 0
 			for c in road_cells:
-				built += 1 if World.roads.has(c) else 0
-				paved += 1 if World.roads.get(c, 0) >= 2 else 0
+				built += 1 if World.roads.has(World.wc(c)) else 0
+				paved += 1 if World.roads.get(World.wc(c), 0) >= 2 else 0
 			lines.append("  City: %d plots   roads %d/%d (paved %d)" % [k.plots.size(), built, road_cells.size(), paved])
 			var push := PushOut.describe(k)
 			if not push.is_empty():
@@ -286,7 +286,7 @@ func _tier_text(h: House) -> String:
 	var t1 := 0
 	var t2 := 0
 	for c in h.wall_cells:
-		var w: Wall = World.walls.get(c)
+		var w: Wall = World.walls.get(World.wc(c))
 		if w and w.tier == 1:
 			t1 += 1
 		elif w and w.tier >= 2:

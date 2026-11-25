@@ -74,7 +74,8 @@ func setup() -> void:
 			seed = int(arg.get_slice("=", 1)) # bench comparisons across seeds
 	rng.seed = seed if seed != 0 else randi()
 	Names.reset(rng.seed) # its own generator: names never shift the sim's rolls
-	astar.region = Rect2i(0, 0, Cfg.MAP_W, Cfg.MAP_H)
+	var pad := Cfg.PATH_PAD if Cfg.WRAP else 0
+	astar.region = Rect2i(-pad, -pad, Cfg.MAP_W + pad * 2, Cfg.MAP_H + pad * 2)
 	astar.cell_size = Vector2.ONE
 	astar.diagonal_mode = AStarGrid2D.DIAGONAL_MODE_ONLY_IF_NO_OBSTACLES
 	astar.update()
@@ -234,16 +235,88 @@ func _update_decay_sets() -> void:
 
 # --- Grid queries ---
 
+## With WRAP every cell is on the map (it's an alias of a canonical cell, see wc).
 func in_bounds(c: Vector2i) -> bool:
-	return c.x >= 0 and c.y >= 0 and c.x < Cfg.MAP_W and c.y < Cfg.MAP_H
+	return Cfg.WRAP or (c.x >= 0 and c.y >= 0 and c.x < Cfg.MAP_W and c.y < Cfg.MAP_H)
+
+
+## The canonical cell: every cell-keyed store (walls, nodes, zone_map, A*...) uses these.
+## Cells made by local arithmetic (neighbours, radius scans) go through this before a lookup.
+static func wc(c: Vector2i) -> Vector2i:
+	if not Cfg.WRAP:
+		return c
+	return Vector2i(posmod(c.x, Cfg.MAP_W), posmod(c.y, Cfg.MAP_H))
+
+
+## The canonical position (agents keep theirs canonical after every move).
+static func wrap_pos(p: Vector2) -> Vector2:
+	if not Cfg.WRAP:
+		return p
+	return Vector2(fposmod(p.x, Cfg.MAP_W), fposmod(p.y, Cfg.MAP_H))
+
+
+## The copy of cell c nearest `anchor`: for local geometry that mixes a canonical cell with
+## cells counted from an anchor (clamping into a rect, walking a line).
+static func near_cell(c: Vector2i, anchor: Vector2i) -> Vector2i:
+	return anchor + cdelta(anchor, c)
+
+
+## Shortest cell offset from a to b.
+static func cdelta(a: Vector2i, b: Vector2i) -> Vector2i:
+	var d := b - a
+	if Cfg.WRAP:
+		d.x -= Cfg.MAP_W * int(roundf(float(d.x) / Cfg.MAP_W))
+		d.y -= Cfg.MAP_H * int(roundf(float(d.y) / Cfg.MAP_H))
+	return d
+
+
+## --- View (render only; the sim never reads these) ---
+## The camera's centre and visible rect in world px, set by CameraController every frame.
+## Renderers draw everything at its copy nearest view_center, so the seam never shows.
+var view_center := Vector2.ZERO
+var view_rect := Rect2()
+
+
+## Offset (world px) that moves world-px point p to its copy nearest the camera.
+func px_shift(p: Vector2) -> Vector2:
+	if not Cfg.WRAP:
+		return Vector2.ZERO
+	var mw := float(Cfg.MAP_W * Cfg.CELL)
+	var mh := float(Cfg.MAP_H * Cfg.CELL)
+	return Vector2(mw * roundf((view_center.x - p.x) / mw), mh * roundf((view_center.y - p.y) / mh))
+
+
+## World px of position p (cells) at its copy nearest the camera: what every per-frame
+## renderer draws at.
+func px(p: Vector2) -> Vector2:
+	var q := p * Cfg.CELL
+	return q + px_shift(q)
+
+
+## Rect2i.has_point that also finds c on the other side of the seam.
+static func rect_has(r: Rect2i, c: Vector2i) -> bool:
+	if not Cfg.WRAP:
+		return r.has_point(c)
+	return posmod(c.x - r.position.x, Cfg.MAP_W) < r.size.x and posmod(c.y - r.position.y, Cfg.MAP_H) < r.size.y
+
+
+## Rect2i.intersects, wrap-aware.
+static func rects_meet(a: Rect2i, b: Rect2i) -> bool:
+	if not Cfg.WRAP:
+		return a.intersects(b)
+	if a.size.x <= 0 or a.size.y <= 0 or b.size.x <= 0 or b.size.y <= 0:
+		return false
+	var x := posmod(b.position.x - a.position.x, Cfg.MAP_W) < a.size.x or posmod(a.position.x - b.position.x, Cfg.MAP_W) < b.size.x
+	var y := posmod(b.position.y - a.position.y, Cfg.MAP_H) < a.size.y or posmod(a.position.y - b.position.y, Cfg.MAP_H) < b.size.y
+	return x and y
 
 
 ## Blocks building (and site checks). Walking uses passable / blocks_walk: hemp doesn't
 ## block it (R7).
 func is_solid(c: Vector2i) -> bool:
-	if nodes.has(c) or walls.has(c) or fires.has(c):
+	if nodes.has(wc(c)) or walls.has(wc(c)) or fires.has(wc(c)):
 		return true
-	var fu: Furniture = furniture.get(c)
+	var fu: Furniture = furniture.get(wc(c))
 	return fu != null and fu.is_solid()
 
 
@@ -251,23 +324,27 @@ func is_walkable(c: Vector2i) -> bool:
 	return in_bounds(c) and not is_solid(c)
 
 
-## Wrap-aware geometry (Summer Roadmap §2): the shortest offset from a to b. The map doesn't
-## wrap yet, so this is plain subtraction; in phase 5 it picks the shortest way round.
-## All new code measures distance and direction through these.
+## Wrap-aware geometry (Summer Roadmap §2): the shortest offset from a to b, the short way
+## round the seam when the map wraps. All code measures distance and direction through these.
 static func delta(a: Vector2, b: Vector2) -> Vector2:
-	return b - a
+	var d := b - a
+	if Cfg.WRAP:
+		d.x -= Cfg.MAP_W * roundf(d.x / Cfg.MAP_W)
+		d.y -= Cfg.MAP_H * roundf(d.y / Cfg.MAP_H)
+	return d
 
 
 static func dist(a: Vector2, b: Vector2) -> float:
-	return a.distance_to(b)
+	return delta(a, b).length()
 
 
 static func dist_sq(a: Vector2, b: Vector2) -> float:
-	return a.distance_squared_to(b)
+	return delta(a, b).length_squared()
 
 
 static func cheb(a: Vector2i, b: Vector2i) -> int:
-	return max(abs(a.x - b.x), abs(a.y - b.y))
+	var d := cdelta(a, b)
+	return max(abs(d.x), abs(d.y))
 
 
 ## Trees, rocks and iron all draw as 2x2-cell sprites.
@@ -281,7 +358,7 @@ func big_node_too_close(c: Vector2i) -> bool:
 	var r := Cfg.BIG_NODE_MIN_GAP - 1
 	for dx in range(-r, r + 1):
 		for dy in range(-r, r + 1):
-			var n: ResourceNode = nodes.get(c + Vector2i(dx, dy))
+			var n: ResourceNode = nodes.get(wc(c + Vector2i(dx, dy)))
 			if n != null and is_big_node(n.type):
 				return true
 	return false
@@ -292,24 +369,24 @@ static func center(c: Vector2i) -> Vector2:
 
 
 func _node_blocks_walk(c: Vector2i) -> bool:
-	var n: ResourceNode = nodes.get(c)
+	var n: ResourceNode = nodes.get(wc(c))
 	return n != null and not n.walk_through()
 
 
 ## Blocks walking for everyone (doors count as blocking): walls, fires, and resource nodes
 ## other than hemp (R7). Loot bags can lie wherever people can walk.
 func blocks_walk(c: Vector2i) -> bool:
-	return _node_blocks_walk(c) or walls.has(c) or fires.has(c)
+	return _node_blocks_walk(c) or walls.has(wc(c)) or fires.has(wc(c))
 
 
 ## Can this agent step onto the cell? Doors open for their faction, or to let a trapped agent out.
 func passable(a: Agent, c: Vector2i) -> bool:
-	if not in_bounds(c) or _node_blocks_walk(c) or fires.has(c):
+	if not in_bounds(c) or _node_blocks_walk(c) or fires.has(wc(c)):
 		return false
-	var fu: Furniture = furniture.get(c)
+	var fu: Furniture = furniture.get(wc(c))
 	if fu and fu.is_solid():
 		return false
-	var w: Wall = walls.get(c)
+	var w: Wall = walls.get(wc(c))
 	if w == null:
 		return true
 	if not w.is_door:
@@ -355,6 +432,7 @@ func privilege_owner(c: Vector2i) -> int:
 		_rebuild_zones()
 	if not in_bounds(c):
 		return 0
+	c = wc(c)
 	return zone_map[c.y * Cfg.MAP_W + c.x]
 
 
@@ -369,9 +447,14 @@ func _rebuild_zones() -> void:
 		for f in house_fires:
 			if not f.burning() or _is_workshop_fire(f) != pass_workshops:
 				continue
-			for y in range(max(0, f.cell.y - r), min(Cfg.MAP_H, f.cell.y + r + 1)):
-				for x in range(max(0, f.cell.x - r), min(Cfg.MAP_W, f.cell.x + r + 1)):
-					var i := y * Cfg.MAP_W + x
+			for yy in range(f.cell.y - r, f.cell.y + r + 1):
+				if not Cfg.WRAP and (yy < 0 or yy >= Cfg.MAP_H):
+					continue
+				var y := posmod(yy, Cfg.MAP_H)
+				for xx in range(f.cell.x - r, f.cell.x + r + 1):
+					if not Cfg.WRAP and (xx < 0 or xx >= Cfg.MAP_W):
+						continue
+					var i := y * Cfg.MAP_W + posmod(xx, Cfg.MAP_W)
 					if not pass_workshops or zone_map[i] == 0:
 						zone_map[i] = f.owner_id
 
@@ -382,7 +465,7 @@ static func _is_workshop_fire(f: Campfire) -> bool:
 
 
 func can_build(c: Vector2i, fid: int) -> bool:
-	if not in_bounds(c) or is_solid(c) or loot.has(c) or furniture.has(c):
+	if not in_bounds(c) or is_solid(c) or loot.has(wc(c)) or furniture.has(wc(c)):
 		return false
 	var po := privilege_owner(c)
 	if po != 0 and not same_side(po, fid):
@@ -400,13 +483,14 @@ func all_houses() -> Array[House]:
 func house_at(c: Vector2i) -> House:
 	for f in factions.values():
 		for h in f.houses:
-			if h.interior.has_point(c):
+			if rect_has(h.interior, c):
 				return h
 	return null
 
 
 ## Bresenham line between cell centres; walls and doors block arrows.
 func line_clear(a: Vector2i, b: Vector2i) -> bool:
+	b = near_cell(b, a)
 	var dx: int = abs(b.x - a.x)
 	var dy: int = -abs(b.y - a.y)
 	var sx := 1 if a.x < b.x else -1
@@ -414,7 +498,7 @@ func line_clear(a: Vector2i, b: Vector2i) -> bool:
 	var err := dx + dy
 	var p := a
 	while p != b:
-		if p != a and walls.has(p):
+		if p != a and walls.has(wc(p)):
 			return false
 		var e2 := 2 * err
 		if e2 >= dy:
@@ -428,6 +512,32 @@ func line_clear(a: Vector2i, b: Vector2i) -> bool:
 
 # --- Pathfinding ---
 
+## A* runs on the map plus a PATH_PAD margin copied from the far side (Cfg.WRAP), so every
+## write to it goes to each copy of the cell inside the padded grid.
+func _astar_aliases(c: Vector2i) -> Array[Vector2i]:
+	if not Cfg.WRAP:
+		return [c]
+	var out: Array[Vector2i] = []
+	var r := astar.region
+	for kx in [-1, 0, 1]:
+		var x: int = c.x + kx * Cfg.MAP_W
+		if x < r.position.x or x >= r.end.x:
+			continue
+		for ky in [-1, 0, 1]:
+			var y: int = c.y + ky * Cfg.MAP_H
+			if y >= r.position.y and y < r.end.y:
+				out.append(Vector2i(x, y))
+	return out
+
+
+func _astar_solid(c: Vector2i, on: bool) -> void:
+	if not Cfg.WRAP:
+		astar.set_point_solid(c, on)
+		return
+	for ac in _astar_aliases(wc(c)):
+		astar.set_point_solid(ac, on)
+
+
 var _path_fail := {} # Vector4i(agent, start, dest) -> expiry; failed searches flood the map, so don't repeat them
 
 
@@ -435,6 +545,7 @@ func find_path(a: Agent, dest: Vector2i) -> Array[Vector2i]:
 	var start := a.cell()
 	if not in_bounds(dest) or not in_bounds(start):
 		return []
+	dest = wc(dest)
 	var fail_key := Vector4i(a.id, start.x * 65536 + start.y, dest.x, dest.y)
 	if SimClock.time < _path_fail.get(fail_key, -1.0):
 		return []
@@ -449,12 +560,22 @@ func find_path(a: Agent, dest: Vector2i) -> Array[Vector2i]:
 	if astar.is_point_solid(start):
 		opened.append(start)
 	for c in opened:
-		astar.set_point_solid(c, false)
+		_astar_solid(c, false)
 	prof_add("path_doors", ts)
 	var p: Array[Vector2i] = []
 	var t := Time.get_ticks_usec()
-	if not astar.is_point_solid(dest):
-		p = astar.get_id_path(start, dest)
+	# With WRAP, aim at the copy of dest nearest the start: inside the padded grid the path
+	# crosses the seam. Beyond the pad, the canonical dest (the long way round) still works.
+	var goal := dest
+	if Cfg.WRAP:
+		var near := near_cell(dest, start)
+		if astar.region.has_point(near):
+			goal = near
+	if not astar.is_point_solid(goal):
+		p = astar.get_id_path(start, goal)
+		if Cfg.WRAP:
+			for i in p.size():
+				p[i] = wc(p[i])
 	prof_add("astar", t)
 	if p.is_empty():
 		_path_fail[fail_key] = SimClock.time + 10.0
@@ -464,7 +585,7 @@ func find_path(a: Agent, dest: Vector2i) -> Array[Vector2i]:
 			var k: String = Job.Kind.keys()[a.job.kind] if a.job else "none"
 			prof_add("astar_FAIL_" + k, t)
 	for c in opened:
-		astar.set_point_solid(c, true)
+		_astar_solid(c, true)
 	return p
 
 
@@ -480,18 +601,18 @@ func approach_cell(a: Agent, target: Vector2i, radius: int = 1) -> Vector2i:
 			var c := Vector2i(x, y)
 			if c == target or not passable(a, c):
 				continue
-			var d := a.pos.distance_squared_to(center(c))
+			var d := dist_sq(a.pos, center(c))
 			if d < best_d:
 				best_d = d
 				best = c
-	return best
+	return wc(best) if best != NO_CELL else NO_CELL
 
 
 func random_walkable_near(c: Vector2i, radius: int) -> Vector2i:
 	for i in 20:
 		var t := c + Vector2i(rng.randi_range(-radius, radius), rng.randi_range(-radius, radius))
 		if is_walkable(t):
-			return t
+			return wc(t)
 	return NO_CELL
 
 
@@ -501,9 +622,17 @@ func _bucket(c: Vector2i) -> Vector2i:
 	return Vector2i(c.x / NODE_BUCKET, c.y / NODE_BUCKET)
 
 
+## The stored bucket key for an unwrapped bucket coordinate (ring searches run past the seam).
+static func _bucket_key(b: Vector2i) -> Vector2i:
+	if not Cfg.WRAP:
+		return b
+	return Vector2i(posmod(b.x, Cfg.MAP_W / NODE_BUCKET), posmod(b.y, Cfg.MAP_H / NODE_BUCKET))
+
+
 func add_node(type: int, c: Vector2i) -> ResourceNode:
+	c = wc(c)
 	var n := ResourceNode.new(type, c)
-	nodes[c] = n
+	nodes[wc(c)] = n
 	var key := _bucket(c)
 	if not node_buckets[type].has(key):
 		node_buckets[type][key] = []
@@ -511,7 +640,7 @@ func add_node(type: int, c: Vector2i) -> ResourceNode:
 	if type == ResourceNode.Type.BUSH:
 		bushes.append(n)
 	if not n.walk_through():
-		astar.set_point_solid(c, true)
+		_astar_solid(c, true)
 	static_dirty = true
 	return n
 
@@ -521,7 +650,7 @@ func remove_node(n: ResourceNode) -> void:
 		return
 	nodes.erase(n.cell)
 	node_buckets[n.type][_bucket(n.cell)].erase(n)
-	astar.set_point_solid(n.cell, false)
+	_astar_solid(n.cell, false)
 	static_dirty = true
 	respawn_queue.append({"type": n.type, "at": SimClock.time + rng.randf_range(Cfg.NODE_RESPAWN_MIN, Cfg.NODE_RESPAWN_MAX)})
 
@@ -544,7 +673,7 @@ func nearest_node(type: int, from: Vector2i, max_r: float, pred: Callable = Call
 			while by <= bf.y + ring:
 				var key := Vector2i(bx, by)
 				by = by + 1 if edge_col or by == bf.y + ring else bf.y + ring
-				var arr = buckets.get(key)
+				var arr = buckets.get(_bucket_key(key))
 				if arr == null:
 					continue
 				var lo := Vector2(key * NODE_BUCKET)
@@ -554,7 +683,7 @@ func nearest_node(type: int, from: Vector2i, max_r: float, pred: Callable = Call
 				for n in arr:
 					if n.amount <= 0:
 						continue
-					var d := Vector2(from).distance_to(Vector2(n.cell))
+					var d := dist(Vector2(from), Vector2(n.cell))
 					if d < best_d and d <= max_r and (pred.is_null() or pred.call(n)):
 						best = n
 						best_d = d
@@ -575,9 +704,10 @@ func _respawn_node(type: int) -> void:
 			c = anchor + Vector2i(rng.randi_range(-4, 4), rng.randi_range(-4, 4))
 		else:
 			c = Vector2i(rng.randi_range(0, Cfg.MAP_W - 1), rng.randi_range(0, Cfg.MAP_H - 1))
+		c = wc(c)
 		if is_big_node(type) and big_node_too_close(c):
 			continue
-		if is_walkable(c) and not loot.has(c) and privilege_owner(c) == 0 and house_at(c) == null and not agent_on(c) and not Cities.in_city(c):
+		if is_walkable(c) and not loot.has(wc(c)) and privilege_owner(c) == 0 and house_at(c) == null and not agent_on(c) and not Cities.in_city(c):
 			add_node(type, c)
 			return
 	respawn_queue.append({"type": type, "at": SimClock.time + 30.0})
@@ -586,10 +716,11 @@ func _respawn_node(type: int) -> void:
 # --- Buildings ---
 
 func place_wall(c: Vector2i, door: bool, fid: int, tier: int = 0, shared: bool = false) -> Wall:
+	c = wc(c)
 	var w := Wall.new(c, door, fid, tier)
 	w.shared = shared
-	walls[c] = w
-	astar.set_point_solid(c, true)
+	walls[wc(c)] = w
+	_astar_solid(c, true)
 	pieces_version += 1
 	_new_walls.append(w)
 	return w
@@ -599,20 +730,23 @@ func remove_wall(w: Wall) -> void:
 	if walls.get(w.cell) != w:
 		return
 	walls.erase(w.cell)
-	astar.set_point_solid(w.cell, false)
+	_astar_solid(w.cell, false)
 	pieces_version += 1
 
 
 ## Roads: walkable, faster, and cheaper for A* so agents prefer them (agreed).
 func place_road(c: Vector2i, tier: int) -> void:
-	roads[c] = tier
+	c = wc(c)
+	roads[wc(c)] = tier
 	pieces_version += 1
-	astar.set_point_weight_scale(c, 1.0 / Items.ROAD_SPEED[tier])
+	for ac in _astar_aliases(c):
+		astar.set_point_weight_scale(ac, 1.0 / Items.ROAD_SPEED[tier])
 
 
 func place_floor(c: Vector2i, fid: int) -> Floor:
+	c = wc(c)
 	var fl := Floor.new(c, fid)
-	floors[c] = fl
+	floors[wc(c)] = fl
 	pieces_version += 1
 	_new_floors.append(fl)
 	return fl
@@ -620,18 +754,19 @@ func place_floor(c: Vector2i, fid: int) -> Floor:
 
 ## Floors are walkable, so they can go under a standing agent.
 func can_floor(c: Vector2i, fid: int) -> bool:
-	if not in_bounds(c) or is_solid(c) or floors.has(c):
+	if not in_bounds(c) or is_solid(c) or floors.has(wc(c)):
 		return false
 	var po := privilege_owner(c)
 	return po == 0 or same_side(po, fid)
 
 
 func place_furniture(c: Vector2i, kind: int, fid: int, house, tier: int = 0) -> Furniture:
+	c = wc(c)
 	var fu := Furniture.new(c, kind, fid, tier)
 	fu.house = house
-	furniture[c] = fu
+	furniture[wc(c)] = fu
 	if fu.is_solid():
-		astar.set_point_solid(c, true)
+		_astar_solid(c, true)
 	pieces_version += 1
 	buildings_version += 1
 	_new_furniture.append(fu)
@@ -644,7 +779,7 @@ func remove_furniture(fu: Furniture, reason: String = "chest destroyed") -> void
 		return
 	furniture.erase(fu.cell)
 	if fu.is_solid() and not is_solid(fu.cell):
-		astar.set_point_solid(fu.cell, false)
+		_astar_solid(fu.cell, false)
 	pieces_version += 1
 	buildings_version += 1
 	if fu.is_storage() and fu.store.total() > 0:
@@ -653,9 +788,10 @@ func remove_furniture(fu: Furniture, reason: String = "chest destroyed") -> void
 
 
 func place_fire(c: Vector2i, house_fire: bool, fid: int) -> Campfire:
+	c = wc(c)
 	var f := Campfire.new(c, house_fire, fid)
-	fires[c] = f
-	astar.set_point_solid(c, true)
+	fires[wc(c)] = f
+	_astar_solid(c, true)
 	pieces_version += 1
 	if house_fire:
 		house_fires.append(f)
@@ -667,7 +803,7 @@ func remove_fire(f: Campfire) -> void:
 	if fires.get(f.cell) != f:
 		return
 	fires.erase(f.cell)
-	astar.set_point_solid(f.cell, false)
+	_astar_solid(f.cell, false)
 	pieces_version += 1
 	if f.is_house:
 		house_fires.erase(f)
@@ -700,7 +836,7 @@ func footprint_clash(outer: Rect2i, ignore: House = null) -> bool:
 	var r := outer.grow(1)
 	for f in factions.values():
 		for h in f.houses:
-			if h != ignore and h.footprint().intersects(r):
+			if h != ignore and rects_meet(h.footprint(), r):
 				return true
 	return false
 
@@ -710,15 +846,16 @@ func footprint_clash(outer: Rect2i, ignore: House = null) -> bool:
 func drop_loot(c: Vector2i, stacks: Dictionary, tools: Array, dropper_id: int = -1, reason: String = "") -> void:
 	if stacks.is_empty() and tools.is_empty():
 		return
+	c = wc(c)
 	if blocks_walk(c):
 		var alt := random_walkable_near(c, 1)
 		if alt == NO_CELL:
 			return
 		c = alt
-	var bag: LootBag = loot.get(c)
+	var bag: LootBag = loot.get(wc(c))
 	if bag == null:
 		bag = LootBag.new(c)
-		loot[c] = bag
+		loot[wc(c)] = bag
 	for k in stacks:
 		bag.stacks[k] = bag.stacks.get(k, 0) + stacks[k]
 	bag.tools.append_array(tools)
@@ -828,7 +965,7 @@ func spawn_agent(min_dist: int, at: Vector2i = NO_CELL) -> Agent:
 	var r := rng.randf()
 	var base := 60.0 if r < 0.5 else (0.0 if r < 0.8 else -60.0) # 50/30/20 (agreed)
 	a.mood = base + rng.randf_range(-15.0, 15.0)
-	a.pos = center(at if at != NO_CELL else _spawn_cell(min_dist))
+	a.pos = wrap_pos(center(at if at != NO_CELL else _spawn_cell(min_dist)))
 	a.think_t = rng.randf() * Cfg.THINK_INTERVAL
 	a.inv.add("berry", 2)
 	Names.assign(a)
@@ -849,7 +986,7 @@ func _spawn_cell(min_dist: int) -> Vector2i:
 			return c
 		var ok := true
 		for other in agent_list:
-			if other.pos.distance_to(center(c)) < min_dist:
+			if dist(other.pos, center(c)) < min_dist:
 				ok = false
 				break
 		if ok:
@@ -906,7 +1043,7 @@ func agent_at_point(p: Vector2, radius: float) -> Agent:
 	var best: Agent = null
 	var best_d := radius
 	for a in agent_list:
-		var d := a.pos.distance_to(p)
+		var d := dist(a.pos, p)
 		if d < best_d:
 			best_d = d
 			best = a

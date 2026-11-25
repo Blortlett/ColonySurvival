@@ -213,7 +213,7 @@ static func candidate_plots(k: Kingdom, min_ring: int, max_ring: int) -> Array[V
 			for idx in block_plots(b):
 				if k.plots.has(idx):
 					continue
-				var d := centre.distance_to(Vector2(plot_rect(k, idx).get_center()))
+				var d := World.dist(centre, Vector2(plot_rect(k, idx).get_center()))
 				cands.append([r * 10000.0 + (0.0 if started.has(b) else 5000.0) + d, idx])
 	cands.sort_custom(func(x, y): return x[0] < y[0])
 	var out: Array[Vector2i] = []
@@ -233,7 +233,7 @@ static func _plot_ok(k: Kingdom, idx: Vector2i) -> bool:
 	for ok in World.kingdoms.values():
 		if ok != k and ok.has_city:
 			for oidx in ok.plots:
-				if plot_rect(ok, oidx).grow(1).intersects(r.grow(1)):
+				if World.rects_meet(plot_rect(ok, oidx).grow(1), r.grow(1)):
 					return false
 	if not World.house_fire_spacing_ok(r.get_center(), null, fid):
 		return false
@@ -243,7 +243,7 @@ static func _plot_ok(k: Kingdom, idx: Vector2i) -> bool:
 	for x in range(r.position.x, r.end.x):
 		for y in range(r.position.y, r.end.y):
 			var c := Vector2i(x, y)
-			if World.walls.has(c) or World.fires.has(c):
+			if World.walls.has(World.wc(c)) or World.fires.has(World.wc(c)):
 				return false
 			var po := World.privilege_owner(c)
 			if po != 0 and not World.same_side(po, fid):
@@ -380,11 +380,11 @@ static func update(k: Kingdom) -> void:
 			var r := plot_rect(k, idx)
 			for x in range(r.position.x, r.end.x):
 				for y in range(r.position.y, r.end.y):
-					if World.nodes.has(Vector2i(x, y)):
+					if World.nodes.has(World.wc(Vector2i(x, y))):
 						to_clear.append(Vector2i(x, y))
 	var targets := road_targets(k)
 	for c in targets:
-		if World.nodes.has(c):
+		if World.nodes.has(World.wc(c)):
 			to_clear.append(c)
 	for c in to_clear:
 		if clears_open >= MAX_CLEAR_TASKS:
@@ -397,7 +397,7 @@ static func update(k: Kingdom) -> void:
 	var plaza := plaza_plot(k)
 	if plaza != NONE:
 		var bc := plot_rect(k, plaza).get_center()
-		var fu: Furniture = World.furniture.get(bc)
+		var fu: Furniture = World.furniture.get(World.wc(bc))
 		if (fu == null or fu.kind != Furniture.Kind.BOARD) and not have.has(Vector3i(bc.x, bc.y, Task.Type.PLACE_BOARD)):
 			board.post(Task.new(Task.Type.PLACE_BOARD, bc, null))
 	# Roads for the current stage; once all are built, pave the roads linking the city's
@@ -405,14 +405,14 @@ static func update(k: Kingdom) -> void:
 	for c in targets:
 		if roads_open >= MAX_ROAD_TASKS:
 			break
-		if not World.nodes.has(c) and not have.has(Vector3i(c.x, c.y, Task.Type.BUILD_ROAD)):
+		if not World.nodes.has(World.wc(c)) and not have.has(Vector3i(c.x, c.y, Task.Type.BUILD_ROAD)):
 			board.post(Task.new(Task.Type.BUILD_ROAD, c, null))
 			roads_open += 1
 	if targets.is_empty() and _kingdom_has_workshop(k):
 		for c in paving_cells(k):
 			if roads_open >= MAX_ROAD_TASKS:
 				break
-			if World.roads.get(c, 0) == 1 and not have.has(Vector3i(c.x, c.y, Task.Type.UPGRADE_ROAD)):
+			if World.roads.get(World.wc(c), 0) == 1 and not have.has(Vector3i(c.x, c.y, Task.Type.UPGRADE_ROAD)):
 				board.post(Task.new(Task.Type.UPGRADE_ROAD, c, null))
 				roads_open += 1
 	if SimClock.time >= k.push_check_at:
@@ -434,29 +434,29 @@ static func _post_demolish(k: Kingdom, have: Dictionary) -> void:
 	var area := city_rect(k)
 	var cells: Array[Vector2i] = []
 	for c in World.walls:
-		if area.has_point(c):
+		if World.rect_has(area, c):
 			cells.append(c)
 	for c in World.fires:
-		var f: Campfire = World.fires[c]
-		if f.is_house and f.house == null and area.has_point(c):
+		var f: Campfire = World.fires[World.wc(c)]
+		if f.is_house and f.house == null and World.rect_has(area, c):
 			cells.append(c)
 	for c in World.furniture:
-		var fu: Furniture = World.furniture[c]
-		if fu.kind != Furniture.Kind.BOARD and not _live_mailbox(fu) and area.has_point(c):
+		var fu: Furniture = World.furniture[World.wc(c)]
+		if fu.kind != Furniture.Kind.BOARD and not _live_mailbox(fu) and World.rect_has(area, c):
 			cells.append(c)
 	for c in World.floors:
-		if area.has_point(c):
+		if World.rect_has(area, c):
 			cells.append(c)
 	if cells.is_empty():
 		return
 	var live: Array[Rect2i] = []
 	for h in World.all_houses():
-		if h.footprint().intersects(area):
+		if World.rects_meet(h.footprint(), area):
 			live.append(h.footprint())
 	for c in cells:
 		if open >= MAX_DEMOLISH_TASKS:
 			break
-		if have.has(Vector3i(c.x, c.y, Task.Type.DEMOLISH)) or live.any(func(r): return r.has_point(c)):
+		if have.has(Vector3i(c.x, c.y, Task.Type.DEMOLISH)) or live.any(func(r): return World.rect_has(r, c)):
 			continue
 		k.board.post(Task.new(Task.Type.DEMOLISH, c, null))
 		have[Vector3i(c.x, c.y, Task.Type.DEMOLISH)] = true
@@ -465,13 +465,13 @@ static func _post_demolish(k: Kingdom, have: Dictionary) -> void:
 
 ## Something at the cell to tear down that no live building owns.
 static func is_junk(c: Vector2i) -> bool:
-	var f: Campfire = World.fires.get(c)
-	var fu: Furniture = World.furniture.get(c)
-	var piece := World.walls.has(c) or World.floors.has(c) or (fu != null and fu.kind != Furniture.Kind.BOARD and not _live_mailbox(fu)) or (f != null and f.is_house and f.house == null)
+	var f: Campfire = World.fires.get(World.wc(c))
+	var fu: Furniture = World.furniture.get(World.wc(c))
+	var piece := World.walls.has(World.wc(c)) or World.floors.has(World.wc(c)) or (fu != null and fu.kind != Furniture.Kind.BOARD and not _live_mailbox(fu)) or (f != null and f.is_house and f.house == null)
 	if not piece:
 		return false
 	for h in World.all_houses():
-		if h.footprint().has_point(c):
+		if World.rect_has(h.footprint(), c):
 			return false
 	return true
 
@@ -484,16 +484,16 @@ static func _live_mailbox(fu: Furniture) -> bool:
 
 ## Tear down whatever stands at the cell (chests spill their contents).
 static func demolish(c: Vector2i) -> void:
-	var w: Wall = World.walls.get(c)
+	var w: Wall = World.walls.get(World.wc(c))
 	if w:
 		World.remove_wall(w)
-	var f: Campfire = World.fires.get(c)
+	var f: Campfire = World.fires.get(World.wc(c))
 	if f and f.is_house and f.house == null:
 		World.remove_fire(f)
-	var fu: Furniture = World.furniture.get(c)
+	var fu: Furniture = World.furniture.get(World.wc(c))
 	if fu and fu.kind != Furniture.Kind.BOARD:
 		World.remove_furniture(fu, "chest destroyed")
-	World.floors.erase(c)
+	World.floors.erase(World.wc(c))
 	World.pieces_version += 1
 	demolished += 1
 
@@ -520,7 +520,7 @@ static func road_targets(k: Kingdom) -> Array[Vector2i]:
 	for cells in stages:
 		var out: Array[Vector2i] = []
 		for c in cells:
-			if not World.roads.has(c) and _road_ok(c):
+			if not World.roads.has(World.wc(c)) and _road_ok(c):
 				out.append(c)
 		if not out.is_empty():
 			return out
@@ -546,7 +546,7 @@ static func paving_cells(k: Kingdom) -> Array[Vector2i]:
 	var net := {}
 	var order := city_road_cells(k)
 	for c in order:
-		if World.roads.has(c) and not plaza.has(c):
+		if World.roads.has(World.wc(c)) and not plaza.has(c):
 			net[c] = true
 	var doors: Array[Vector2i] = []
 	var root := NONE
@@ -593,7 +593,7 @@ static func paving_cells(k: Kingdom) -> Array[Vector2i]:
 
 
 static func _road_ok(c: Vector2i) -> bool:
-	return World.in_bounds(c) and not World.walls.has(c) and not World.fires.has(c) and not World.floors.has(c)
+	return World.in_bounds(c) and not World.walls.has(World.wc(c)) and not World.fires.has(World.wc(c)) and not World.floors.has(World.wc(c))
 
 
 static func _plaza_cells(k: Kingdom) -> Array[Vector2i]:
@@ -639,7 +639,7 @@ static func _spur_cells(k: Kingdom) -> Array[Vector2i]:
 			continue
 		var br := block_rect(k, block_of(idx))
 		var c := h.door_outside()
-		while br.has_point(c):
+		while World.rect_has(br, c):
 			out.append(c)
 			c += h.door_dir
 	return out
@@ -653,7 +653,7 @@ static func _add_once(c: Vector2i, seen: Dictionary, out: Array[Vector2i]) -> vo
 
 ## True if the cell is on a city plot or road line (resource respawns avoid these; agreed).
 static func in_city(c: Vector2i) -> bool:
-	if World.roads.has(c):
+	if World.roads.has(World.wc(c)):
 		return true
 	for k in World.kingdoms.values():
 		if not k.has_city:

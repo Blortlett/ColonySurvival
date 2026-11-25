@@ -58,7 +58,7 @@ func _init(fid: int, interior_rect: Rect2i, cap: int, k: Kind = Kind.HOUSE, dir:
 	for x in range(outer.position.x, outer.end.x):
 		for y in range(outer.position.y, outer.end.y):
 			var c := Vector2i(x, y)
-			if interior.has_point(c) or c == door_cell:
+			if World.rect_has(interior, c) or c == door_cell:
 				continue
 			wall_cells.append(c)
 	for x in range(interior.position.x, interior.end.x):
@@ -163,7 +163,7 @@ func base_wall_tier() -> int:
 func machine(k: int) -> Furniture:
 	if not machine_cells.has(k):
 		return null
-	var fu: Furniture = World.furniture.get(machine_cells[k])
+	var fu: Furniture = World.furniture.get(World.wc(machine_cells[k]))
 	return fu if fu and fu.kind == k and fu.house == self else null
 
 
@@ -200,7 +200,7 @@ func claim_worker(k: int, agent_id: int) -> bool:
 func crates() -> Array[Furniture]:
 	var out: Array[Furniture] = []
 	for c in crate_cells:
-		var fu: Furniture = World.furniture.get(c)
+		var fu: Furniture = World.furniture.get(World.wc(c))
 		if fu and fu.kind == Furniture.Kind.CRATE and fu.house == self:
 			out.append(fu)
 	return out
@@ -209,10 +209,10 @@ func crates() -> Array[Furniture]:
 ## Every wall, the door and the chest are at least this tier (as far as it can be made yet).
 func fully_upgraded(tier: int) -> bool:
 	for c in wall_cells:
-		var w: Wall = World.walls.get(c)
+		var w: Wall = World.walls.get(World.wc(c))
 		if w == null or w.tier < tier:
 			return false
-	var dw: Wall = World.walls.get(door_cell)
+	var dw: Wall = World.walls.get(World.wc(door_cell))
 	if dw == null or dw.tier < min(tier, Items.max_door_tier()):
 		return false
 	if kind != Kind.HOUSE:
@@ -253,13 +253,13 @@ func mailbox_site() -> Vector2i:
 
 
 func mailbox_cell_ok(c: Vector2i) -> bool:
-	if not World.in_bounds(c) or World.is_solid(c) or World.furniture.has(c):
+	if not World.in_bounds(c) or World.is_solid(c) or World.furniture.has(World.wc(c)):
 		return false
 	var po := World.privilege_owner(c)
 	if po != 0 and not World.same_side(po, faction_id):
 		return false
 	# Never on a building's footprint or in front of any door.
 	for h in World.all_houses():
-		if h.footprint().has_point(c) or h.door_outside() == c:
+		if World.rect_has(h.footprint(), c) or h.door_outside() == c:
 			return false
 	return true

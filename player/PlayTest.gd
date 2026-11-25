@@ -38,6 +38,12 @@ func run(main: Node, pc: PlayerController, cam: Node) -> void:
 	# 2. Walls block, and the body slides along them.
 	var c := a.cell()
 	var wx := c.x + 2
+	# The slide runs past the open site's edge: no resource node may stop it there.
+	for x in range(c.x - 1, wx + 2):
+		for y in range(c.y - 4, c.y + 6):
+			var n: ResourceNode = World.nodes.get(Vector2i(x, y))
+			if n:
+				World.remove_node(n)
 	for y in range(c.y - 3, c.y + 4):
 		World.place_wall(Vector2i(wx, y), false, 0)
 	pc._move_in = Vector2.RIGHT
@@ -187,12 +193,17 @@ func _round2_main_checks(a: Agent) -> void:
 	t.cooldowns.erase(a.id)
 	a.action_cooldowns.erase(t.id)
 	Brain.set_job(t, null)
+	# This check is about meeting the player: other NPCs standing here mustn't recruit t.
+	World.spatial.rebuild(World.agent_list)
+	for o in World.agents_near(t.pos, Cfg.SOCIAL_RANGE + 1.0):
+		if o != a and o != t:
+			t.set_cooldown(o.id)
 	Social.scan(t)
 	_check(not "Ask again" in Social.player_why(a, t, &"invite"), "an NPC meeting the player leaves the player's invite open: %s" % Social.player_why(a, t, &"invite"))
 	t.stats.auth = a.stats.auth + 5 # outranks the player: always refuses
 	var said := Social.player_act(a, t, &"invite")
 	var wait: float = a.action_cooldowns.get(t.id, 0.0) - SimClock.time
-	_check("less standing" in said and wait > 0.0 and wait <= Cfg.PLAYER_INVITE_RETRY + 0.01, "a refused invite can be retried after %.0f s" % wait)
+	_check("less standing" in said and wait > 0.0 and wait <= Cfg.PLAYER_INVITE_RETRY + 0.01, "a refused invite can be retried after %.0f s (%s)" % [wait, said])
 	# Hemp: walk through, can't build on it.
 	var hemp: ResourceNode = null
 	for n in World.nodes.values():
@@ -392,6 +403,7 @@ func _social_checks(a: Agent) -> void:
 			other.hp = Cfg.MAX_HP
 			other.pos = a.pos + Vector2(1, 0)
 			foe.pos = a.pos + Vector2(0, 2)
+			World.spatial.rebuild(World.agent_list) # teleported: the hash must see them here
 			Combat.start_fight(foe, a)
 			_check(other.job != null and other.job.kind == Job.Kind.FIGHT and other.job.target_id == foe.id, "a groupmate defends the player")
 			Brain.set_job(foe, null)
@@ -1751,7 +1763,34 @@ func _open_site(from: Vector2i) -> Vector2i:
 			if d < best_d and _open(c):
 				best_d = d
 				best = c
+	if best != World.NO_CELL:
+		return best
+	# Bare 13 x 9 patches are rare on the big map: clear the resource nodes off the nearest
+	# spot that only nodes block (a test fixture; zones, pieces, agents and loot still rule it out).
+	for x in range(10, Cfg.MAP_W - 10, 2):
+		for y in range(6, Cfg.MAP_H - 6, 2):
+			var c := Vector2i(x, y)
+			var d := Vector2(c - from).length()
+			if d < best_d and _clearable(c):
+				best_d = d
+				best = c
+	if best != World.NO_CELL:
+		for x in range(best.x - 9, best.x + 4):
+			for y in range(best.y - 4, best.y + 5):
+				var n: ResourceNode = World.nodes.get(Vector2i(x, y))
+				if n:
+					World.remove_node(n)
 	return best
+
+
+## Like _open, but resource nodes don't count (_open_site clears them).
+func _clearable(c: Vector2i) -> bool:
+	for x in range(c.x - 9, c.x + 4):
+		for y in range(c.y - 4, c.y + 5):
+			var p := Vector2i(x, y)
+			if World.walls.has(p) or World.fires.has(p) or World.furniture.has(p) or World.privilege_owner(p) != 0 or World.agent_on(p) or World.loot.has(p):
+				return false
+	return true
 
 
 func _open(c: Vector2i) -> bool:

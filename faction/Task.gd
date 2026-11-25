@@ -49,7 +49,7 @@ func priority() -> int:
 	# An almost-empty fire is an emergency.
 	if type == Type.REFUEL and house and house.fire and house.fire.fuel_secs < Cfg.FIRE_SECS_PER_WOOD:
 		p += 50
-	if type == Type.DEMOLISH and World.walls.has(cell):
+	if type == Type.DEMOLISH and World.walls.has(World.wc(cell)):
 		p += 2
 	return p
 
@@ -77,7 +77,7 @@ func cost() -> Dictionary:
 func blocked() -> bool:
 	if type == Type.PLACE_MAILBOX:
 		return house != null and house.mailbox_site() == World.NO_CELL # else it uses the free side
-	return type != Type.CLEAR_NODE and type != Type.REFUEL and World.nodes.has(cell)
+	return type != Type.CLEAR_NODE and type != Type.REFUEL and World.nodes.has(World.wc(cell))
 
 
 func label() -> String:

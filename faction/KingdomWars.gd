@@ -233,7 +233,7 @@ static func sight(a: Agent) -> bool:
 	for o in World.agents_near(a.pos, Cfg.KWAR_SIGHT):
 		if not o.alive or o.faction.kingdom == null or o.faction.kingdom.id != ek:
 			continue
-		var d := a.pos.distance_to(o.pos)
+		var d := World.dist(a.pos, o.pos)
 		if d < best_d:
 			best_d = d
 			best = o

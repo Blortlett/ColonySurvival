@@ -80,7 +80,7 @@ static func tag_of(me: Agent, o: Agent) -> String:
 
 
 func _screen(world_cells: Vector2) -> Vector2:
-	return _canvas.get_viewport().get_canvas_transform() * (world_cells * Cfg.CELL)
+	return _canvas.get_viewport().get_canvas_transform() * World.px(world_cells)
 
 
 func _draw_all() -> void:

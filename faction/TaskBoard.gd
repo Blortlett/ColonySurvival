@@ -58,7 +58,7 @@ func claim(agent_id: int, from: Vector2i, allowed: Callable = Callable()) -> Tas
 			continue # door goes in last: fire -> walls -> floors -> door (agreed build order)
 		if allowed.is_valid() and not allowed.call(t.cell):
 			continue
-		var score := t.priority() * 10.0 - from.distance_to(t.cell)
+		var score := t.priority() * 10.0 - World.dist(Vector2(from), Vector2(t.cell))
 		if score > best_score:
 			best_score = score
 			best = t

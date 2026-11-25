@@ -246,9 +246,9 @@ static func _plan_house(f: Faction, cap: int, kind: int) -> House:
 	var best_d := INF
 	for i in 120 if workshop else 80:
 		var r := Cfg.HOUSE_SITE_SEARCH
-		var c := anchor + Vector2i(World.rng.randi_range(-r, r), World.rng.randi_range(-r, r))
+		var c := World.wc(anchor + Vector2i(World.rng.randi_range(-r, r), World.rng.randi_range(-r, r)))
 		var interior := Rect2i(c - size / 2, size)
-		var d := Vector2(anchor).distance_to(Vector2(c))
+		var d := World.dist(Vector2(anchor), Vector2(c))
 		if d < best_d:
 			# Round 2 R3/R4: a random door side, the other three if it doesn't fit.
 			var pick := site_side(interior, f, workshop, side_order(House.SIDES[World.rng.randi_range(0, 3)]))
@@ -294,13 +294,13 @@ static func _door_why(interior: Rect2i, dir: Vector2i, clear_nodes: bool = false
 	if not _open(lay[1], clear_nodes):
 		return "the doorway would be blocked"
 	# The mailbox goes beside the cell outside the door (D10): one side must be free.
-	if not (_open(lay[2], clear_nodes) and not World.furniture.has(lay[2])) \
-			and not (_open(lay[3], clear_nodes) and not World.furniture.has(lay[3])):
+	if not (_open(lay[2], clear_nodes) and not World.furniture.has(World.wc(lay[2]))) \
+			and not (_open(lay[3], clear_nodes) and not World.furniture.has(World.wc(lay[3]))):
 		return "no room for a mailbox by the door"
 	# The way to the door must not run into another building (R4).
 	var two_out := lay[1] + (lay[1] - lay[0])
 	for h in World.all_houses():
-		if h.footprint().has_point(two_out):
+		if World.rect_has(h.footprint(), two_out):
 			return "the doorway would face another building"
 	return ""
 
@@ -308,7 +308,7 @@ static func _door_why(interior: Rect2i, dir: Vector2i, clear_nodes: bool = false
 ## Walkable, or (with `clear_nodes`) only a resource node stands there, which the builders
 ## clear once the fire is placed (_ensure_piece_tasks).
 static func _open(c: Vector2i, clear_nodes: bool) -> bool:
-	return World.is_walkable(c) or (clear_nodes and World.in_bounds(c) and World.nodes.has(c))
+	return World.is_walkable(c) or (clear_nodes and World.in_bounds(c) and World.nodes.has(World.wc(c)))
 
 
 ## The first door side in `order` whose doorway works, and why the site fails ("" if it
@@ -317,7 +317,7 @@ static func _open(c: Vector2i, clear_nodes: bool) -> bool:
 static func site_side(interior: Rect2i, f: Faction, workshop: bool, order: Array[Vector2i], clear_nodes: bool = false) -> Array:
 	var outer := interior.grow(1)
 	if outer.position.x < 1 or outer.position.y < 1 or outer.end.x > Cfg.MAP_W - 1 or outer.end.y > Cfg.MAP_H - 1:
-		return [Vector2i.ZERO, "too close to the map edge"]
+		return [Vector2i.ZERO, "it would straddle the map seam" if Cfg.WRAP else "too close to the map edge"]
 	# All checks are pure, so the cheap per-cell ones go first (B5); the result is unchanged.
 	var dir := Vector2i.ZERO
 	var door_why := ""
@@ -340,7 +340,7 @@ static func _ground_why(interior: Rect2i, f: Faction, workshop: bool, clear_node
 	for x in range(outer.position.x, outer.end.x):
 		for y in range(outer.position.y, outer.end.y):
 			var c := Vector2i(x, y)
-			if not _open(c, clear_nodes) or World.loot.has(c):
+			if not _open(c, clear_nodes) or World.loot.has(World.wc(c)):
 				return "something is in the way"
 			var po := World.privilege_owner(c)
 			if po != 0 and not World.same_side(po, f.id):
@@ -381,7 +381,7 @@ static func base_why(a: Agent, fire_cell: Vector2i) -> String:
 ## The side `a` stands on, seen from the fire cell: the larger axis wins, ties go to
 ## north/south, and standing on the fire cell means south.
 static func base_facing(a: Agent, fire_cell: Vector2i) -> Vector2i:
-	var to := a.cell() - fire_cell
+	var to := World.cdelta(fire_cell, a.cell())
 	if abs(to.x) > abs(to.y):
 		return Vector2i(signi(to.x), 0)
 	if to.y < 0:
@@ -439,16 +439,16 @@ static func _ensure_piece_tasks(f: Faction, h: House) -> void:
 	if lead and lead.is_player():
 		cells += [h.door_outside(), h.mailbox_cell, h.mailbox_cell_alt]
 	for c in cells:
-		if World.nodes.has(c) and not have.has(Vector3i(c.x, c.y, Task.Type.CLEAR_NODE)):
+		if World.nodes.has(World.wc(c)) and not have.has(Vector3i(c.x, c.y, Task.Type.CLEAR_NODE)):
 			f.board.post(Task.new(Task.Type.CLEAR_NODE, c, null))
 	for c in h.wall_cells:
-		if not World.walls.has(c) and not have.has(Vector3i(c.x, c.y, Task.Type.BUILD_WALL)):
+		if not World.walls.has(World.wc(c)) and not have.has(Vector3i(c.x, c.y, Task.Type.BUILD_WALL)):
 			f.board.post(Task.new(Task.Type.BUILD_WALL, c, h))
 	for c in h.floor_cells:
-		if not World.floors.has(c) and not have.has(Vector3i(c.x, c.y, Task.Type.BUILD_FLOOR)):
+		if not World.floors.has(World.wc(c)) and not have.has(Vector3i(c.x, c.y, Task.Type.BUILD_FLOOR)):
 			f.board.post(Task.new(Task.Type.BUILD_FLOOR, c, h))
 	var d := h.door_cell
-	if not World.walls.has(d) and not have.has(Vector3i(d.x, d.y, Task.Type.BUILD_DOOR)):
+	if not World.walls.has(World.wc(d)) and not have.has(Vector3i(d.x, d.y, Task.Type.BUILD_DOOR)):
 		f.board.post(Task.new(Task.Type.BUILD_DOOR, d, h))
 	if h.state != House.State.COMPLETE:
 		return
@@ -458,7 +458,7 @@ static func _ensure_piece_tasks(f: Faction, h: House) -> void:
 			f.board.post(Task.new(Task.Type.PLACE_CHEST, cc, h))
 	else:
 		for mc in h.machine_cells.values() + h.crate_cells:
-			if not World.furniture.has(mc) and not have.has(Vector3i(mc.x, mc.y, Task.Type.PLACE_MACHINE)):
+			if not World.furniture.has(World.wc(mc)) and not have.has(Vector3i(mc.x, mc.y, Task.Type.PLACE_MACHINE)):
 				f.board.post(Task.new(Task.Type.PLACE_MACHINE, mc, h))
 	# Every building gets a mailbox by its door (D10). Matched by house, not cell: the
 	# runner may move the task to the other side.
@@ -470,10 +470,10 @@ static func _ensure_piece_tasks(f: Faction, h: House) -> void:
 		return
 	# Upgrades, one task per piece below the target tier (break, then replace; agreed).
 	for c in h.wall_cells:
-		var w: Wall = World.walls.get(c)
+		var w: Wall = World.walls.get(World.wc(c))
 		if w and w.owner_id == f.id:
 			_post_upgrade(f, h, have, Task.Type.UPGRADE_WALL, c, w.tier, h.upgrade_to)
-	var dw: Wall = World.walls.get(d)
+	var dw: Wall = World.walls.get(World.wc(d))
 	if dw and dw.owner_id == f.id:
 		_post_upgrade(f, h, have, Task.Type.UPGRADE_DOOR, d, dw.tier, min(h.upgrade_to, Items.max_door_tier()))
 	var ch := h.live_chest()
@@ -523,7 +523,7 @@ static func abandon_house(h: House) -> void:
 		h.fire.owner_id = 0
 		World.zones_dirty = true
 	for c in h.wall_cells + [h.door_cell]:
-		var w: Wall = World.walls.get(c)
+		var w: Wall = World.walls.get(World.wc(c))
 		if w:
 			w.owner_id = 0
 	World.pieces_version += 1
@@ -692,7 +692,7 @@ static func nearest_machine(a: Agent, kind: int) -> Furniture:
 		var m := w.machine(kind)
 		if m == null:
 			continue
-		var d := a.pos.distance_to(World.center(m.cell))
+		var d := World.dist(a.pos, World.center(m.cell))
 		if d < best_d and not Brain._blacklisted(a, m.cell):
 			best_d = d
 			best = m
@@ -701,10 +701,10 @@ static func nearest_machine(a: Agent, kind: int) -> Furniture:
 
 static func _house_built(h: House) -> bool:
 	for c in h.wall_cells + [h.door_cell]:
-		if not World.walls.has(c):
+		if not World.walls.has(World.wc(c)):
 			return false
 	for c in h.floor_cells:
-		if not World.floors.has(c):
+		if not World.floors.has(World.wc(c)):
 			return false
 	return true
 
@@ -849,7 +849,7 @@ static func _ladder_build_tasks(f: Faction, list: Array) -> Array:
 	for h in list:
 		wall_total += h.wall_cells.size()
 		for c in h.wall_cells:
-			if World.walls.has(c):
+			if World.walls.has(World.wc(c)):
 				walls += 1
 		if World.walls.has(h.door_cell):
 			doors += 1
@@ -872,7 +872,7 @@ static func _ladder_tier_tasks(f: Faction, list: Array[House], tier: int) -> Arr
 			continue
 		for c in h.wall_cells:
 			total += 1
-			var w: Wall = World.walls.get(c)
+			var w: Wall = World.walls.get(World.wc(c))
 			if w and w.tier >= tier:
 				at += 1
 		total += 1

@@ -166,7 +166,7 @@ static func _gear_job(a: Agent) -> Job:
 	for item in Items.GEAR_SET:
 		if lacks(a, item) and _first_in_line(a, item):
 			for st in Stock.storages(a.faction):
-				if st.store.has_tool(item) and a.pos.distance_to(World.center(st.cell)) <= Cfg.WORKSHOP_RANGE and not Brain._blacklisted(a, st.cell):
+				if st.store.has_tool(item) and World.dist(a.pos, World.center(st.cell)) <= Cfg.WORKSHOP_RANGE and not Brain._blacklisted(a, st.cell):
 					return Brain.chest_job(st, {"tool:" + item: -1})
 	return null
 

@@ -3,8 +3,16 @@ class_name Cfg
 ## "(agreed)" values were decided in design; the rest are starting values for tuning.
 
 # --- World ---
-const MAP_W := 400 # 4x the old 200 x 200 area (Summer Roadmap §4.1); no wrap yet
+const MAP_W := 400 # 4x the old 200 x 200 area (Summer Roadmap §4.1)
 const MAP_H := 400
+## The map wraps on both axes (Summer Roadmap §4.1). Off: hard edges, as before.
+## Buildings never straddle the seam (the old edge checks in Factions/Cities keep them off it).
+const WRAP := true
+## A* runs on the map plus this margin on every side, copied from the far side, so paths
+## can cross the seam (World.find_path). Trips longer than this across the seam take the
+## long way round instead.
+const PATH_PAD := 100
+const CHUNK := 80 # cells per render chunk side (StaticLayer, PieceLayer); divides MAP_W and MAP_H
 const CELL := 32 # screen pixels per cell; sized for the 48 px sprite frames (body ~20 px)
 const PX := CELL / 16.0 # one pixel of the old 16 px placeholder art, keeps line weights in proportion
 const START_AGENTS := 120

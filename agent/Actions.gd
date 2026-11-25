@@ -16,6 +16,7 @@ const PIECES := ["wall", "door", "floor", "wild_fire", "base_fire"] # what the p
 static func move_path(a: Agent, dest: Vector2i, dt: float) -> int:
 	if dest == World.NO_CELL:
 		return Move.FAILED
+	dest = World.wc(dest)
 	var goal := World.center(dest)
 	if a.cell() == dest and World.dist(a.pos, goal) < 0.15:
 		return Move.ARRIVED
@@ -42,7 +43,7 @@ static func move_path(a: Agent, dest: Vector2i, dt: float) -> int:
 			a.path_i += 1
 		else:
 			a.move_dir = to / dist
-			a.pos += a.move_dir * step
+			a.pos = World.wrap_pos(a.pos + a.move_dir * step)
 			step = 0.0
 	return Move.MOVING
 
@@ -78,6 +79,7 @@ static func move_free(a: Agent, motion: Vector2) -> Vector2:
 			if _box_clear(a, p, stuck):
 				a.pos = p
 	_push_out_of_nodes(a, start, motion, stuck, stuck_nodes)
+	a.pos = World.wrap_pos(a.pos)
 	var moved := World.delta(start, a.pos)
 	if moved != Vector2.ZERO:
 		a.move_dir = moved.normalized()
@@ -89,7 +91,7 @@ const NODE_RADIUS := 0.42 # collision circle of a blocking resource node, in cel
 
 ## True for a cell holding a blocking resource node: it collides as a circle, not a box.
 static func _is_round(c: Vector2i) -> bool:
-	var n: ResourceNode = World.nodes.get(c)
+	var n: ResourceNode = World.nodes.get(World.wc(c))
 	return n != null and not n.walk_through()
 
 
@@ -193,7 +195,7 @@ static func swing(a: Agent, dir: Vector2, weapon: String) -> int:
 		hit.append(o)
 	a.last_swing = SimClock.time
 	if hit.is_empty():
-		var wall: Wall = World.walls.get(Vector2i((a.pos + a.facing * 0.9).floor()))
+		var wall: Wall = World.walls.get(World.wc(Vector2i((a.pos + a.facing * 0.9).floor())))
 		if wall and wall.owner_id != a.faction.id:
 			Combat.attack_wall(a, wall)
 		else:

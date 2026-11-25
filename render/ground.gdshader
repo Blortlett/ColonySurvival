@@ -15,6 +15,9 @@ uniform float patch_dark = 0.86;
 uniform float patch_light = 1.06;
 // Overall grass brightness: < 1 for the darker art direction.
 uniform float brightness = 0.66;
+// Map size in px when the map wraps (0 = no wrap): tile picks repeat at this period.
+// It must be a whole number of tiles (GroundLayer sets it, and patch_px to match).
+uniform vec2 map_px = vec2(0.0);
 
 varying vec2 world;
 
@@ -29,9 +32,11 @@ float hash(vec2 p) {
 }
 
 void fragment() {
-	vec2 t = world / tile_px;
-	vec2 cell = floor(t);
-	vec2 f = t - cell;
+	vec2 t = world / tile_px; // continuous, for mip gradients
+	vec2 w = map_px.x > 0.0 ? mod(world, map_px) : world;
+	vec2 tw = w / tile_px;
+	vec2 cell = floor(tw);
+	vec2 f = tw - cell;
 	float h = hash(cell);
 	int idx = variants - 1;
 	for (int i = 0; i < 8; i++) {

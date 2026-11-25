@@ -39,7 +39,7 @@ func centre() -> Vector2:
 	var t := target()
 	if t == null:
 		return Vector2.ZERO
-	var p := _canvas.get_viewport().get_canvas_transform() * (t.pos * Cfg.CELL)
+	var p := _canvas.get_viewport().get_canvas_transform() * World.px(t.pos)
 	var vr := _canvas.get_viewport().get_visible_rect().size
 	var m := Vector2(radius + BUBBLE.x * 0.5 + 4.0, radius + BUBBLE.y)
 	return p.clamp(m, vr - m)

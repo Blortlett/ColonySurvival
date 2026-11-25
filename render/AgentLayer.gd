@@ -226,7 +226,7 @@ func _update(real_dt: float) -> void:
 		if c.age > CORPSE_SECS:
 			_corpses.remove_at(i)
 			continue
-		if not view.has_point(c.pos * Cfg.CELL):
+		if not view.has_point(World.px(c.pos)):
 			i += 1
 			continue
 		var col := c.tint
@@ -245,7 +245,7 @@ func _update(real_dt: float) -> void:
 			st = _new_state(a)
 			_states[a.id] = st
 		st.stamp = _frame
-		if not view.has_point(a.pos * Cfg.CELL):
+		if not view.has_point(World.px(a.pos)):
 			if sim_dt > 0.0 and a.pos != st.last_pos:
 				st.move_ang = _delta(st.last_pos, a.pos).angle()
 			st.last_pos = a.pos
@@ -470,7 +470,7 @@ func _put(i: int, pos: Vector2, ang: float, px: float, col: Color, uv: Vector4) 
 	var o := i * FLOATS
 	var c := cos(ang) * px
 	var s := sin(ang) * px
-	var p := pos * Cfg.CELL
+	var p := World.px(pos)
 	_buf[o] = c; _buf[o + 1] = -s; _buf[o + 2] = 0.0; _buf[o + 3] = p.x
 	_buf[o + 4] = s; _buf[o + 5] = c; _buf[o + 6] = 0.0; _buf[o + 7] = p.y
 	_buf[o + 8] = col.r; _buf[o + 9] = col.g; _buf[o + 10] = col.b; _buf[o + 11] = col.a
@@ -501,7 +501,7 @@ func _draw_under() -> void:
 		return
 	var s := float(Cfg.CELL)
 	for a in World.agent_list:
-		var p := a.pos * s
+		var p := World.px(a.pos)
 		if not _view.has_point(p):
 			continue
 		if a.is_armoured():
@@ -513,7 +513,7 @@ func _draw_under() -> void:
 		if a.job and a.job.kind == Job.Kind.FIGHT:
 			var t: Agent = World.agents.get(a.job.target_id)
 			if t:
-				draw_line(p, t.pos * s, Color(1, 0.1, 0.1, 0.6), 1.0 * Cfg.PX)
+				draw_line(p, World.px(t.pos), Color(1, 0.1, 0.1, 0.6), 1.0 * Cfg.PX)
 
 
 ## Sprite mode, over the sprites: servant / leader pips, raider pennants, labels, selection.
@@ -531,7 +531,7 @@ func _overlay_body() -> void:
 	if not debug:
 		_draw_team_rings(ci)
 	for a in World.agent_list:
-		var p := a.pos * s
+		var p := World.px(a.pos)
 		if not _view.has_point(p):
 			continue
 		if not debug:
@@ -556,7 +556,7 @@ func _overlay_body() -> void:
 func _draw_discs() -> void:
 	var s := float(Cfg.CELL)
 	for a in World.agent_list:
-		var p := a.pos * s
+		var p := World.px(a.pos)
 		if a.is_armoured():
 			Disc.draw(self, p, s * 0.54, Color(0.62, 0.63, 0.68)) # armoured: grey outer ring (v3)
 		Disc.draw(self, p, s * 0.42, MOOD_COLORS[a.mood_label()])
@@ -570,7 +570,7 @@ func _draw_discs() -> void:
 		if debug and a.job and a.job.kind == Job.Kind.FIGHT:
 			var t: Agent = World.agents.get(a.job.target_id)
 			if t:
-				draw_line(p, t.pos * s, Color(1, 0.1, 0.1, 0.6), 1.0 * Cfg.PX)
+				draw_line(p, World.px(t.pos), Color(1, 0.1, 0.1, 0.6), 1.0 * Cfg.PX)
 		if show_labels:
 			draw_string(_font, p + Vector2(-s * 2, -s * 0.6), "%s #%d" % [a.short(), a.id] if a.first_name != "" else a.short(), HORIZONTAL_ALIGNMENT_CENTER, s * 4, int(8 * Cfg.PX))
 	if not debug:
@@ -593,7 +593,7 @@ func _draw_team_rings(ci: CanvasItem) -> void:
 	for a in World.agent_list:
 		if a == me:
 			continue
-		var p := a.pos * s
+		var p := World.px(a.pos)
 		if not _view.has_point(p):
 			continue
 		if team != null and a.faction == team:
@@ -615,11 +615,11 @@ func _draw_selection(ci: CanvasItem) -> void:
 	if sel == null:
 		return
 	var s := float(Cfg.CELL)
-	var p := sel.pos * s
+	var p := World.px(sel.pos)
 	ci.draw_arc(p, s * 0.7, 0, TAU, 24, Color(1, 1, 0), 2.0 * Cfg.PX)
 	if sel.path.size() > 1:
 		var pts := PackedVector2Array([p])
 		for i in range(sel.path_i, sel.path.size()):
-			pts.append(World.center(sel.path[i]) * s)
+			pts.append(World.px(World.center(sel.path[i])))
 		if pts.size() > 1:
 			ci.draw_polyline(pts, Color(1, 1, 0, 0.5), 1.0 * Cfg.PX)

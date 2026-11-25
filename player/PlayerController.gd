@@ -376,7 +376,7 @@ func _process(dt: float) -> void:
 		_e_latch = false
 	_harvest_held = e and not _e_latch and not station.active()
 	use_target = Station.target(body) if not station.active() else null
-	aim_point = get_global_mouse_position() / Cfg.CELL
+	aim_point = World.wrap_pos(get_global_mouse_position() / Cfg.CELL) # the camera can be past the seam
 	hover_cell = Vector2i(aim_point.floor())
 	var h := pick_agent(aim_point)
 	hover_id = h.id if h else -1
@@ -476,7 +476,7 @@ func control(a: Agent, dt: float) -> void:
 	_follow_chest()
 	_harvest(a, dt)
 	_warm(a, dt)
-	var bag: LootBag = World.loot.get(a.cell())
+	var bag: LootBag = World.loot.get(World.wc(a.cell()))
 	if bag:
 		World.take_loot(a, bag)
 
@@ -599,7 +599,7 @@ func harvest_target(a: Agent) -> ResourceNode:
 	var c := a.cell()
 	for dx in range(-2, 3):
 		for dy in range(-2, 3):
-			var n: ResourceNode = World.nodes.get(c + Vector2i(dx, dy))
+			var n: ResourceNode = World.nodes.get(World.wc(c + Vector2i(dx, dy)))
 			if n == null or n.amount <= 0:
 				continue
 			var d := World.delta(a.pos, World.center(n.cell))
@@ -670,7 +670,7 @@ func _warm(a: Agent, dt: float) -> void:
 	var r := Cfg.WARM_RADIUS
 	for dx in range(-r, r + 1):
 		for dy in range(-r, r + 1):
-			var f: Campfire = World.fires.get(c + Vector2i(dx, dy))
+			var f: Campfire = World.fires.get(World.wc(c + Vector2i(dx, dy)))
 			if f and f.burning():
 				warm_t += dt
 				if warm_t >= Cfg.WARM_SIT_SECS:

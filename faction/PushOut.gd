@@ -74,7 +74,7 @@ static func _nearest_blocker(k: Kingdom, centre: Vector2i) -> House:
 			continue
 		for idx in plots:
 			var r := Cities.plot_rect(k, idx)
-			if World.cheb(h.fire_cell, r.get_center()) < Cfg.PRIVILEGE_RADIUS * 2 + 1 or h.footprint().intersects(r):
+			if World.cheb(h.fire_cell, r.get_center()) < Cfg.PRIVILEGE_RADIUS * 2 + 1 or World.rects_meet(h.footprint(), r):
 				best = h
 				best_d = d
 				break

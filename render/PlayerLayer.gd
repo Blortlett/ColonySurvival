@@ -18,7 +18,7 @@ func _draw() -> void:
 	if player == null or not player.alive():
 		return
 	var a := player.body
-	var p := a.pos * s
+	var p := World.px(a.pos)
 	var col := Color(1, 1, 1, 0.9) if not player.watching else Color(0.6, 0.8, 1.0, 0.8)
 	draw_arc(p, s * 0.58, 0, TAU, 32, col, 1.5 * Cfg.PX)
 	# Facing marker: a small wedge just outside the body.
@@ -40,9 +40,9 @@ func _draw_swings(s: float) -> void:
 			continue
 		var reach: float = Items.WEAPONS[a.melee_weapon()].reach * s
 		var ang := a.facing.angle()
-		var pts := PackedVector2Array([a.pos * s])
+		var pts := PackedVector2Array([World.px(a.pos)])
 		for i in 9:
-			pts.append(a.pos * s + Vector2.from_angle(ang - half + half * 2.0 * i / 8.0) * reach)
+			pts.append(World.px(a.pos) + Vector2.from_angle(ang - half + half * 2.0 * i / 8.0) * reach)
 		var alpha := 0.35 * (1.0 - age / SWING_SHOW)
 		var c := Color(1, 1, 1, alpha) if player and a == player.body else Color(1, 0.4, 0.3, alpha)
 		draw_colored_polygon(pts, c)
@@ -52,7 +52,7 @@ func _draw_harvest(s: float) -> void:
 	var n := player.harvest_node
 	if n == null or player.harvest_secs <= 0.0:
 		return
-	var c := World.center(n.cell) * s
+	var c := World.px(World.center(n.cell))
 	var t := clampf(player.harvest_t / player.harvest_secs, 0.0, 1.0)
 	draw_arc(c, s * 0.55, -PI / 2, -PI / 2 + TAU * t, 24, Color(1, 0.9, 0.3), 2.5 * Cfg.PX)
 
@@ -64,6 +64,6 @@ func _draw_build(s: float) -> void:
 	var c := player.hover_cell
 	var why := Actions.can_place(a, player.build_piece, c, Cfg.PLAYER_BUILD_REACH)
 	var col := Color(0.3, 1.0, 0.4, 0.45) if why == "" else Color(1.0, 0.25, 0.2, 0.45)
-	draw_rect(Rect2(Vector2(c) * s, Vector2(s, s)), col)
-	draw_rect(Rect2(Vector2(c) * s, Vector2(s, s)), Color(col, 0.9), false, 1.0 * Cfg.PX)
-	draw_arc(a.pos * s, Cfg.PLAYER_BUILD_REACH * s, 0, TAU, 48, Color(1, 1, 1, 0.15), 1.0 * Cfg.PX)
+	draw_rect(Rect2(World.px(Vector2(c)), Vector2(s, s)), col)
+	draw_rect(Rect2(World.px(Vector2(c)), Vector2(s, s)), Color(col, 0.9), false, 1.0 * Cfg.PX)
+	draw_arc(World.px(a.pos), Cfg.PLAYER_BUILD_REACH * s, 0, TAU, 48, Color(1, 1, 1, 0.15), 1.0 * Cfg.PX)

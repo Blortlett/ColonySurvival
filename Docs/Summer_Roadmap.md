@@ -63,6 +63,14 @@ Phase 5 comes last, but these rules apply from phase 1 so it doesn't need a rewr
 - **The whole map stays in memory.** At this size the grid is cheap, so nothing streams and there are no loading screens. What changes with distance is only **how carefully** each part is simulated.
 - **Rendering at the seam:** everything is drawn relative to the controlled agent (screen position comes from `World.delta(player, thing)`), so the seam never shows.
 
+### 4.1a Status (first pass, 2026-11-25)
+Done: 400 × 400 map, clustered + dispersed start layout, and wrapping on both axes (`Cfg.WRAP`; off restores hard edges and gives the old results exactly).
+- **Canonical cells:** every cell-keyed store holds cells in `[0, MAP)`. Writes wrap their cell (`World.wc`), lookups wrap theirs, agents' positions wrap after each move. Distances go through `World.delta / dist / cheb / cdelta`; rects through `World.rect_has / rects_meet`.
+- **Buildings never straddle the seam.** The old map-edge checks in `Factions.site_side` and `Cities._plot_ok` now mean "not across the seam", so house and city geometry stays in plain coordinates. A city next to the seam grows away from it.
+- **Pathfinding:** one `AStarGrid2D` over the map plus `Cfg.PATH_PAD` (100) cells on each side copied from the far side; a path aims at the destination's nearest copy. Trips longer than the pad across the seam take the long way round. Failed searches flood the bigger grid (about 3× the A* cost per minute): the region graph (§4.2) fixes that.
+- **Rendering:** StaticLayer and PieceLayer are split into `Cfg.CHUNK` (80) cell chunks (`render/Chunks.gd`): only chunks on screen redraw, and each sits at its copy nearest the camera. Per-frame layers draw at `World.px(pos)`. The camera never wraps its own position, and can't zoom out past one map width.
+- **Checks:** `-- --seamtest` (tools/seam_test.gd) walks an agent across the corner and checks lookups, zones, node and agent searches there.
+
 ### 4.2 Regions and the region graph
 - The map is split into regions (start: 32 × 32 cells, so 13 × 13 = 169 regions).
 - A **region graph** records which neighbouring regions connect and the crossing cost. It updates when walls are built or destroyed.

@@ -71,12 +71,16 @@ var _zones_seen := -1
 var _show_zones_seen := true
 var _since := INF
 var _outline_version := -1
-var _outline := {} # kingdom id -> PackedVector2Array of line segments
+var _outline := {} # chunk index -> {kingdom id -> PackedVector2Array of line segments}
+var _chunks: Chunks
+var _ci: CanvasItem # the chunk being drawn
+var _by_chunk: Array = [] # chunk index -> {kind -> Array}, rebuilt on each redraw
 
 
 func _ready() -> void:
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS # pixel-art wall tiles
 	show_behind_parent = true
+	_chunks = Chunks.new(self, _draw_chunk)
 
 
 func _process(dt: float) -> void:
@@ -89,55 +93,101 @@ func _process(dt: float) -> void:
 		_zones_seen = World.zone_version
 		_show_zones_seen = show
 		_since = 0.0
-		queue_redraw()
+		var t := Time.get_ticks_usec()
+		_group()
+		World.prof_add("draw_pieces", t)
+		_chunks.mark_all()
+	_chunks.update(Cfg.CELL * 2.0)
 
 
-func _draw() -> void:
+func _draw_chunk(ci: CanvasItem, chunk: Vector2i) -> void:
 	var t := Time.get_ticks_usec()
-	_draw_body()
+	_ci = ci
+	var i: int = _chunks.index(chunk)
+	if i < _by_chunk.size():
+		_draw_body(_by_chunk[i], _outline.get(i, {}))
 	World.prof_add("draw_pieces", t)
 
 
-func _draw_body() -> void:
-	var s := float(Cfg.CELL)
+## Sort every piece into its chunk (one pass), and note the furnaces, crates and sawmills
+## DynamicLayer animates.
+func _group() -> void:
+	var n: Vector2i = _chunks.count()
+	_by_chunk.resize(n.x * n.y)
+	for i in _by_chunk.size():
+		_by_chunk[i] = {"zones": [], "plots": [], "planned": [], "roads": [], "floors": [], "fire_floors": [], "furniture": [], "walls": []}
 	if _show_zones_seen:
 		for f in World.house_fires:
-			if not f.burning():
-				continue
-			var fac: Faction = World.factions.get(f.owner_id)
-			var col: Color = fac.color if fac else Color.WHITE
-			var r := Cfg.PRIVILEGE_RADIUS
-			var rect := Rect2(Vector2(f.cell - Vector2i(r, r)) * s, Vector2(r * 2 + 1, r * 2 + 1) * s)
-			draw_rect(rect, Color(col, 0.08))
-			draw_rect(rect, Color(col, 0.35), false, 1.0 * Cfg.PX)
-		_draw_kingdom_outlines()
+			if f.burning():
+				_put("zones", f.cell, f)
+		if _outline_version != World.zone_version:
+			_outline_version = World.zone_version
+			_build_outlines()
 		for k in World.kingdoms.values():
 			if k.has_city:
 				for idx in k.plots:
 					var r := Cities.plot_rect(k, idx)
-					draw_rect(Rect2(Vector2(r.position) * s, Vector2(r.size) * s), Color(k.color, 0.18), false, 1.0 * Cfg.PX)
+					_put("plots", r.position, [k, r])
 		for h in World.all_houses():
 			if h.state == House.State.PLANNED or h.state == House.State.BUILDING:
-				var outer := h.footprint()
-				draw_rect(Rect2(Vector2(outer.position) * s, Vector2(outer.size) * s), Color(1, 1, 1, 0.25), false, 1.0 * Cfg.PX)
+				_put("planned", h.footprint().position, h.footprint())
 	for c in World.roads:
-		var p := Vector2(c) * s
-		var v := posmod(c.x * 73856093 ^ c.y * 19349663, ROAD_VARIANTS)
-		var src := Rect2(Vector2(v * WALL_TILE_PX, 0), Vector2.ONE * WALL_TILE_PX)
-		draw_texture_rect_region(ROAD_TEX[clampi(World.roads[c], 1, 2) - 1], Rect2(p, Vector2(s, s)), src)
-		_edge_bands(c, s, func(n: Vector2i) -> bool: return not World.roads.has(n), ROAD_EDGE)
+		_put("roads", c, c)
 	for fl in World.floors.values():
-		_draw_wood_floor(fl.cell, s, Color.WHITE.darkened(0.4 * (1.0 - fl.hp / fl.max_hp)))
+		_put("floors", fl.cell, fl)
 	# Render only: building fires sit on a floor tile (the fire cell has no Floor piece).
 	for f in World.house_fires:
 		if f.house != null:
-			_draw_wood_floor(f.cell, s, Color.WHITE)
+			_put("fire_floors", f.cell, f.cell)
 	furnaces.clear()
 	crates.clear()
 	sawmills.clear()
 	for fu in World.furniture.values():
-		_draw_furniture(fu, Vector2(fu.cell) * s, s)
+		_put("furniture", fu.cell, fu)
+		match fu.kind:
+			Furniture.Kind.FURNACE: furnaces.append(fu)
+			Furniture.Kind.CRATE: crates.append(fu)
+			Furniture.Kind.SAWMILL: sawmills.append(fu)
 	for w in World.walls.values():
+		_put("walls", w.cell, w)
+
+
+func _put(kind: String, c: Vector2i, item) -> void:
+	_by_chunk[_chunks.index(Chunks.of(World.wc(c)))][kind].append(item)
+
+
+func _draw_body(g: Dictionary, outline: Dictionary) -> void:
+	var s := float(Cfg.CELL)
+	if _show_zones_seen:
+		for f in g.zones:
+			var fac: Faction = World.factions.get(f.owner_id)
+			var col: Color = fac.color if fac else Color.WHITE
+			var r := Cfg.PRIVILEGE_RADIUS
+			var rect := Rect2(Vector2(f.cell - Vector2i(r, r)) * s, Vector2(r * 2 + 1, r * 2 + 1) * s)
+			_ci.draw_rect(rect, Color(col, 0.08))
+			_ci.draw_rect(rect, Color(col, 0.35), false, 1.0 * Cfg.PX)
+		for kid in outline:
+			var k: Kingdom = World.kingdoms.get(kid)
+			if k:
+				_ci.draw_multiline(outline[kid], k.color, 2.0 * Cfg.PX)
+		for kr in g.plots:
+			var r: Rect2i = kr[1]
+			_ci.draw_rect(Rect2(Vector2(r.position) * s, Vector2(r.size) * s), Color(kr[0].color, 0.18), false, 1.0 * Cfg.PX)
+		for outer: Rect2i in g.planned:
+			_ci.draw_rect(Rect2(Vector2(outer.position) * s, Vector2(outer.size) * s), Color(1, 1, 1, 0.25), false, 1.0 * Cfg.PX)
+	for c: Vector2i in g.roads:
+		var p := Vector2(c) * s
+		var v := posmod(c.x * 73856093 ^ c.y * 19349663, ROAD_VARIANTS)
+		var src := Rect2(Vector2(v * WALL_TILE_PX, 0), Vector2.ONE * WALL_TILE_PX)
+		_ci.draw_texture_rect_region(ROAD_TEX[clampi(World.roads[c], 1, 2) - 1], Rect2(p, Vector2(s, s)), src)
+		_edge_bands(c, s, func(n: Vector2i) -> bool: return not World.roads.has(World.wc(n)), ROAD_EDGE)
+	for fl in g.floors:
+		_draw_wood_floor(fl.cell, s, Color.WHITE.darkened(0.4 * (1.0 - fl.hp / fl.max_hp)))
+	for c: Vector2i in g.fire_floors:
+		_draw_wood_floor(c, s, Color.WHITE)
+	for fu in g.furniture:
+		_draw_furniture(fu, Vector2(fu.cell) * s, s)
+	for w in g.walls:
 		var p := Vector2(w.cell) * s
 		var col: Color
 		if w.tier >= 2:
@@ -151,19 +201,19 @@ func _draw_body() -> void:
 			_draw_wall(w.cell, p, s, WALL_SHEETS[clampi(w.tier, 0, 2)], Color.WHITE.darkened(wear))
 			continue
 		col = col.darkened(wear)
-		draw_rect(Rect2(p, Vector2(s, s)), col)
+		_ci.draw_rect(Rect2(p, Vector2(s, s)), col)
 		if w.tier >= 2:
 			# Dark iron with rivets.
-			draw_rect(Rect2(p, Vector2(s, s)), RIVET.darkened(0.3), false, 1.0 * Cfg.PX)
+			_ci.draw_rect(Rect2(p, Vector2(s, s)), RIVET.darkened(0.3), false, 1.0 * Cfg.PX)
 			for r in [Vector2(0.18, 0.18), Vector2(0.82, 0.18), Vector2(0.18, 0.82), Vector2(0.82, 0.82)]:
-				draw_rect(Rect2(p + r * s - Vector2.ONE * Cfg.PX, Vector2.ONE * 2.0 * Cfg.PX), RIVET)
+				_ci.draw_rect(Rect2(p + r * s - Vector2.ONE * Cfg.PX, Vector2.ONE * 2.0 * Cfg.PX), RIVET)
 		elif w.tier > 0:
 			# Plank seams, and iron bands on doors.
-			draw_line(p + Vector2(s * 0.5, 0), p + Vector2(s * 0.5, s), col.darkened(0.35), 1.0 * Cfg.PX)
-			draw_rect(Rect2(p, Vector2(s, s)), METAL, false, 1.0 * Cfg.PX)
+			_ci.draw_line(p + Vector2(s * 0.5, 0), p + Vector2(s * 0.5, s), col.darkened(0.35), 1.0 * Cfg.PX)
+			_ci.draw_rect(Rect2(p, Vector2(s, s)), METAL, false, 1.0 * Cfg.PX)
 		var fac: Faction = World.factions.get(w.owner_id)
 		if fac:
-			draw_rect(Rect2(p + Vector2(s * 0.3, s * 0.3), Vector2(s * 0.4, s * 0.4)), fac.color)
+			_ci.draw_rect(Rect2(p + Vector2(s * 0.3, s * 0.3), Vector2(s * 0.4, s * 0.4)), fac.color)
 
 
 ## Wood floor tile, plus the soft shadow of any wall on its four sides.
@@ -171,8 +221,8 @@ func _draw_wood_floor(c: Vector2i, s: float, tint: Color) -> void:
 	var p := Vector2(c) * s
 	var v := posmod(c.x * 73856093 ^ c.y * 19349663, FLOOR_VARIANTS)
 	var src := Rect2(Vector2(v * WALL_TILE_PX, 0), Vector2.ONE * WALL_TILE_PX)
-	draw_texture_rect_region(WOOD_FLOOR, Rect2(p, Vector2(s, s)), src, tint)
-	_edge_bands(c, s, func(n: Vector2i) -> bool: return World.walls.has(n), WALL_SHADE)
+	_ci.draw_texture_rect_region(WOOD_FLOOR, Rect2(p, Vector2(s, s)), src, tint)
+	_edge_bands(c, s, func(n: Vector2i) -> bool: return World.walls.has(World.wc(n)), WALL_SHADE)
 
 
 ## Dark 1-px bands fading inward along each side of cell c whose neighbour passes `side`
@@ -190,23 +240,23 @@ func _edge_bands(c: Vector2i, s: float, side: Callable, alphas: Array) -> void:
 				Vector2i.DOWN: band = Rect2(p + Vector2(0, s - (i + 1) * px), Vector2(s, px))
 				Vector2i.LEFT: band = Rect2(p + Vector2(i * px, 0), Vector2(px, s))
 				_: band = Rect2(p + Vector2(s - (i + 1) * px, 0), Vector2(px, s))
-			draw_rect(band, Color(0, 0, 0, alphas[i]))
+			_ci.draw_rect(band, Color(0, 0, 0, alphas[i]))
 
 
 ## Autotiled wall from a tier's sheet: joins any wall or door on the four sides, so
 ## corners and T-joins line up.
 func _draw_wall(c: Vector2i, p: Vector2, s: float, sheet: Texture2D, tint: Color) -> void:
 	var m := 0
-	if World.walls.has(c + Vector2i.UP):
+	if World.walls.has(World.wc(c + Vector2i.UP)):
 		m |= 1
-	if World.walls.has(c + Vector2i.RIGHT):
+	if World.walls.has(World.wc(c + Vector2i.RIGHT)):
 		m |= 2
-	if World.walls.has(c + Vector2i.DOWN):
+	if World.walls.has(World.wc(c + Vector2i.DOWN)):
 		m |= 4
-	if World.walls.has(c + Vector2i.LEFT):
+	if World.walls.has(World.wc(c + Vector2i.LEFT)):
 		m |= 8
 	var src := Rect2(Vector2(m & 3, m >> 2) * WALL_TILE_PX, Vector2.ONE * WALL_TILE_PX)
-	draw_texture_rect_region(sheet, Rect2(p, Vector2(s, s)), src, tint)
+	_ci.draw_texture_rect_region(sheet, Rect2(p, Vector2(s, s)), src, tint)
 
 
 func _kingdom_of(fid: int) -> Kingdom:
@@ -214,80 +264,79 @@ func _kingdom_of(fid: int) -> Kingdom:
 	return f.kingdom if f else null
 
 
-## Outline of each kingdom's merged territory, rebuilt only when the zones change.
-func _draw_kingdom_outlines() -> void:
-	if _outline_version != World.zone_version:
-		_outline_version = World.zone_version
-		_build_outlines()
-	for kid in _outline:
-		var k: Kingdom = World.kingdoms.get(kid)
-		if k:
-			draw_multiline(_outline[kid], k.color, 2.0 * Cfg.PX)
-
-
+## Outline of each kingdom's merged territory, per chunk; rebuilt only when the zones change.
 func _build_outlines() -> void:
 	_outline.clear()
 	if World.kingdoms.is_empty():
 		return
 	var s := float(Cfg.CELL)
 	var w := Cfg.MAP_W
+	var h := Cfg.MAP_H
 	var kmap := PackedInt32Array()
-	kmap.resize(w * Cfg.MAP_H)
+	kmap.resize(w * h)
 	for i in kmap.size():
 		var owner := World.zone_map[i]
 		if owner != 0:
 			var f: Faction = World.factions.get(owner)
 			if f and f.kingdom:
 				kmap[i] = f.kingdom.id
-	for y in Cfg.MAP_H:
+	for y in h:
 		for x in w:
 			var k := kmap[y * w + x]
 			if k == 0:
 				continue
-			if not _outline.has(k):
-				_outline[k] = PackedVector2Array()
-			var seg: PackedVector2Array = _outline[k]
+			# Neighbours: across the seam when wrapping, off the map (0) otherwise.
+			var west := kmap[y * w + posmod(x - 1, w)] if (Cfg.WRAP or x > 0) else 0
+			var east := kmap[y * w + posmod(x + 1, w)] if (Cfg.WRAP or x < w - 1) else 0
+			var north := kmap[posmod(y - 1, h) * w + x] if (Cfg.WRAP or y > 0) else 0
+			var south := kmap[posmod(y + 1, h) * w + x] if (Cfg.WRAP or y < h - 1) else 0
+			if west == k and east == k and north == k and south == k:
+				continue
+			var ci: int = _chunks.index(Chunks.of(Vector2i(x, y)))
+			if not _outline.has(ci):
+				_outline[ci] = {}
+			var by_k: Dictionary = _outline[ci]
+			if not by_k.has(k):
+				by_k[k] = PackedVector2Array()
+			var seg: PackedVector2Array = by_k[k]
 			var p := Vector2(x, y) * s
-			if x == 0 or kmap[y * w + x - 1] != k:
+			if west != k:
 				seg.append_array([p, p + Vector2(0, s)])
-			if x == w - 1 or kmap[y * w + x + 1] != k:
+			if east != k:
 				seg.append_array([p + Vector2(s, 0), p + Vector2(s, s)])
-			if y == 0 or kmap[(y - 1) * w + x] != k:
+			if north != k:
 				seg.append_array([p, p + Vector2(s, 0)])
-			if y == Cfg.MAP_H - 1 or kmap[(y + 1) * w + x] != k:
+			if south != k:
 				seg.append_array([p + Vector2(0, s), p + Vector2(s, s)])
-			_outline[k] = seg
+			by_k[k] = seg
 
 
 func _draw_furniture(fu: Furniture, p: Vector2, s: float) -> void:
 	match fu.kind:
 		Furniture.Kind.CHEST:
 			var tex: Texture2D = [CHEST_TEX, CHEST_R_TEX, CHEST_I_TEX][clampi(fu.tier, 0, 2)]
-			draw_texture_rect(tex, Rect2(p, Vector2(s, s)), false)
+			_ci.draw_texture_rect(tex, Rect2(p, Vector2(s, s)), false)
 		Furniture.Kind.BOARD:
-			draw_texture_rect(BOARD_TEX, Rect2(p, Vector2(s, s)), false)
+			_ci.draw_texture_rect(BOARD_TEX, Rect2(p, Vector2(s, s)), false)
 			var k := _kingdom_of(fu.owner_id)
 			if k:
 				var px: float = s / WALL_TILE_PX
-				draw_rect(Rect2(p + BOARD_RIDGE.position * px, Vector2(BOARD_RIDGE.size.x, 1) * px), k.color.lightened(0.15))
-				draw_rect(Rect2(p + (BOARD_RIDGE.position + Vector2(0, 1)) * px, Vector2(BOARD_RIDGE.size.x, 1) * px), k.color.darkened(0.25))
+				_ci.draw_rect(Rect2(p + BOARD_RIDGE.position * px, Vector2(BOARD_RIDGE.size.x, 1) * px), k.color.lightened(0.15))
+				_ci.draw_rect(Rect2(p + (BOARD_RIDGE.position + Vector2(0, 1)) * px, Vector2(BOARD_RIDGE.size.x, 1) * px), k.color.darkened(0.25))
 		Furniture.Kind.MAILBOX:
-			draw_texture_rect(MAILBOX_TEX, Rect2(p, Vector2(s, s)), false)
+			_ci.draw_texture_rect(MAILBOX_TEX, Rect2(p, Vector2(s, s)), false)
 		Furniture.Kind.SAWMILL:
-			sawmills.append(fu)
-			draw_texture_rect_region(SAWMILL_TEX, Rect2(p, Vector2(s, s)), Rect2(0, 0, WALL_TILE_PX, WALL_TILE_PX))
+			_ci.draw_texture_rect_region(SAWMILL_TEX, Rect2(p, Vector2(s, s)), Rect2(0, 0, WALL_TILE_PX, WALL_TILE_PX))
 		Furniture.Kind.CUTTER:
-			draw_texture_rect(CUTTER_TEX, Rect2(p, Vector2(s, s)), false)
+			_ci.draw_texture_rect(CUTTER_TEX, Rect2(p, Vector2(s, s)), false)
 		Furniture.Kind.FURNACE:
 			# Stone body; the unlit mouth here, the lit glow per frame in DynamicLayer.
-			furnaces.append(fu)
-			draw_texture_rect(FURNACE_OUT_TEX, Rect2(p, Vector2(s, s)), false)
+			_ci.draw_texture_rect(FURNACE_OUT_TEX, Rect2(p, Vector2(s, s)), false)
 		Furniture.Kind.ANVIL:
-			draw_texture_rect(ANVIL_TEX, Rect2(p, Vector2(s, s)), false)
+			_ci.draw_texture_rect(ANVIL_TEX, Rect2(p, Vector2(s, s)), false)
 		Furniture.Kind.CRATE:
 			# The iron mark (contents change often) is drawn per frame in DynamicLayer.
-			crates.append(fu)
-			draw_texture_rect(CRATE_TEX, Rect2(p, Vector2(s, s)), false)
+			_ci.draw_texture_rect(CRATE_TEX, Rect2(p, Vector2(s, s)), false)
 
 
 static func furnace_lit(fu: Furniture) -> bool:

@@ -72,12 +72,13 @@ static func flee(a: Agent, from: Vector2, from_id: int, prio: int = Job.PRIO_CRI
 	var j := Job.new(Job.Kind.FLEE, prio)
 	j.flee_from = from
 	j.target_id = from_id
-	var dir := (a.pos - from).normalized()
+	var dir := World.delta(from, a.pos).normalized()
 	if dir == Vector2.ZERO:
 		dir = Vector2.RIGHT.rotated(World.rng.randf() * TAU)
 	var goal := Vector2i(a.pos + dir * dist)
-	goal.x = clamp(goal.x, 1, Cfg.MAP_W - 2)
-	goal.y = clamp(goal.y, 1, Cfg.MAP_H - 2)
+	if not Cfg.WRAP:
+		goal.x = clamp(goal.x, 1, Cfg.MAP_W - 2)
+		goal.y = clamp(goal.y, 1, Cfg.MAP_H - 2)
 	var c := World.random_walkable_near(goal, 2)
 	j.cell = c if c != World.NO_CELL else a.cell()
 	j.timer = 15.0
@@ -168,7 +169,7 @@ static func choose_fire(a: Agent) -> Campfire:
 	for f in World.fires.values():
 		if not f.burning() or _blacklisted(a, f.cell):
 			continue
-		var d := a.pos.distance_to(World.center(f.cell))
+		var d := World.dist(a.pos, World.center(f.cell))
 		if f.is_house:
 			if f.owner_id != a.faction.id or d > 60.0:
 				continue
@@ -245,7 +246,7 @@ static func _loot_job(a: Agent) -> Job:
 	var best: LootBag = null
 	var best_d := float(Cfg.LOOT_SEEK_RADIUS)
 	for bag in World.loot.values():
-		var d := a.pos.distance_to(World.center(bag.cell))
+		var d := World.dist(a.pos, World.center(bag.cell))
 		if d < best_d and not _blacklisted(a, bag.cell):
 			best_d = d
 			best = bag
@@ -273,7 +274,7 @@ static func _roam_job(a: Agent) -> Job:
 			continue
 		if traders and o.faction.solo:
 			continue
-		var d := a.pos.distance_to(o.pos)
+		var d := World.dist(a.pos, o.pos)
 		if d < best_d:
 			best_d = d
 			best = o
@@ -883,7 +884,7 @@ static func _run_fight(a: Agent, j: Job, dt: float) -> void:
 	if t == null or not t.alive or t == a:
 		_done(a)
 		return
-	var d := a.pos.distance_to(t.pos)
+	var d := World.dist(a.pos, t.pos)
 	if d > Cfg.CHASE_GIVE_UP:
 		_done(a)
 		return
@@ -943,7 +944,7 @@ static func _run_deliver(a: Agent, j: Job, dt: float) -> void:
 			j.phase = 1 # done gathering → deliver
 			a.path.clear()
 		return
-	if a.pos.distance_to(m.pos) <= 1.6:
+	if World.dist(a.pos, m.pos) <= 1.6:
 		var n: int = min(a.inv.count(j.item), m.free_space(j.item))
 		a.inv.remove(j.item, n)
 		m.inv.add(j.item, n)
@@ -964,7 +965,7 @@ static func _run_follow(a: Agent, j: Job, dt: float) -> void:
 	if m == null or j.timer <= 0.0:
 		_done(a)
 		return
-	if a.pos.distance_to(m.pos) <= 3.0:
+	if World.dist(a.pos, m.pos) <= 3.0:
 		return
 	j.repath_t -= dt
 	if j.repath_t <= 0.0 or a.path.is_empty():

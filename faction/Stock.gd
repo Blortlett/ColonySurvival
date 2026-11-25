@@ -13,7 +13,7 @@ static func home_chest(a: Agent) -> Furniture:
 	if h == null:
 		return null
 	var ch := h.live_chest()
-	if ch == null or a.pos.distance_to(World.center(ch.cell)) > Cfg.HOME_RANGE or Brain._blacklisted(a, ch.cell):
+	if ch == null or World.dist(a.pos, World.center(ch.cell)) > Cfg.HOME_RANGE or Brain._blacklisted(a, ch.cell):
 		return null
 	return ch
 
@@ -25,7 +25,7 @@ static func group_chest_with(a: Agent, item: String) -> Furniture:
 	for ch in storages(a.faction):
 		if ch.store.count(item) <= 0 or Brain._blacklisted(a, ch.cell):
 			continue
-		var d := a.pos.distance_to(World.center(ch.cell))
+		var d := World.dist(a.pos, World.center(ch.cell))
 		if d <= best_d:
 			best_d = d
 			best = ch
@@ -62,7 +62,7 @@ static func metal_crate(a: Agent) -> Furniture:
 	var best_d := Cfg.WORKSHOP_RANGE
 	for s in Factions.shared_smelteries(a.faction):
 		for c in s.crates():
-			var d := a.pos.distance_to(World.center(c.cell))
+			var d := World.dist(a.pos, World.center(c.cell))
 			if c.free_slots() > 0 and d < best_d and not Brain._blacklisted(a, c.cell):
 				best_d = d
 				best = c

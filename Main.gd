@@ -63,6 +63,10 @@ func _ready() -> void:
 		elif arg.begins_with("--frames"):
 			observe = true
 			_frames(int(arg.get_slice("=", 1)) if "=" in arg else 30)
+		elif arg == "--seamtest": # wrap checks: godot --headless -- --seamtest
+			observe = true
+			var fails: int = preload("res://tools/seam_test.gd").run()
+			get_tree().quit(1 if fails else 0)
 	if observe:
 		return
 	_player = PlayerController.new()
@@ -210,6 +214,13 @@ func _shot(minutes: int) -> void:
 	for frame in 3:
 		await get_tree().process_frame
 	get_viewport().get_texture().get_image().save_png("user://shot_map.png")
+	if Cfg.WRAP:
+		# The map corner: all four corners of the map meet here, so both seams cross the view.
+		_camera.position = Vector2.ZERO
+		_camera.zoom = Vector2.ONE * 0.4
+		for frame in 3:
+			await get_tree().process_frame
+		get_viewport().get_texture().get_image().save_png("user://shot_seam.png")
 	if busiest:
 		_camera.position = World.center(busiest.fire_cell) * Cfg.CELL
 		_camera.zoom = Vector2.ONE * 1.25
@@ -378,7 +389,7 @@ func _bench_line(minute: int, ms: int) -> String:
 		plots += k.plots.size()
 	var paved := 0
 	for c in World.roads:
-		if World.roads[c] >= 2:
+		if World.roads[World.wc(c)] >= 2:
 			paved += 1
 	var metal := _metal_line()
 	var kw := "kwar decl %d peace %d scatter %d (agents %d) deaths %d kraids %d (retreat %d) capitals %d | tax paid %d (empty %d, %d items) resisted %d | " % [KingdomWars.declared, KingdomWars.ended_peace, KingdomWars.scattered, KingdomWars.scattered_agents, KingdomWars.deaths, Raids.kingdom_started, Raids.kingdom_retreated, Raids.capitals_sacked, Tax.paid, Tax.nothing, Tax.items, Tax.resisted]
@@ -494,13 +505,13 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 		if not _camera.free_camera and _player and _player.alive():
 			return # playing: the left button swings (PlayerController)
-		var p := get_global_mouse_position() / Cfg.CELL
+		var p := World.wrap_pos(get_global_mouse_position() / Cfg.CELL)
 		# Priority: agent -> fire -> loot bag -> furniture.
 		var a := World.agent_at_point(p, 1.5)
 		_agents.selected_id = a.id if a else -1
 		_hud.selected_fire = null if a else _fire_at(p)
 		_hud.selected_loot = null if a or _hud.selected_fire else _loot_at(p)
-		_hud.selected_furniture = null if a or _hud.selected_fire or _hud.selected_loot else World.furniture.get(Vector2i(p.floor()))
+		_hud.selected_furniture = null if a or _hud.selected_fire or _hud.selected_loot else World.furniture.get(World.wc(Vector2i(p.floor())))
 
 
 ## A fire on/next to the clicked cell, or the fire of the house whose interior was clicked.
@@ -509,11 +520,11 @@ func _fire_at(p: Vector2) -> Campfire:
 	var best: Campfire = null
 	var best_d := 1.5
 	for f in World.fires.values():
-		var d := World.center(f.cell).distance_to(p)
+		var d := World.dist(World.center(f.cell), p)
 		if d < best_d:
 			best_d = d
 			best = f
-	if best == null and not World.furniture.has(c):
+	if best == null and not World.furniture.has(World.wc(c)):
 		var h := World.house_at(c)
 		if h and h.fire:
 			best = h.fire
@@ -524,7 +535,7 @@ func _loot_at(p: Vector2) -> LootBag:
 	var best: LootBag = null
 	var best_d := 1.5
 	for b in World.loot.values():
-		var d := World.center(b.cell).distance_to(p)
+		var d := World.dist(World.center(b.cell), p)
 		if d < best_d:
 			best_d = d
 			best = b

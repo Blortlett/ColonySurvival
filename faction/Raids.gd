@@ -96,7 +96,7 @@ static func _gang_target(f: Faction, party_size: int, axes: int) -> House:
 		for h in targets:
 			if h.state != House.State.COMPLETE or h.fire == null or not h.fire.burning():
 				continue
-			var d := Vector2(home).distance_to(Vector2(h.fire_cell))
+			var d := World.dist(Vector2(home), Vector2(h.fire_cell))
 			if d > Cfg.RAID_RANGE:
 				continue
 			var rich := 0
@@ -142,7 +142,7 @@ static func _war_target(f: Faction) -> House:
 		for h in g.homes():
 			if h.state != House.State.COMPLETE or h.fire == null or not h.fire.burning():
 				continue
-			var d := Vector2(home).distance_to(Vector2(h.fire_cell))
+			var d := World.dist(Vector2(home), Vector2(h.fire_cell))
 			if f.kingdom and f.kingdom.pushouts.has(g.id):
 				d -= 40.0 # a group refusing to leave our land comes first
 			if d < best_d:
@@ -178,7 +178,7 @@ static func start(f: Faction, h: House, party: Array[int]) -> void:
 	r.size0 = party.size()
 	r.rally = _home_cell(f)
 	var l: Agent = World.agents.get(f.leader_id)
-	if r.rally == World.NO_CELL or (l and l.pos.distance_to(World.center(r.rally)) > 40.0):
+	if r.rally == World.NO_CELL or (l and World.dist(l.pos, World.center(r.rally)) > 40.0):
 		r.rally = l.cell() if l else World.agents[party[0]].cell()
 	active.append(r)
 	started_count += 1
@@ -246,7 +246,7 @@ static func _kingdom_target(ek: Kingdom, from: Vector2i) -> House:
 			for h in f.houses:
 				if h.kind != kind or not _targetable(h):
 					continue
-				var d := Vector2(from).distance_squared_to(Vector2(h.fire_cell))
+				var d := World.dist_sq(Vector2(from), Vector2(h.fire_cell))
 				if d < best_d:
 					best_d = d
 					best = h
@@ -362,7 +362,7 @@ static func _update_raid(r: Raid) -> void:
 		Raid.Phase.MARCH:
 			var fp := r.target.footprint().grow(3)
 			for m in raiders:
-				if fp.has_point(m.cell()):
+				if World.rect_has(fp, m.cell()):
 					_set_phase(r, Raid.Phase.ASSAULT)
 					break
 		Raid.Phase.ASSAULT:
@@ -378,7 +378,7 @@ static func _update_raid(r: Raid) -> void:
 	# Win: a raider inside while no defenders are standing in the zone (agreed).
 	if r.phase == Raid.Phase.ASSAULT:
 		for m in raiders:
-			if r.target.interior.has_point(m.cell()):
+			if World.rect_has(r.target.interior, m.cell()):
 				if _defenders_standing(r) == 0:
 					_win(r)
 				break
@@ -412,7 +412,7 @@ static func _pick_breach(h: House) -> Vector2i:
 		var corner := (c.x == outer.position.x or c.x == outer.end.x - 1) and (c.y == outer.position.y or c.y == outer.end.y - 1)
 		if corner:
 			continue
-		var w: Wall = World.walls.get(c)
+		var w: Wall = World.walls.get(World.wc(c))
 		if w == null:
 			return c # a gap: walk straight in
 		if w.hp < best_hp:
@@ -478,7 +478,7 @@ static func _win(r: Raid) -> void:
 	var taken := 0
 	for ch in _stores(h):
 		for m in _raiders(r):
-			if m.pos.distance_to(World.center(ch.cell)) > 12.0:
+			if World.dist(m.pos, World.center(ch.cell)) > 12.0:
 				continue
 			var plan := {}
 			for k in ch.store.stacks:
@@ -577,9 +577,9 @@ static func run_raider(a: Agent, j: Job, dt: float) -> void:
 		Raid.Phase.MARCH:
 			_walk(a, j, h.door_outside(2), 2, dt, h)
 		Raid.Phase.ASSAULT:
-			if h.interior.has_point(a.cell()):
+			if World.rect_has(h.interior, a.cell()):
 				return # inside: hold until the defenders are gone
-			var w: Wall = World.walls.get(r.breach)
+			var w: Wall = World.walls.get(World.wc(r.breach))
 			if w == null:
 				# Open: push inside through the gap.
 				var inside := Vector2i(clamp(r.breach.x, h.interior.position.x, h.interior.end.x - 1), clamp(r.breach.y, h.interior.position.y, h.interior.end.y - 1))
@@ -588,7 +588,7 @@ static func run_raider(a: Agent, j: Job, dt: float) -> void:
 				if Brain.move_to(a, inside, dt) == Actions.Move.FAILED:
 					a.path.clear()
 				return
-			if World.cheb(a.cell(), r.breach) <= 1 and a.pos.distance_to(World.center(r.breach)) <= 1.6:
+			if World.cheb(a.cell(), r.breach) <= 1 and World.dist(a.pos, World.center(r.breach)) <= 1.6:
 				Combat.attack_wall(a, w)
 			else:
 				_walk(a, j, r.breach, 1, dt, h)
@@ -616,9 +616,9 @@ static func _approach_outside(a: Agent, target: Vector2i, radius: int, h: House)
 	for x in range(target.x - radius, target.x + radius + 1):
 		for y in range(target.y - radius, target.y + radius + 1):
 			var c := Vector2i(x, y)
-			if c == target or fp.has_point(c) or World.house_at(c) != null or not World.passable(a, c):
+			if c == target or World.rect_has(fp, c) or World.house_at(c) != null or not World.passable(a, c):
 				continue
-			var d := a.pos.distance_squared_to(World.center(c))
+			var d := World.dist_sq(a.pos, World.center(c))
 			if d < best_d:
 				best_d = d
 				best = c
@@ -649,7 +649,7 @@ static func _enemy_near(a: Agent, r: Raid, radius: float) -> Agent:
 			continue
 		if o.faction.id != r.target_fid and o.defend_raid != r.id and not (r.kingdom and World.same_side(o.faction.id, r.target_fid)):
 			continue
-		var d := a.pos.distance_to(o.pos)
+		var d := World.dist(a.pos, o.pos)
 		if d < best_d:
 			best_d = d
 			best = o

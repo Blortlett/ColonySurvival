@@ -45,7 +45,7 @@ func _draw_body() -> void:
 	var furnace_frame := int(Time.get_ticks_msec() * 0.001 * 9.0)
 	for fu in pieces.furnaces:
 		if World.furniture.get(fu.cell) == fu and PieceLayer.furnace_lit(fu):
-			var p := Vector2(fu.cell) * s
+			var p := World.px(Vector2(fu.cell))
 			var pulse := 0.75 + 0.25 * sin(Time.get_ticks_msec() * 0.006 + fu.cell.y)
 			Disc.draw(self, p + half, s * 1.1, Color(GLOW, 0.10 * pulse))
 			var f: int = (furnace_frame + fu.cell.x) % PieceLayer.FURNACE_FRAMES
@@ -57,21 +57,21 @@ func _draw_body() -> void:
 		if World.furniture.get(fu.cell) == fu and fu.house != null and fu.house.operational():
 			var f: int = (saw_frame + fu.cell.x) % PieceLayer.SAWMILL_FRAMES
 			if f != 0:
-				draw_texture_rect_region(PieceLayer.SAWMILL_TEX, Rect2(Vector2(fu.cell) * s, Vector2(s, s)), Rect2(f * 32.0, 0, 32.0, 32.0))
+				draw_texture_rect_region(PieceLayer.SAWMILL_TEX, Rect2(World.px(Vector2(fu.cell)), Vector2(s, s)), Rect2(f * 32.0, 0, 32.0, 32.0))
 	for fu in pieces.crates:
 		if World.furniture.get(fu.cell) == fu and fu.store.count("iron_bar") + fu.store.count("raw_iron") > 0:
-			var p := Vector2(fu.cell) * s
+			var p := World.px(Vector2(fu.cell))
 			draw_rect(Rect2(p + Vector2(s * 0.35, s * 0.4), Vector2(s * 0.3, s * 0.2)), METAL)
 	# Raids: the target house outlined in red, a line from the rally point.
 	for r in Raids.active:
 		var fp := r.target.footprint()
-		var rect := Rect2(Vector2(fp.position) * s, Vector2(fp.size) * s).grow(3.0 * Cfg.PX)
+		var rect := Rect2(World.px(Vector2(fp.position)), Vector2(fp.size) * s).grow(3.0 * Cfg.PX)
 		var pulse := 0.6 + 0.4 * sin(Time.get_ticks_msec() * 0.008)
 		draw_rect(rect, Color(1, 0.15, 0.1, pulse), false, 3.0 * Cfg.PX)
-		draw_dashed_line(World.center(r.rally) * s, World.center(r.target.fire_cell) * s, Color(1, 0.2, 0.1, 0.5), 2.0 * Cfg.PX, 8.0 * Cfg.PX)
+		draw_dashed_line(World.px(World.center(r.rally)), World.px(World.center(r.target.fire_cell)), Color(1, 0.2, 0.1, 0.5), 2.0 * Cfg.PX, 8.0 * Cfg.PX)
 	var now := Time.get_ticks_msec() * 0.001
 	for f in World.fires.values():
-		var p := Vector2(f.cell) * s
+		var p := World.px(Vector2(f.cell))
 		var rect := Rect2(p, Vector2(s, s))
 		if not f.burning():
 			draw_texture_rect(CAMPFIRE_OUT, rect, false)
@@ -84,5 +84,5 @@ func _draw_body() -> void:
 		var fr := (int(now * CAMPFIRE_FPS) + phase) % CAMPFIRE_FRAMES
 		draw_texture_rect_region(CAMPFIRE, rect, Rect2(fr * 32.0, 0, 32.0, 32.0))
 	for bag in World.loot.values():
-		var p := Vector2(bag.cell) * s
+		var p := World.px(Vector2(bag.cell))
 		draw_rect(Rect2(p + Vector2(s * 0.3, s * 0.3), Vector2(s * 0.4, s * 0.4)), LOOT)

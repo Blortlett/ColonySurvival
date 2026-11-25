@@ -8,12 +8,25 @@ static func generate(rng: RandomNumberGenerator) -> void:
 	var quarry := FastNoiseLite.new()
 	quarry.seed = rng.randi()
 	quarry.frequency = 0.04
+	# A wrapping map needs noise that tiles, or forests would end in a straight line at the
+	# seam: sample seamless images instead (same noise, edges blended to meet).
+	var forest_img: Image = null
+	var quarry_img: Image = null
+	if Cfg.WRAP:
+		forest_img = forest.get_seamless_image(Cfg.MAP_W, Cfg.MAP_H, false, false, 0.1, false)
+		quarry_img = quarry.get_seamless_image(Cfg.MAP_W, Cfg.MAP_H, false, false, 0.1, false)
 
 	for x in Cfg.MAP_W:
 		for y in Cfg.MAP_H:
 			var c := Vector2i(x, y)
-			var f := forest.get_noise_2d(x, y) # roughly -1..1
-			var q := quarry.get_noise_2d(x, y)
+			var f: float # roughly -1..1
+			var q: float
+			if Cfg.WRAP:
+				f = forest_img.get_pixel(x, y).r * 2.0 - 1.0
+				q = quarry_img.get_pixel(x, y).r * 2.0 - 1.0
+			else:
+				f = forest.get_noise_2d(x, y)
+				q = quarry.get_noise_2d(x, y)
 			# Dense inside clusters, sparse outside; averages near the configured density.
 			var p_tree: float = Cfg.DENSITY_TREE * (5.0 if f > 0.2 else 0.25)
 			var p_rock: float = Cfg.DENSITY_ROCK * (6.0 if q > 0.35 else 0.3)

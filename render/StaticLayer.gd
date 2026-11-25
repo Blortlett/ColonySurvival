@@ -1,6 +1,7 @@
 extends Node2D
-## Trees, rocks, hemp and berry bushes. Only redrawn when nodes (or berry counts)
-## change, at most every REDRAW_SECS.
+## Trees, rocks, hemp and berry bushes, in Cfg.CHUNK-cell chunks (render/Chunks.gd). Only
+## redrawn when nodes (or berry counts) change, at most every REDRAW_SECS, and then only
+## the chunks on screen.
 
 const REDRAW_SECS := 0.25 # node changes redraw at most this often (B1)
 ## Top-down pines: a strip of PINE_VARIANTS 64 px sprites (tools/tilekit/pine_tree.py),
@@ -33,10 +34,13 @@ const SHADOW := Color(0, 0, 0, 0.35)
 const LOW_SHADOW_OFFSET := Vector2(2, 3) # rocks and hemp sit lower than a pine's canopy
 
 var _since := INF
+var _chunks: Chunks
+var _ci: CanvasItem # the chunk being drawn
 
 
 func _ready() -> void:
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS # pixel-art sprites
+	_chunks = Chunks.new(self, _draw_chunk)
 
 
 func _process(dt: float) -> void:
@@ -44,31 +48,54 @@ func _process(dt: float) -> void:
 	if World.static_dirty and _since >= REDRAW_SECS:
 		World.static_dirty = false
 		_since = 0.0
-		queue_redraw()
+		_chunks.mark_all()
+	_chunks.update(Cfg.CELL * PINE_CELLS)
 
 
-func _draw() -> void:
+func _draw_chunk(ci: CanvasItem, chunk: Vector2i) -> void:
 	var t := Time.get_ticks_usec()
-	_draw_body()
+	_ci = ci
+	_draw_body(_chunk_nodes(chunk))
 	World.prof_add("draw_static", t)
 
 
-func _draw_body() -> void:
+## The chunk's nodes, read from the World.node_buckets that overlap it.
+func _chunk_nodes(chunk: Vector2i) -> Array:
+	var out := []
+	var lo := chunk * Cfg.CHUNK
+	var hi := lo + Vector2i.ONE * (Cfg.CHUNK - 1)
+	var exact := Cfg.CHUNK % World.NODE_BUCKET == 0 # whole buckets: no per-node check
+	for b: Dictionary in World.node_buckets:
+		for bx in range(lo.x / World.NODE_BUCKET, hi.x / World.NODE_BUCKET + 1):
+			for by in range(lo.y / World.NODE_BUCKET, hi.y / World.NODE_BUCKET + 1):
+				var arr = b.get(Vector2i(bx, by))
+				if arr == null:
+					continue
+				if exact:
+					out.append_array(arr)
+					continue
+				for n in arr:
+					if Chunks.of(n.cell) == chunk:
+						out.append(n)
+	return out
+
+
+func _draw_body(nodes: Array) -> void:
 	var s := float(Cfg.CELL)
 	var px: float = s / ART_CELL_PX # screen px per sprite px
 	var size := Vector2.ONE * s * PINE_CELLS
 	# All shadows first, so no sprite is darkened by a neighbour's shadow.
-	for n in World.nodes.values():
+	for n in nodes:
 		match n.type:
 			ResourceNode.Type.TREE:
 				_draw_pine(n.cell, s, size, PINE_SHADOW_OFFSET * px, SHADOW)
 			_:
 				_draw_sprite(_low_texture(n), n.cell, s, px, LOW_SHADOW_OFFSET * px, SHADOW)
 	# Rocks, iron, hemp and bushes, then trees last so canopies sit over their neighbours.
-	for n in World.nodes.values():
+	for n in nodes:
 		if n.type != ResourceNode.Type.TREE:
 			_draw_sprite(_low_texture(n), n.cell, s, px, Vector2.ZERO, Color.WHITE)
-	for n in World.nodes.values():
+	for n in nodes:
 		if n.type == ResourceNode.Type.TREE:
 			_draw_pine(n.cell, s, size, Vector2.ZERO, Color.WHITE)
 
@@ -88,11 +115,11 @@ func _low_texture(n: ResourceNode) -> Texture2D:
 func _draw_sprite(tex: Texture2D, c: Vector2i, s: float, px: float, off: Vector2, tint: Color) -> void:
 	var size := tex.get_size() * px
 	var centre := (Vector2(c) + Vector2(0.5, 0.5)) * s
-	draw_texture_rect(tex, Rect2(centre - size * 0.5 + off, size), false, tint)
+	_ci.draw_texture_rect(tex, Rect2(centre - size * 0.5 + off, size), false, tint)
 
 
 func _draw_pine(c: Vector2i, s: float, size: Vector2, off: Vector2, tint: Color) -> void:
 	var v := posmod(c.x * 73856093 ^ c.y * 19349663, PINE_VARIANTS)
 	var src := Rect2(Vector2(v * PINE_PX, 0), Vector2.ONE * PINE_PX)
 	var centre := (Vector2(c) + Vector2(0.5, 0.5)) * s
-	draw_texture_rect_region(PINES, Rect2(centre - size * 0.5 + off, size), src, tint)
+	_ci.draw_texture_rect_region(PINES, Rect2(centre - size * 0.5 + off, size), src, tint)
