@@ -69,7 +69,9 @@ def rect(x0, y0, x1, y1):
 
 
 # ---------------------------------------------------------------- chest
-def chest():
+def chest(reinforced=False):
+	"""Basic: oak lid in an oak frame. Reinforced: the same chest, but the frame is an iron
+	rim, two riveted iron straps run over the lid, and the corner plates and lock are bigger."""
 	img = Image.new("RGBA", (F, F), (0, 0, 0, 0))
 	px = img.load()
 	x0, y0, x1, y1 = 4, 7, 28, 25
@@ -82,7 +84,12 @@ def chest():
 			v = 2 if (fx < 2 or fy < 2) else 0
 			if fx in (0, w - 1) or fy in (0, hh - 1):
 				v -= 1
-			px[x, y] = shade(OAK_FRAME, v + 0.5)
+			if reinforced:
+				px[x, y] = shade(IRON, v * 0.6 + 1.3)
+				if (fx in (0, 1) or fx in (w - 2, w - 1)) and fy % 4 == 2 or (fy in (0, 1) or fy in (hh - 2, hh - 1)) and fx % 5 == 2:
+					px[x, y] = IRON[3]                  # rivets along the rim
+			else:
+				px[x, y] = shade(OAK_FRAME, v + 0.5)
 			continue
 		# lid: planks running left-right, domed (lighter across the middle rows)
 		u = (fy - 2) / (hh - 5) * 2 - 1                    # -1 top .. 1 bottom of the lid
@@ -93,16 +100,36 @@ def chest():
 		if (fy - 2) % 4 == 0:
 			v += 0.3
 		px[x, y] = shade(OAK, v)
+	if reinforced:
+		# two iron straps over the lid, riveted where they cross each plank
+		for sx in (9, 21):
+			for y in range(y0 + 2, y1 - 2):
+				px[sx, y] = IRON[2]
+				px[sx + 1, y] = IRON[1]
+				px[sx + 2, y] = shade(OAK, 0.5)            # the strap's shadow on the lid
+				if (y - y0 - 2) % 4 == 1:
+					px[sx, y] = IRON[3]
 	# iron corner plates
-	for cx, cy in ((x0, y0), (x1 - 3, y0), (x0, y1 - 3), (x1 - 3, y1 - 3)):
-		for (x, y) in rect(cx, cy, cx + 3, cy + 3):
-			px[x, y] = IRON[2] if (x - cx) + (y - cy) < 2 else IRON[1]
-	# latch on the front (bottom) edge, centred
-	for (x, y) in rect(14, y1 - 5, 18, y1):
-		px[x, y] = IRON[1]
-	for (x, y) in rect(15, y1 - 4, 17, y1 - 1):
-		px[x, y] = IRON[3] if y == y1 - 4 else IRON[2]
-	px[15, y1 - 2] = IRON[0]
+	c = 4 if reinforced else 3
+	for cx, cy in ((x0, y0), (x1 - c, y0), (x0, y1 - c), (x1 - c, y1 - c)):
+		for (x, y) in rect(cx, cy, cx + c, cy + c):
+			px[x, y] = IRON[2] if (x - cx) + (y - cy) < c - 1 else IRON[1]
+	# lock on the front (bottom) edge, centred: a hasp, bigger with a padlock when reinforced
+	if reinforced:
+		for (x, y) in rect(13, y1 - 7, 19, y1 + 1):
+			px[x, y] = IRON[1]
+		for (x, y) in rect(14, y1 - 6, 18, y1):
+			px[x, y] = IRON[3] if y == y1 - 6 else IRON[2]
+		px[15, y1 - 3] = IRON[0]
+		px[16, y1 - 3] = IRON[0]
+		px[15, y1 - 2] = IRON[0]
+		solid |= rect(13, y1 - 7, 19, y1 + 1)
+	else:
+		for (x, y) in rect(14, y1 - 5, 18, y1):
+			px[x, y] = IRON[1]
+		for (x, y) in rect(15, y1 - 4, 17, y1 - 1):
+			px[x, y] = IRON[3] if y == y1 - 4 else IRON[2]
+		px[15, y1 - 2] = IRON[0]
 	finish(img, solid)
 	return img
 
@@ -237,6 +264,7 @@ if __name__ == "__main__":
 	os.makedirs(OUT_DIR, exist_ok=True)
 	c, k = chest(), crate()
 	c.save(os.path.join(OUT_DIR, "chest_basic.png"))
+	chest(reinforced=True).save(os.path.join(OUT_DIR, "chest_reinforced.png"))
 	k.save(os.path.join(OUT_DIR, "crate.png"))
 	saw = Image.new("RGBA", (F * SAW_FRAMES, F), (0, 0, 0, 0))
 	for f in range(SAW_FRAMES):

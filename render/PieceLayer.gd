@@ -24,9 +24,12 @@ const ANVIL_TEX := preload("res://art/structures/anvil.png")
 ## The sawmill is SAWMILL_FRAMES frames; frame 0 is drawn here, DynamicLayer animates it
 ## while its workshop runs.
 const CHEST_TEX := preload("res://art/structures/chest_basic.png")
+const CHEST_R_TEX := preload("res://art/structures/chest_reinforced.png")
 const CRATE_TEX := preload("res://art/structures/crate.png")
 const SAWMILL_TEX := preload("res://art/structures/sawmill.png")
 const SAWMILL_FRAMES := 4
+## Stone cutter: a mason's bench, 32 px top-down (tools/tilekit/stonecutter.py, concept A).
+const CUTTER_TEX := preload("res://art/structures/stonecutter.png")
 const ROAD_EDGE := [0.35, 0.16]
 const WALL_TILE_PX := 32.0
 ## Wood floor: a strip of FLOOR_VARIANTS 32 px tiles, picked per cell by a hash.
@@ -46,7 +49,6 @@ const CHEST := Color(0.55, 0.33, 0.12)
 const CHEST_BAND := Color(0.25, 0.15, 0.06)
 const DOOR_R := Color(0.52, 0.36, 0.20)
 const METAL := Color(0.62, 0.62, 0.66)
-const CUTTER := Color(0.45, 0.45, 0.50)
 const IRON := Color(0.22, 0.23, 0.26)
 const RIVET := Color(0.62, 0.63, 0.68)
 const FURNACE := Color(0.30, 0.27, 0.26)
@@ -256,8 +258,8 @@ func _build_outlines() -> void:
 func _draw_furniture(fu: Furniture, p: Vector2, s: float) -> void:
 	match fu.kind:
 		Furniture.Kind.CHEST:
-			if fu.tier == 0:
-				draw_texture_rect(CHEST_TEX, Rect2(p, Vector2(s, s)), false)
+			if fu.tier < 2:
+				draw_texture_rect(CHEST_TEX if fu.tier == 0 else CHEST_R_TEX, Rect2(p, Vector2(s, s)), false)
 				return
 			var r := Rect2(p + Vector2(s * 0.15, s * 0.25), Vector2(s * 0.7, s * 0.55))
 			draw_rect(r, CHEST)
@@ -268,8 +270,6 @@ func _draw_furniture(fu: Furniture, p: Vector2, s: float) -> void:
 				draw_rect(Rect2(r.position + Vector2(r.size.x * 0.45, 0), Vector2(s * 0.1, r.size.y)), IRON)
 				for c in [r.position, r.position + Vector2(r.size.x - 2.0 * Cfg.PX, 0), r.end - Vector2.ONE * 2.0 * Cfg.PX, r.position + Vector2(0, r.size.y - 2.0 * Cfg.PX)]:
 					draw_rect(Rect2(c, Vector2.ONE * 2.0 * Cfg.PX), RIVET)
-			elif fu.tier > 0:
-				draw_rect(r, METAL, false, 1.5 * Cfg.PX)
 		Furniture.Kind.BOARD:
 			draw_rect(Rect2(p + Vector2(s * 0.45, s * 0.35), Vector2(s * 0.1, s * 0.6)), BOARD_POST)
 			draw_rect(Rect2(p + Vector2(s * 0.1, s * 0.05), Vector2(s * 0.8, s * 0.45)), BOARD_SIGN)
@@ -286,8 +286,7 @@ func _draw_furniture(fu: Furniture, p: Vector2, s: float) -> void:
 			sawmills.append(fu)
 			draw_texture_rect_region(SAWMILL_TEX, Rect2(p, Vector2(s, s)), Rect2(0, 0, WALL_TILE_PX, WALL_TILE_PX))
 		Furniture.Kind.CUTTER:
-			draw_rect(Rect2(p + Vector2(s * 0.12, s * 0.12), Vector2(s * 0.76, s * 0.76)), CUTTER)
-			draw_rect(Rect2(p + Vector2(s * 0.12, s * 0.45), Vector2(s * 0.76, s * 0.1)), CUTTER.darkened(0.5))
+			draw_texture_rect(CUTTER_TEX, Rect2(p, Vector2(s, s)), false)
 		Furniture.Kind.FURNACE:
 			# Stone body; the unlit mouth here, the lit glow per frame in DynamicLayer.
 			furnaces.append(fu)
