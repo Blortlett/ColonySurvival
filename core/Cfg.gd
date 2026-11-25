@@ -16,6 +16,7 @@ const DENSITY_HEMP := 0.015
 const DENSITY_BUSH := 0.01
 const DENSITY_METAL := 0.005 # about 1/6 of rock density (v3, start)
 const METAL_MIN_GAP := 6 # metal rock is dispersed, never clustered (agreed)
+const TREE_MIN_GAP := 2 # Chebyshev cells between trees; pine canopies are 2x2 cells, so 2 = touching, no overlap
 
 const TREE_CAPACITY := 20
 const ROCK_CAPACITY := 20

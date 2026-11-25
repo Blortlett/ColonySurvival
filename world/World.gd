@@ -271,6 +271,18 @@ static func cheb(a: Vector2i, b: Vector2i) -> int:
 	return max(abs(a.x - b.x), abs(a.y - b.y))
 
 
+## True if a tree stands within Cfg.TREE_MIN_GAP - 1 cells of c (Chebyshev), i.e. a tree
+## placed at c would overlap its canopy.
+func tree_too_close(c: Vector2i) -> bool:
+	var r := Cfg.TREE_MIN_GAP - 1
+	for dx in range(-r, r + 1):
+		for dy in range(-r, r + 1):
+			var n: ResourceNode = nodes.get(c + Vector2i(dx, dy))
+			if n != null and n.type == ResourceNode.Type.TREE:
+				return true
+	return false
+
+
 static func center(c: Vector2i) -> Vector2:
 	return Vector2(c) + Vector2(0.5, 0.5)
 
@@ -559,6 +571,8 @@ func _respawn_node(type: int) -> void:
 			c = anchor + Vector2i(rng.randi_range(-4, 4), rng.randi_range(-4, 4))
 		else:
 			c = Vector2i(rng.randi_range(0, Cfg.MAP_W - 1), rng.randi_range(0, Cfg.MAP_H - 1))
+		if type == ResourceNode.Type.TREE and tree_too_close(c):
+			continue
 		if is_walkable(c) and not loot.has(c) and privilege_owner(c) == 0 and house_at(c) == null and not agent_on(c) and not Cities.in_city(c):
 			add_node(type, c)
 			return

@@ -19,7 +19,9 @@ static func generate(rng: RandomNumberGenerator) -> void:
 			var p_rock: float = Cfg.DENSITY_ROCK * (6.0 if q > 0.35 else 0.3)
 			var roll := rng.randf()
 			if roll < p_tree:
-				World.add_node(ResourceNode.Type.TREE, c)
+				# Spaced so the 2x2-cell canopies don't overlap; a rejected tree leaves the cell empty.
+				if not World.tree_too_close(c):
+					World.add_node(ResourceNode.Type.TREE, c)
 			elif roll < p_tree + p_rock:
 				World.add_node(ResourceNode.Type.ROCK, c)
 			elif roll < p_tree + p_rock + Cfg.DENSITY_HEMP:
