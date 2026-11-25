@@ -13,6 +13,8 @@ uniform sampler2D patch_noise : filter_linear, repeat_enable;
 uniform float patch_px = 1400.0;
 uniform float patch_dark = 0.86;
 uniform float patch_light = 1.06;
+// Overall grass brightness: < 1 for the darker art direction.
+uniform float brightness = 0.66;
 
 varying vec2 world;
 
@@ -48,5 +50,6 @@ void fragment() {
 	vec4 col = textureGrad(atlas, uv, dFdx(t) * g, dFdy(t) * g);
 	float n = texture(patch_noise, world / patch_px).r;
 	col.rgb *= mix(patch_dark, patch_light, smoothstep(0.25, 0.75, n));
+	col.rgb *= brightness;
 	COLOR = col;
 }
