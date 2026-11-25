@@ -18,12 +18,14 @@ static func generate(rng: RandomNumberGenerator) -> void:
 			var p_tree: float = Cfg.DENSITY_TREE * (5.0 if f > 0.2 else 0.25)
 			var p_rock: float = Cfg.DENSITY_ROCK * (6.0 if q > 0.35 else 0.3)
 			var roll := rng.randf()
+			# Trees and rocks are 2x2-cell sprites, spaced so they don't overlap; a rejected
+			# one leaves the cell empty.
 			if roll < p_tree:
-				# Spaced so the 2x2-cell canopies don't overlap; a rejected tree leaves the cell empty.
-				if not World.tree_too_close(c):
+				if not World.big_node_too_close(c):
 					World.add_node(ResourceNode.Type.TREE, c)
 			elif roll < p_tree + p_rock:
-				World.add_node(ResourceNode.Type.ROCK, c)
+				if not World.big_node_too_close(c):
+					World.add_node(ResourceNode.Type.ROCK, c)
 			elif roll < p_tree + p_rock + Cfg.DENSITY_HEMP:
 				World.add_node(ResourceNode.Type.HEMP, c)
 			elif roll < p_tree + p_rock + Cfg.DENSITY_HEMP + Cfg.DENSITY_BUSH:
@@ -42,7 +44,7 @@ static func _scatter_metal(rng: RandomNumberGenerator) -> void:
 		if placed.size() >= want:
 			break
 		var c := Vector2i(mr.randi_range(1, Cfg.MAP_W - 2), mr.randi_range(1, Cfg.MAP_H - 2))
-		if not World.is_walkable(c):
+		if not World.is_walkable(c) or World.big_node_too_close(c):
 			continue
 		if placed.any(func(p): return World.cheb(p, c) < Cfg.METAL_MIN_GAP):
 			continue

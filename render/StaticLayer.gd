@@ -2,7 +2,6 @@ extends Node2D
 ## Trees, rocks, hemp and berry bushes. Only redrawn when nodes (or berry counts)
 ## change, at most every REDRAW_SECS.
 
-const Disc := preload("res://render/Disc.gd")
 const REDRAW_SECS := 0.25 # node changes redraw at most this often (B1)
 ## Top-down pines: a strip of PINE_VARIANTS 64 px sprites (tools/tilekit/pine_tree.py),
 ## drawn 2x2 cells, centred on the tree's cell so the canopy spills over its neighbours.
@@ -10,17 +9,28 @@ const PINES := preload("res://art/trees/pine.png")
 const PINE_PX := 64.0
 const PINE_VARIANTS := 4
 const PINE_CELLS := 2.0
-const PINE_SHADOW := Color(0, 0, 0, 0.35)
 const PINE_SHADOW_OFFSET := Vector2(3, 4) # sprite px, down-right (light from the top-left)
-
-# Darker, Songs of Syx-leaning palette (Phase E visual pass).
-const ROCK := Color(0.40, 0.40, 0.42)
-const ROCK_HI := Color(0.50, 0.50, 0.52)
-const HEMP := Color(0.58, 0.63, 0.30)
-const BUSH := Color(0.15, 0.38, 0.15)
-const BERRY := Color(0.85, 0.12, 0.25)
-const METAL_ROCK := Color(0.33, 0.31, 0.32)
-const RUST := Color(0.78, 0.40, 0.14)
+## Stone and iron: one 64 px image per depletion stage, index = ResourceNode.stage() - 1
+## (tools/tilekit/stone_node.py, iron_node.py). Hemp: one 42 px image (hemp_plant.py).
+## All sprites are drawn at 1 sprite px = 1 px of a 32 px cell, centred on the node's cell.
+const STONE: Array[Texture2D] = [
+	preload("res://art/resources/stone_1.png"), preload("res://art/resources/stone_2.png"),
+	preload("res://art/resources/stone_3.png"), preload("res://art/resources/stone_4.png"),
+]
+const IRON: Array[Texture2D] = [
+	preload("res://art/resources/iron_1.png"), preload("res://art/resources/iron_2.png"),
+	preload("res://art/resources/iron_3.png"), preload("res://art/resources/iron_4.png"),
+]
+const HEMP_TEX := preload("res://art/resources/hemp.png")
+## Berry bushes: 42 px, index = berries shown, 0..4 (tools/tilekit/berry_bush.py).
+const BUSH_TEX: Array[Texture2D] = [
+	preload("res://art/resources/bush_0.png"), preload("res://art/resources/bush_1.png"),
+	preload("res://art/resources/bush_2.png"), preload("res://art/resources/bush_3.png"),
+	preload("res://art/resources/bush_4.png"),
+]
+const ART_CELL_PX := 32.0 # sprite px per cell
+const SHADOW := Color(0, 0, 0, 0.35)
+const LOW_SHADOW_OFFSET := Vector2(2, 3) # rocks and hemp sit lower than a pine's canopy
 
 var _since := INF
 
@@ -45,35 +55,40 @@ func _draw() -> void:
 
 func _draw_body() -> void:
 	var s := float(Cfg.CELL)
-	# Tree shadows first, so no canopy is darkened by a neighbour's shadow.
+	var px: float = s / ART_CELL_PX # screen px per sprite px
 	var size := Vector2.ONE * s * PINE_CELLS
-	var shadow_off := PINE_SHADOW_OFFSET * size / PINE_PX
+	# All shadows first, so no sprite is darkened by a neighbour's shadow.
 	for n in World.nodes.values():
-		if n.type == ResourceNode.Type.TREE:
-			_draw_pine(n.cell, s, size, shadow_off, PINE_SHADOW)
-	for n in World.nodes.values():
-		var p := Vector2(n.cell) * s
 		match n.type:
 			ResourceNode.Type.TREE:
-				_draw_pine(n.cell, s, size, Vector2.ZERO, Color.WHITE)
-			ResourceNode.Type.ROCK:
-				draw_rect(Rect2(p + Vector2.ONE * Cfg.PX, Vector2(s - 2.0 * Cfg.PX, s - 2.0 * Cfg.PX)), ROCK)
-				draw_rect(Rect2(p + Vector2.ONE * 2.0 * Cfg.PX, Vector2(s * 0.45, s * 0.35)), ROCK_HI)
-			ResourceNode.Type.HEMP:
-				Disc.draw(self, p + Vector2(s, s) * 0.5, s * 0.25, HEMP)
-			ResourceNode.Type.METAL:
-				# A rock with rust-orange flecks.
-				draw_rect(Rect2(p + Vector2.ONE * Cfg.PX, Vector2(s - 2.0 * Cfg.PX, s - 2.0 * Cfg.PX)), METAL_ROCK)
-				draw_rect(Rect2(p + Vector2.ONE * 2.0 * Cfg.PX, Vector2(s * 0.45, s * 0.35)), ROCK)
-				for f in [Vector2(0.25, 0.65), Vector2(0.6, 0.3), Vector2(0.7, 0.7), Vector2(0.45, 0.5)]:
-					draw_rect(Rect2(p + f * s, Vector2(s * 0.16, s * 0.16)), RUST)
-	var half := Vector2(s, s) * 0.5
-	for b in World.bushes:
-		var p := Vector2(b.cell) * s
-		Disc.draw(self, p + half, s * 0.42, BUSH)
-		for i in b.amount:
-			var ang := TAU * i / Cfg.BUSH_BERRIES
-			Disc.draw(self, p + half + Vector2(cos(ang), sin(ang)) * s * 0.22, s * 0.09, BERRY)
+				_draw_pine(n.cell, s, size, PINE_SHADOW_OFFSET * px, SHADOW)
+			_:
+				_draw_sprite(_low_texture(n), n.cell, s, px, LOW_SHADOW_OFFSET * px, SHADOW)
+	# Rocks, iron, hemp and bushes, then trees last so canopies sit over their neighbours.
+	for n in World.nodes.values():
+		if n.type != ResourceNode.Type.TREE:
+			_draw_sprite(_low_texture(n), n.cell, s, px, Vector2.ZERO, Color.WHITE)
+	for n in World.nodes.values():
+		if n.type == ResourceNode.Type.TREE:
+			_draw_pine(n.cell, s, size, Vector2.ZERO, Color.WHITE)
+
+
+## The sprite for a non-tree node: stone and iron shrink as they're mined, bushes lose
+## berries as they're picked (Cfg.BUSH_BERRIES spread over the 4 drawn; any left shows one).
+func _low_texture(n: ResourceNode) -> Texture2D:
+	match n.type:
+		ResourceNode.Type.ROCK: return STONE[n.stage() - 1]
+		ResourceNode.Type.METAL: return IRON[n.stage() - 1]
+		ResourceNode.Type.BUSH:
+			return BUSH_TEX[clampi(ceili(4.0 * n.amount / Cfg.BUSH_BERRIES), 0, 4)]
+	return HEMP_TEX
+
+
+## A whole texture at sprite scale, centred on cell c.
+func _draw_sprite(tex: Texture2D, c: Vector2i, s: float, px: float, off: Vector2, tint: Color) -> void:
+	var size := tex.get_size() * px
+	var centre := (Vector2(c) + Vector2(0.5, 0.5)) * s
+	draw_texture_rect(tex, Rect2(centre - size * 0.5 + off, size), false, tint)
 
 
 func _draw_pine(c: Vector2i, s: float, size: Vector2, off: Vector2, tint: Color) -> void:

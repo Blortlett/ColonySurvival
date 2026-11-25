@@ -212,11 +212,13 @@ static func can_harvest(a: Agent, n: ResourceNode) -> bool:
 ## wears. A spent tree, rock, hemp or metal node is removed (bushes regrow).
 ## Returns true if the node was removed.
 static func harvest_unit(a: Agent, n: ResourceNode, tool: String, give: bool, xp: bool) -> bool:
+	var stage_was := n.stage()
 	n.amount -= 1
-	if n.type == ResourceNode.Type.BUSH:
-		World.static_dirty = true # berries are drawn in StaticLayer
 	if give and a.inv.add(n.item(), 1) == 0:
 		n.amount += 1 # no room for it (slot inventory): it stays on the node
+	# Berries and the stone/iron depletion stages are drawn in StaticLayer.
+	if n.type == ResourceNode.Type.BUSH or n.stage() != stage_was:
+		World.static_dirty = true
 	if xp:
 		a.add_xp("str", Cfg.XP_GATHER)
 	if tool != "" and a.inv.has_tool(tool) and a.inv.wear(tool):

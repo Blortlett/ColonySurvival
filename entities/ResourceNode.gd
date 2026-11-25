@@ -13,12 +13,22 @@ var regrow_timer := 0.0
 func _init(t: Type, c: Vector2i) -> void:
 	type = t
 	cell = c
-	match t:
-		Type.TREE: amount = Cfg.TREE_CAPACITY
-		Type.ROCK: amount = Cfg.ROCK_CAPACITY
-		Type.HEMP: amount = Cfg.HEMP_CAPACITY
-		Type.BUSH: amount = Cfg.BUSH_BERRIES
-		Type.METAL: amount = Cfg.METAL_CAPACITY
+	amount = capacity()
+
+
+## Full amount for this type (what a fresh node starts with).
+func capacity() -> int:
+	match type:
+		Type.TREE: return Cfg.TREE_CAPACITY
+		Type.ROCK: return Cfg.ROCK_CAPACITY
+		Type.HEMP: return Cfg.HEMP_CAPACITY
+		Type.METAL: return Cfg.METAL_CAPACITY
+	return Cfg.BUSH_BERRIES
+
+
+## Depletion art stage, 4 (full) down to 1 (nearly spent): stone and iron shrink as mined.
+func stage() -> int:
+	return clampi(ceili(4.0 * amount / capacity()), 1, 4)
 
 
 ## Agents walk through it (Player Group Base Plan R7). It still blocks building.
