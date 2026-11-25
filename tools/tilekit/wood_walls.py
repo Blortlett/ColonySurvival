@@ -1,4 +1,4 @@
-"""Wood wall autotile sheet.
+"""Wall autotile sheets: wood, reinforced wood and stone.
 
 32x32 px tiles, dark pixel-art palette, straight top-down view: each wall fills its cell and
 we only see its top. The top is shaded as if slightly arced (rounded like a log/bolster):
@@ -13,8 +13,13 @@ diagonals are assumed open (walls are one cell thick).
 
 Plank grain follows the wall's direction; corners and T-joins are mitred like a frame.
 
+Three materials share the shape, arc shading and mitred joints; only the top surface
+differs (MATERIALS): wood planks; reinforced wood, darker planks bound by riveted iron straps;
+stone, courses of cut blocks with mortar joints.
+
 Run:  python tools/tilekit/wood_walls.py
-      writes art/structures/wood_walls.png and tools/tilekit/preview/wood_walls_preview.png
+      writes art/structures/{wood,reinforced,stone}_walls.png and a preview of each in
+      tools/tilekit/preview/
 """
 import math
 import os
@@ -26,8 +31,8 @@ PLANK = 8              # plank width
 ARC = 12               # how far in from an open edge the rounding reaches, in px
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-OUT = os.path.join(ROOT, "art", "structures", "wood_walls.png")
-PREVIEW = os.path.join(os.path.dirname(os.path.abspath(__file__)), "preview", "wood_walls_preview.png")
+OUT_DIR = os.path.join(ROOT, "art", "structures")
+PREVIEW_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "preview")
 
 N, E, S, W = 1, 2, 4, 8
 
@@ -45,6 +50,39 @@ WOOD = [
 ]
 SEAM_DROP = 1.5        # plank seams sit this many shades darker than the wood around them
 KNOT_DROP = 2.0
+# Reinforced: older, darker planks, bound with iron straps.
+WOOD_DARK = [
+	(26, 17, 12),
+	(36, 24, 16),
+	(47, 31, 21),
+	(58, 39, 26),
+	(70, 47, 31),
+	(83, 56, 37),
+	(97, 66, 43),
+]
+IRON = [
+	(16, 17, 20),
+	(24, 25, 29),
+	(33, 34, 39),
+	(44, 45, 51),
+	(57, 58, 64),
+	(72, 73, 79),
+	(98, 99, 104),
+]
+STRAP_AT = (14, 15, 16)   # one strap per cell, centred along the wall: dark edge, face, shadow
+# Stone: cool grey cut blocks, as the rocks.
+STONE = [
+	(30, 31, 36),
+	(42, 43, 49),
+	(55, 56, 62),
+	(69, 70, 76),
+	(85, 86, 91),
+	(102, 103, 107),
+	(122, 122, 125),
+]
+STONE_OUTLINE = (13, 14, 17)
+COURSE = 8             # stone course height (across the wall)
+BLOCK = 16             # block length (along); alternate courses offset by half
 
 
 def h(*v):
@@ -75,6 +113,44 @@ def grain(along, across):
 	v += 0.35 if k == 1 else 0.0              # each plank's edge catches a little light
 	v -= 0.35 if k == PLANK - 1 else 0.0
 	return v
+
+
+def reinforced(along, across):
+	"""Darker planks, bound once per cell by a riveted iron strap across the wall."""
+	if along in STRAP_AT:
+		i = STRAP_AT.index(along)
+		v = (0.2, 0.0, -0.9)[i] - 0.4 + (h(along, across, 12) - 0.5) * 0.4
+		if i == 0 and across % COURSE == 4:
+			v += 2.0                               # rivet head
+		return v, IRON
+	if along == STRAP_AT[-1] + 1:
+		return grain(along, across) - 1.0, None   # the strap's shadow on the wood
+	return grain(along, across), None
+
+
+def stone(along, across):
+	"""Courses of cut blocks in running bond, mortar between, each block its own tone."""
+	row = across // COURSE
+	k = across % COURSE
+	off = (BLOCK // 2) * (row % 2)
+	a = (along + off) % T
+	j = a % BLOCK
+	if k == 0 or j == 0:
+		return -2.2, None                          # mortar joint
+	v = (h(row, a // BLOCK, 13) - 0.5) * 1.1      # per-block tone
+	v += 0.55 if (k == 1 or j == 1) else 0.0      # bevel: top-left edges of the block lit
+	v -= 0.5 if (k == COURSE - 1 or j == BLOCK - 1) else 0.0
+	v += (h(along, across, 14) - 0.5) * 0.7       # stone grain
+	if h(along // 2, across // 2, row, 15) < 0.04:
+		v -= 1.0                                   # small pits
+	return v, None
+
+
+MATERIALS = {
+	"wood": dict(palette=WOOD, outline=OUTLINE, surface=lambda a, c: (grain(a, c), None)),
+	"reinforced": dict(palette=WOOD_DARK, outline=OUTLINE, surface=reinforced),
+	"stone": dict(palette=STONE, outline=STONE_OUTLINE, surface=stone),
+}
 
 
 def sector_vertical(x, y, m):
@@ -114,15 +190,16 @@ def edge_dist(x, y, m):
 	return best, light
 
 
-def tile(m):
+def tile(m, material="wood"):
+	mat = MATERIALS[material]
 	img = Image.new("RGBA", (T, T), (0, 0, 0, 0))
 	px = img.load()
-	mid = len(WOOD) - 2.2                     # shade at the crown of the arc
+	mid = len(mat["palette"]) - 2.2           # shade at the crown of the arc
 	for y in range(T):
 		for x in range(T):
 			d, light = edge_dist(x, y, m)
 			if d < 1.0:
-				px[x, y] = OUTLINE
+				px[x, y] = mat["outline"]
 				continue
 			# Arc: a quarter-circle profile from the edge up to the crown.
 			t = min(1.0, (d - 1.0) / ARC)
@@ -131,16 +208,17 @@ def tile(m):
 			v += light * 1.3 * (1.0 - arc)                   # top-left rims lit, bottom-right shaded
 			if 1.0 <= d < 2.0 and light > 0:                 # thin highlight just inside lit edges
 				v += 0.8
-			g = grain(y, x) if sector_vertical(x, y, m) else grain(x, y)
-			v += g * (0.55 + 0.45 * arc)                     # grain fades a bit on the rounded rim
-			px[x, y] = WOOD[max(0, min(len(WOOD) - 1, int(round(v))))]
+			g, pal = mat["surface"](y, x) if sector_vertical(x, y, m) else mat["surface"](x, y)
+			v += g * (0.55 + 0.45 * arc)                     # surface detail fades a bit on the rim
+			pal = pal or mat["palette"]
+			px[x, y] = pal[max(0, min(len(pal) - 1, int(round(v))))]
 	return img
 
 
-def sheet():
+def sheet(material="wood"):
 	img = Image.new("RGBA", (T * 4, T * 4), (0, 0, 0, 0))
 	for m in range(16):
-		img.paste(tile(m), ((m % 4) * T, (m // 4) * T))
+		img.paste(tile(m, material), ((m % 4) * T, (m // 4) * T))
 	return img
 
 
@@ -209,9 +287,10 @@ def preview(sheet_img):
 
 
 if __name__ == "__main__":
-	os.makedirs(os.path.dirname(OUT), exist_ok=True)
-	os.makedirs(os.path.dirname(PREVIEW), exist_ok=True)
-	s = sheet()
-	s.save(OUT)
-	preview(s).save(PREVIEW)
-	print("wrote", OUT, "and", PREVIEW)
+	os.makedirs(OUT_DIR, exist_ok=True)
+	os.makedirs(PREVIEW_DIR, exist_ok=True)
+	for material in MATERIALS:
+		s = sheet(material)
+		s.save(os.path.join(OUT_DIR, "%s_walls.png" % material))
+		preview(s).save(os.path.join(PREVIEW_DIR, "%s_walls_preview.png" % material))
+		print("wrote", material, "walls")
