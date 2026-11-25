@@ -134,6 +134,149 @@ def chest(reinforced=False):
 	return img
 
 
+def chest_iron():
+	"""Iron-bound: the same chest shape, but mostly dark iron. An iron rim, a lid of three
+	riveted iron plates with a strip of dark wood showing between them, heavy corner caps and
+	a big lock plate with a keyhole."""
+	img = Image.new("RGBA", (F, F), (0, 0, 0, 0))
+	px = img.load()
+	x0, y0, x1, y1 = 4, 7, 28, 25
+	solid = rect(x0, y0, x1, y1)
+	w, hh = x1 - x0, y1 - y0
+	plates = ((x0 + 2, 11), (12, 20), (20, x1 - 2))     # lid plates by x span
+	for (x, y) in solid:
+		fx, fy = x - x0, y - y0
+		if fx < 2 or fy < 2 or fx >= w - 2 or fy >= hh - 2:
+			v = 2.2 if (fx < 2 or fy < 2) else 0.8
+			if fx in (0, w - 1) or fy in (0, hh - 1):
+				v -= 0.8
+			px[x, y] = shade(IRON, v)
+			if (fx in (0, 1) or fx in (w - 2, w - 1)) and fy % 3 == 1 or (fy in (0, 1) or fy in (hh - 2, hh - 1)) and fx % 4 == 1:
+				px[x, y] = IRON[3]                      # dense rivets on the rim
+			continue
+		inside = [(a, b) for a, b in plates if a <= x < b]
+		if not inside:
+			px[x, y] = OAK_FRAME[0] if (x + y) % 3 else OAK_FRAME[1]   # dark wood between plates
+			continue
+		a, b = inside[0]
+		u = (fy - 2) / (hh - 5) * 2 - 1
+		v = 1.9 - 1.0 * u * u - 0.6 * u              # domed lid, dark iron
+		if x == a or y == y0 + 2:
+			v += 0.9                                 # plate edges catch the light
+		if x == b - 1:
+			v -= 0.8
+		if (x in (a + 1, b - 2)) and (fy - 2) % 3 == 1:
+			px[x, y] = IRON[3]                       # rivets down each plate edge
+			continue
+		v += (h(x, y, 8) - 0.5) * 0.5
+		px[x, y] = shade(IRON, v)
+	# heavy corner caps
+	for cx, cy in ((x0, y0), (x1 - 4, y0), (x0, y1 - 4), (x1 - 4, y1 - 4)):
+		for (x, y) in rect(cx, cy, cx + 4, cy + 4):
+			px[x, y] = IRON[3] if (x - cx) + (y - cy) < 2 else IRON[2] if (x - cx) + (y - cy) < 5 else IRON[1]
+	# big lock plate with a keyhole, hanging over the front edge
+	for (x, y) in rect(12, y1 - 8, 20, y1 + 1):
+		px[x, y] = IRON[1]
+	for (x, y) in rect(13, y1 - 7, 19, y1):
+		px[x, y] = IRON[3] if y == y1 - 7 else IRON[2]
+	for (x, y) in ((15, y1 - 5), (16, y1 - 5), (15, y1 - 4), (16, y1 - 4), (16, y1 - 3)):
+		px[x, y] = IRON[0]
+	solid |= rect(12, y1 - 8, 20, y1 + 1)
+	finish(img, solid)
+	return img
+
+
+# ---------------------------------------------------------------- task board, mailbox
+PARCHMENT = [(150, 136, 104), (184, 170, 134), (212, 200, 164)]
+BOARD_WOOD = [(56, 38, 24), (74, 51, 32), (94, 66, 42), (116, 84, 54)]
+ROOF_RECT = (3, 10, 29, 20)      # the board's little gable roof, in sprite px
+BOARD_RIDGE = (4, 14, 24, 2)     # x, y, w, h of the ridge cap (the game paints it in kingdom colour)
+SHINGLE = [(44, 30, 20), (58, 40, 26), (74, 52, 34), (92, 66, 43), (112, 82, 54)]
+
+
+def task_board():
+	"""A notice board standing upright, seen straight down: all you see is its little gable
+	roof (two shingled slopes either side of a ridge, the north slope lit, the south in shade),
+	the tops of the pinned notes peeking out under the front (south) eave, and the long
+	shadow an upright board throws."""
+	img = Image.new("RGBA", (F, F), (0, 0, 0, 0))
+	px = img.load()
+	x0, y0, x1, y1 = ROOF_RECT
+	# its shadow first: an upright board throws a longer one, down-right
+	for (x, y) in rect(x0 + 2, y0 + 4, x1 + 2, y1 + 5):
+		if 0 <= x < F and 0 <= y < F:
+			px[x, y] = SHADOW
+	solid = rect(x0, y0, x1, y1)
+	ridge = BOARD_RIDGE[1]
+	for (x, y) in solid:
+		north = y < ridge
+		# shingle courses run along the roof, 2 px tall, butt joints staggered course to course
+		course = (y - y0) // 2 if north else (y1 - 1 - y) // 2
+		k = (y - y0) % 2 if north else (y1 - 1 - y) % 2
+		joint = (x + 3 * (course % 2)) % 5 == 0
+		v = 3.3 if north else 0.9
+		if k == 1:
+			v -= 0.6                                   # lower lip of each shingle
+		if joint:
+			v -= 0.9
+		if y in (y0, y1 - 1):
+			v -= 0.5                                   # the eaves
+		if x in (x0, x1 - 1):
+			v -= 0.4                                   # gable ends
+		v += (h(x, y, 12) - 0.5) * 0.6
+		px[x, y] = shade(SHINGLE, v)
+	# ridge cap along the top
+	rx, ry, rw, rh = BOARD_RIDGE
+	for (x, y) in rect(rx, ry, rx + rw, ry + rh):
+		px[x, y] = BOARD_WOOD[3] if y == ry else BOARD_WOOD[1]
+	# notes pinned on the front face, poking up over the south eave: different widths,
+	# heights and lengths, each with a lit top edge and a red pin
+	notes = set()
+	for nx, top, length, w in ((6, y1 - 3, 5, 3), (11, y1 - 1, 3, 4), (17, y1 - 4, 6, 3), (22, y1 - 2, 4, 4), (26, y1 - 3, 3, 2)):
+		for (x, y) in rect(nx, top, nx + w, top + length):
+			v = 1.2 + (0.8 if y == top else 0) - (0.7 if x == nx + w - 1 else 0)
+			if y > top + 1 and x < nx + w - 1 and (y - top) % 2 == 0 and h(nx, x, y, 13) < 0.7:
+				v = -1                                   # a line of writing
+			px[x, y] = BOARD_WOOD[0] if v < 0 else shade(PARCHMENT, v)
+			notes.add((x, y))
+		px[nx + w // 2, top] = (170, 40, 36)             # pin
+	finish(img, solid | notes)
+	return img
+
+
+MAIL_BLUE = [(34, 48, 74), (50, 70, 106), (70, 96, 142), (98, 126, 172)]
+MAIL_RED = [(110, 24, 22), (176, 44, 36)]
+
+
+def mailbox():
+	"""From above: the rounded lid of a painted mailbox on its post, door to the front
+	(bottom), and the red flag folded out flat along its right side."""
+	img = Image.new("RGBA", (F, F), (0, 0, 0, 0))
+	px = img.load()
+	x0, y0, x1, y1 = 11, 7, 21, 25
+	solid = rect(x0, y0, x1, y1)
+	for (x, y) in solid:
+		u = (x + 0.5 - (x0 + x1) / 2) / ((x1 - x0) / 2)   # -1 left .. 1 right: the rounded lid
+		v = 2.4 - 1.6 * u - 0.6 * u * u
+		if y >= y1 - 3:
+			v -= 0.7                                    # the door panel at the front
+		if y == y1 - 3:
+			v = 0
+		v += (h(x, y, 11) - 0.5) * 0.4
+		px[x, y] = shade(MAIL_BLUE, v)
+	px[15, y1 - 2] = (150, 150, 156)                    # door handle
+	px[16, y1 - 2] = (150, 150, 156)
+	# the flag: an arm folded out to the right, the red flag at its end
+	for x in range(x1, x1 + 3):
+		px[x, 12] = (60, 60, 66)
+	for (x, y) in rect(x1 + 3, 10, x1 + 7, 15):
+		px[x, y] = MAIL_RED[1] if (y < 12 or x == x1 + 3) else MAIL_RED[0]
+	px[x1 - 1, 12] = (150, 150, 156)                    # pivot
+	solid |= rect(x1, 12, x1 + 3, 13) | rect(x1 + 3, 10, x1 + 7, 15)
+	finish(img, solid)
+	return img
+
+
 # ---------------------------------------------------------------- crate
 def crate():
 	img = Image.new("RGBA", (F, F), (0, 0, 0, 0))
@@ -265,6 +408,9 @@ if __name__ == "__main__":
 	c, k = chest(), crate()
 	c.save(os.path.join(OUT_DIR, "chest_basic.png"))
 	chest(reinforced=True).save(os.path.join(OUT_DIR, "chest_reinforced.png"))
+	chest_iron().save(os.path.join(OUT_DIR, "chest_iron.png"))
+	task_board().save(os.path.join(OUT_DIR, "task_board.png"))
+	mailbox().save(os.path.join(OUT_DIR, "mailbox.png"))
 	k.save(os.path.join(OUT_DIR, "crate.png"))
 	saw = Image.new("RGBA", (F * SAW_FRAMES, F), (0, 0, 0, 0))
 	for f in range(SAW_FRAMES):

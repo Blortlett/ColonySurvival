@@ -25,11 +25,23 @@ const ANVIL_TEX := preload("res://art/structures/anvil.png")
 ## while its workshop runs.
 const CHEST_TEX := preload("res://art/structures/chest_basic.png")
 const CHEST_R_TEX := preload("res://art/structures/chest_reinforced.png")
+const CHEST_I_TEX := preload("res://art/structures/chest_iron.png")
+## Task board and mailbox, 32 px (tools/tilekit/furniture.py). The board stands upright, so
+## from above it's a little gable roof; BOARD_RIDGE (sprite px) is its ridge cap, painted in
+## the owner's kingdom colour.
+const BOARD_TEX := preload("res://art/structures/task_board.png")
+const MAILBOX_TEX := preload("res://art/structures/mailbox.png")
+const BOARD_RIDGE := Rect2(4, 14, 24, 2)
 const CRATE_TEX := preload("res://art/structures/crate.png")
 const SAWMILL_TEX := preload("res://art/structures/sawmill.png")
 const SAWMILL_FRAMES := 4
 ## Stone cutter: a mason's bench, 32 px top-down (tools/tilekit/stonecutter.py, concept A).
 const CUTTER_TEX := preload("res://art/structures/stonecutter.png")
+## Furnace, 32 px top-down (tools/tilekit/furnace.py): the unlit image is drawn here;
+## DynamicLayer draws the FURNACE_FRAMES lit frames over it while the house fire burns.
+const FURNACE_OUT_TEX := preload("res://art/structures/furnace_out.png")
+const FURNACE_TEX := preload("res://art/structures/furnace.png")
+const FURNACE_FRAMES := 6
 const ROAD_EDGE := [0.35, 0.16]
 const WALL_TILE_PX := 32.0
 ## Wood floor: a strip of FLOOR_VARIANTS 32 px tiles, picked per cell by a hash.
@@ -43,18 +55,10 @@ const REDRAW_SECS := 0.25
 const REFRESH_SECS := 1.0
 
 const DOOR := Color(0.70, 0.50, 0.28)
-const BOARD_POST := Color(0.35, 0.22, 0.10)
-const BOARD_SIGN := Color(0.80, 0.70, 0.45)
-const CHEST := Color(0.55, 0.33, 0.12)
-const CHEST_BAND := Color(0.25, 0.15, 0.06)
 const DOOR_R := Color(0.52, 0.36, 0.20)
 const METAL := Color(0.62, 0.62, 0.66)
 const IRON := Color(0.22, 0.23, 0.26)
 const RIVET := Color(0.62, 0.63, 0.68)
-const FURNACE := Color(0.30, 0.27, 0.26)
-const GLOW := Color(1.0, 0.45, 0.08)
-const MAILBOX := Color(0.30, 0.42, 0.62)
-const MAILBOX_FLAG := Color(0.80, 0.20, 0.15)
 
 ## Furnaces, crates and sawmills seen on the last redraw: DynamicLayer draws their live
 ## parts (the lit glow, the iron mark, the spinning blade) on top every frame.
@@ -258,30 +262,17 @@ func _build_outlines() -> void:
 func _draw_furniture(fu: Furniture, p: Vector2, s: float) -> void:
 	match fu.kind:
 		Furniture.Kind.CHEST:
-			if fu.tier < 2:
-				draw_texture_rect(CHEST_TEX if fu.tier == 0 else CHEST_R_TEX, Rect2(p, Vector2(s, s)), false)
-				return
-			var r := Rect2(p + Vector2(s * 0.15, s * 0.25), Vector2(s * 0.7, s * 0.55))
-			draw_rect(r, CHEST)
-			draw_rect(Rect2(r.position + Vector2(0, r.size.y * 0.35), Vector2(r.size.x, s * 0.1)), CHEST_BAND)
-			if fu.tier >= 2:
-				# Iron-bound: dark iron bands and corner rivets.
-				draw_rect(r, IRON, false, 2.0 * Cfg.PX)
-				draw_rect(Rect2(r.position + Vector2(r.size.x * 0.45, 0), Vector2(s * 0.1, r.size.y)), IRON)
-				for c in [r.position, r.position + Vector2(r.size.x - 2.0 * Cfg.PX, 0), r.end - Vector2.ONE * 2.0 * Cfg.PX, r.position + Vector2(0, r.size.y - 2.0 * Cfg.PX)]:
-					draw_rect(Rect2(c, Vector2.ONE * 2.0 * Cfg.PX), RIVET)
+			var tex: Texture2D = [CHEST_TEX, CHEST_R_TEX, CHEST_I_TEX][clampi(fu.tier, 0, 2)]
+			draw_texture_rect(tex, Rect2(p, Vector2(s, s)), false)
 		Furniture.Kind.BOARD:
-			draw_rect(Rect2(p + Vector2(s * 0.45, s * 0.35), Vector2(s * 0.1, s * 0.6)), BOARD_POST)
-			draw_rect(Rect2(p + Vector2(s * 0.1, s * 0.05), Vector2(s * 0.8, s * 0.45)), BOARD_SIGN)
+			draw_texture_rect(BOARD_TEX, Rect2(p, Vector2(s, s)), false)
 			var k := _kingdom_of(fu.owner_id)
 			if k:
-				draw_rect(Rect2(p + Vector2(s * 0.1, s * 0.05), Vector2(s * 0.8, s * 0.45)), k.color, false, 1.5 * Cfg.PX)
+				var px: float = s / WALL_TILE_PX
+				draw_rect(Rect2(p + BOARD_RIDGE.position * px, Vector2(BOARD_RIDGE.size.x, 1) * px), k.color.lightened(0.15))
+				draw_rect(Rect2(p + (BOARD_RIDGE.position + Vector2(0, 1)) * px, Vector2(BOARD_RIDGE.size.x, 1) * px), k.color.darkened(0.25))
 		Furniture.Kind.MAILBOX:
-			# Placeholder until art exists: a post with a box and a little flag.
-			draw_rect(Rect2(p + Vector2(s * 0.44, s * 0.45), Vector2(s * 0.12, s * 0.5)), BOARD_POST)
-			draw_rect(Rect2(p + Vector2(s * 0.2, s * 0.15), Vector2(s * 0.6, s * 0.35)), MAILBOX)
-			draw_rect(Rect2(p + Vector2(s * 0.2, s * 0.15), Vector2(s * 0.6, s * 0.35)), MAILBOX.darkened(0.5), false, 1.0 * Cfg.PX)
-			draw_rect(Rect2(p + Vector2(s * 0.76, s * 0.08), Vector2(s * 0.06, s * 0.22)), MAILBOX_FLAG)
+			draw_texture_rect(MAILBOX_TEX, Rect2(p, Vector2(s, s)), false)
 		Furniture.Kind.SAWMILL:
 			sawmills.append(fu)
 			draw_texture_rect_region(SAWMILL_TEX, Rect2(p, Vector2(s, s)), Rect2(0, 0, WALL_TILE_PX, WALL_TILE_PX))
@@ -290,9 +281,7 @@ func _draw_furniture(fu: Furniture, p: Vector2, s: float) -> void:
 		Furniture.Kind.FURNACE:
 			# Stone body; the unlit mouth here, the lit glow per frame in DynamicLayer.
 			furnaces.append(fu)
-			draw_rect(Rect2(p + Vector2(s * 0.08, s * 0.08), Vector2(s * 0.84, s * 0.84)), FURNACE)
-			if not furnace_lit(fu):
-				draw_rect(Rect2(p + Vector2(s * 0.25, s * 0.45), Vector2(s * 0.5, s * 0.35)), GLOW.darkened(0.7))
+			draw_texture_rect(FURNACE_OUT_TEX, Rect2(p, Vector2(s, s)), false)
 		Furniture.Kind.ANVIL:
 			draw_texture_rect(ANVIL_TEX, Rect2(p, Vector2(s, s)), false)
 		Furniture.Kind.CRATE:

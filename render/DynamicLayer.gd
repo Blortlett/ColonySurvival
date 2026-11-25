@@ -41,12 +41,15 @@ func _draw() -> void:
 func _draw_body() -> void:
 	var s := float(Cfg.CELL)
 	var half := Vector2(s, s) * 0.5
+	# Lit furnaces: a warm glow round them, and the animated flames over the unlit image.
+	var furnace_frame := int(Time.get_ticks_msec() * 0.001 * 9.0)
 	for fu in pieces.furnaces:
 		if World.furniture.get(fu.cell) == fu and PieceLayer.furnace_lit(fu):
 			var p := Vector2(fu.cell) * s
 			var pulse := 0.75 + 0.25 * sin(Time.get_ticks_msec() * 0.006 + fu.cell.y)
-			draw_rect(Rect2(p + Vector2(s * 0.25, s * 0.45), Vector2(s * 0.5, s * 0.35)), Color(GLOW, pulse))
-			Disc.draw(self, p + Vector2(s * 0.5, s * 0.62), s * 0.32, Color(GLOW, 0.18 * pulse))
+			Disc.draw(self, p + half, s * 1.1, Color(GLOW, 0.10 * pulse))
+			var f: int = (furnace_frame + fu.cell.x) % PieceLayer.FURNACE_FRAMES
+			draw_texture_rect_region(PieceLayer.FURNACE_TEX, Rect2(p, Vector2(s, s)), Rect2(f * 32.0, 0, 32.0, 32.0))
 	# Sawmills spin while their workshop runs (built, fire burning): draw the moving frame
 	# over the still one PieceLayer cached.
 	var saw_frame := int(Time.get_ticks_msec() * 0.001 * 12.0)
