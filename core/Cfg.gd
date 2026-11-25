@@ -3,12 +3,21 @@ class_name Cfg
 ## "(agreed)" values were decided in design; the rest are starting values for tuning.
 
 # --- World ---
-const MAP_W := 200
-const MAP_H := 200
+const MAP_W := 400 # 4x the old 200 x 200 area (Summer Roadmap §4.1); no wrap yet
+const MAP_H := 400
 const CELL := 32 # screen pixels per cell; sized for the 48 px sprite frames (body ~20 px)
 const PX := CELL / 16.0 # one pixel of the old 16 px placeholder art, keeps line weights in proportion
 const START_AGENTS := 120
 const SEED := 12345 # set to 0 for a random seed each run
+
+# --- Start layout (start values) ---
+# A few agents start bunched so they grow into big groups; everyone else starts spread
+# out, far enough apart that most settle alone or in pairs before meeting anyone.
+const SPAWN_CLUSTERS := [24, 18, 8, 6, 5, 4] # agents per starting cluster; the rest disperse
+const CLUSTER_RADIUS := 9 # cells around a cluster centre its agents start within
+const CLUSTER_GAP := 90 # min cells between cluster centres
+const CLUSTER_CLEARANCE := 45 # dispersed agents start at least this far from a cluster centre
+const DISPERSED_GAP := 28 # min cells between a dispersed agent and anyone else (roam search is 25)
 
 const DENSITY_TREE := 0.06
 const DENSITY_ROCK := 0.03

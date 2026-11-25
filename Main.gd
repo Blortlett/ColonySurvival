@@ -310,6 +310,8 @@ func _bench(minutes: int) -> void:
 		for i in int(60.0 / Cfg.MAX_SIM_STEP):
 			World.step(Cfg.MAX_SIM_STEP)
 		print(_bench_line(m + 1, Time.get_ticks_msec() - s0))
+		if (m + 1) % 5 == 0 or m + 1 == minutes:
+			print(_group_line(m + 1))
 	print("deaths by cause: %s" % World.death_causes)
 	print("social: %s" % World.social_counts)
 	print("fight sources: %s" % World.fight_sources)
@@ -385,6 +387,32 @@ func _bench_line(minute: int, ms: int) -> String:
 		minute, ms, World.deaths, moods, Factions.real_count(), servants, houses,
 		World.fires.size(), World.walls.size(), reinforced, World.floors.size(), chests, stored, shops, working,
 		processed, raid_axes, tools, warmth / n, hunger / n, jobs]
+
+
+## Settlement shape: how many groups of each size (solo = 1), and how many agents live
+## alone or in pairs with a finished house of their own (the "hamlets" between big groups).
+func _group_line(minute: int) -> String:
+	var sizes := {}
+	var small_housed := 0
+	var small_total := 0
+	for f in World.factions.values():
+		var n: int = f.members.size()
+		if n == 0:
+			continue
+		sizes[n] = sizes.get(n, 0) + 1
+		if n <= 2:
+			small_total += n
+			for h in f.houses:
+				if h.state == House.State.COMPLETE:
+					small_housed += n
+					break
+	var keys := sizes.keys()
+	keys.sort()
+	var parts: Array[String] = []
+	for k in keys:
+		parts.append("%d:%d" % [k, sizes[k]])
+	return "GROUPS min %d | size:count %s | agents in 1-2 groups %d (housed %d) of %d" % [
+		minute, " ".join(parts), small_total, small_housed, World.agent_list.size()]
 
 
 ## v3 metal economy: nodes, items in circulation (agents, chests, loot bags), gear.

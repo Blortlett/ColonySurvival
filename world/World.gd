@@ -79,8 +79,7 @@ func setup() -> void:
 	astar.diagonal_mode = AStarGrid2D.DIAGONAL_MODE_ONLY_IF_NO_OBSTACLES
 	astar.update()
 	WorldGen.generate(rng)
-	for i in Cfg.START_AGENTS:
-		spawn_agent(0)
+	_spawn_start_agents()
 	spatial.rebuild(agent_list)
 	started = true
 	EventBus.log_event("%d agents spawn into the wild." % Cfg.START_AGENTS)
@@ -747,7 +746,80 @@ func take_loot(a: Agent, bag: LootBag) -> void:
 
 # --- Agents ---
 
-func spawn_agent(min_dist: int) -> Agent:
+## Start layout: the cluster sizes in Cfg.SPAWN_CLUSTERS start bunched around centres
+## spread across the map; everyone else starts dispersed, away from clusters and each other.
+func _spawn_start_agents() -> void:
+	var centres: Array[Vector2i] = []
+	var clustered := 0
+	for size: int in Cfg.SPAWN_CLUSTERS:
+		var centre := _open_cell_away(centres, Cfg.CLUSTER_GAP, 6)
+		centres.append(centre)
+		for i in size:
+			if clustered >= Cfg.START_AGENTS:
+				return
+			spawn_agent(0, _cluster_cell(centre))
+			clustered += 1
+	for i in Cfg.START_AGENTS - clustered:
+		spawn_agent(0, _dispersed_cell(centres))
+
+
+## A free cell within CLUSTER_RADIUS of `centre` (the centre itself if nothing else fits).
+func _cluster_cell(centre: Vector2i) -> Vector2i:
+	for i in 100:
+		var c := centre + Vector2i(rng.randi_range(-Cfg.CLUSTER_RADIUS, Cfg.CLUSTER_RADIUS),
+				rng.randi_range(-Cfg.CLUSTER_RADIUS, Cfg.CLUSTER_RADIUS))
+		if _spawnable(c):
+			return c
+	return centre if _spawnable(centre) else _spawn_cell(0)
+
+
+## A free cell at least CLUSTER_CLEARANCE from every cluster centre and DISPERSED_GAP from
+## every agent. Gaps shrink step by step if the map is too full to honour them.
+func _dispersed_cell(centres: Array[Vector2i]) -> Vector2i:
+	var gap := float(Cfg.DISPERSED_GAP)
+	var clear := float(Cfg.CLUSTER_CLEARANCE)
+	while gap >= 4.0:
+		for i in 300:
+			var c := Vector2i(rng.randi_range(2, Cfg.MAP_W - 3), rng.randi_range(2, Cfg.MAP_H - 3))
+			if not _spawnable(c):
+				continue
+			var p := center(c)
+			if centres.any(func(k: Vector2i) -> bool: return dist(p, center(k)) < clear):
+				continue
+			if agent_list.any(func(o: Agent) -> bool: return dist(p, o.pos) < gap):
+				continue
+			return c
+		gap *= 0.8
+		clear *= 0.8
+	return _spawn_cell(0)
+
+
+## A free cell at least `gap` from each of `taken`, kept `margin` cells off the map edge.
+func _open_cell_away(taken: Array[Vector2i], gap: float, margin: int) -> Vector2i:
+	var best := NO_CELL
+	var best_d := -1.0
+	for i in 300:
+		var c := Vector2i(rng.randi_range(margin, Cfg.MAP_W - 1 - margin), rng.randi_range(margin, Cfg.MAP_H - 1 - margin))
+		if not _spawnable(c):
+			continue
+		var d := INF
+		for k in taken:
+			d = min(d, dist(center(c), center(k)))
+		if d >= gap:
+			return c
+		if d > best_d: # fallback: the most open spot seen
+			best_d = d
+			best = c
+	return best if best != NO_CELL else _spawn_cell(0)
+
+
+func _spawnable(c: Vector2i) -> bool:
+	return in_bounds(c) and is_walkable(c) and privilege_owner(c) == 0 and house_at(c) == null
+
+
+## `at`: a start cell picked by the caller (the start layout); otherwise a random free cell
+## at least `min_dist` from every agent (respawns).
+func spawn_agent(min_dist: int, at: Vector2i = NO_CELL) -> Agent:
 	var a := Agent.new()
 	a.id = _next_agent_id
 	_next_agent_id += 1
@@ -756,7 +828,7 @@ func spawn_agent(min_dist: int) -> Agent:
 	var r := rng.randf()
 	var base := 60.0 if r < 0.5 else (0.0 if r < 0.8 else -60.0) # 50/30/20 (agreed)
 	a.mood = base + rng.randf_range(-15.0, 15.0)
-	a.pos = center(_spawn_cell(min_dist))
+	a.pos = center(at if at != NO_CELL else _spawn_cell(min_dist))
 	a.think_t = rng.randf() * Cfg.THINK_INTERVAL
 	a.inv.add("berry", 2)
 	Names.assign(a)
