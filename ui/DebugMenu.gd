@@ -78,10 +78,14 @@ func _button(parent: Control, text: String, cb: Callable) -> Button:
 	return b
 
 
+## Opening the menu goes straight into watch mode (AI drives, free camera); closing it hands
+## the body back to the player.
 func toggle() -> void:
 	visible = not visible
 	if player:
 		player.keys_blocked = visible
+		if player.alive() and player.watching != visible:
+			_toggle_watch()
 	apply_view()
 
 

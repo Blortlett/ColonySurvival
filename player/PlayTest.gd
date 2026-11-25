@@ -1385,12 +1385,18 @@ func run_input(main: Node, pc: PlayerController, cam: Node) -> void:
 	await _frames(3)
 	_check(pc.station.open == null and not inv_ui._chest.visible and not pc.inv_open, "Esc closes the chest and the inventory")
 	World.remove_furniture(ch)
-	# F3 opens the menu; while open, 2 is a speed key (refused: not watching), V watches.
+	# F3 opens the menu and goes straight into watch mode; V toggles back to playing (where
+	# 2 is refused as a speed key and doesn't pick a piece) and into watch again.
 	_key(KEY_F3, true)
 	_key(KEY_F3, false)
 	await _frames(2)
 	var menu: CanvasLayer = main._debug
 	_check(menu.visible and pc.keys_blocked, "F3 opens the debug menu")
+	_check(pc.watching and a.controller == null and cam.free_camera, "F3 enters watch mode (AI drives, free camera)")
+	_key(KEY_V, true)
+	_key(KEY_V, false)
+	await _frames(2)
+	_check(not pc.watching and a.controller == pc, "V in the menu goes back to playing")
 	_key(KEY_2, true)
 	_key(KEY_2, false)
 	await _frames(2)
@@ -1403,14 +1409,11 @@ func run_input(main: Node, pc: PlayerController, cam: Node) -> void:
 	await _frames(2)
 	_check(pc.watching and a.controller == null and cam.free_camera and SimClock.speed == 4.0, "V watches (AI drives, free camera), 3 sets 4x")
 	await _shot("inputtest_watch")
-	_key(KEY_V, true)
-	_key(KEY_V, false)
-	await _frames(2)
-	_check(not pc.watching and a.controller == pc and SimClock.speed == 1.0, "back to playing at 1x")
 	_key(KEY_F3, true)
 	_key(KEY_F3, false)
 	await _frames(2)
 	_check(not menu.visible and not pc.keys_blocked, "F3 closes the menu")
+	_check(not pc.watching and a.controller == pc and not cam.free_camera and SimClock.speed == 1.0, "closing the menu goes back to playing at 1x")
 	# Social prompt keys (Player Social Plan §3): F2 declines a gang ask, F1 accepts one
 	# (NPCs no longer invite the player, Player Group Plan D4).
 	var npc := _free_npc(a)

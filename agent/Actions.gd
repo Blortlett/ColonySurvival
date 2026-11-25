@@ -51,10 +51,14 @@ static func move_path(a: Agent, dest: Vector2i, dt: float) -> int:
 ## agent can't pass (walls, closed doors, nodes, fires, the map edge) and sliding along
 ## them. Axis by axis, so a diagonal push into a wall keeps the parallel part. Cells the
 ## box already overlaps don't block, so a body never gets stuck inside a new piece.
+## Blocking resource nodes (trees, rocks, bushes, metal) are circles of NODE_RADIUS at their
+## cell centre, not full cells: after the box moves, it is pushed out of any circle it
+## overlaps along the circle's normal, so the player slides round them.
 ## Returns the motion actually made.
 static func move_free(a: Agent, motion: Vector2) -> Vector2:
 	var start := a.pos
 	var stuck := _box_cells(a.pos)
+	var stuck_nodes := _round_nodes_hit(a.pos, [])
 	for axis in 2:
 		if motion[axis] == 0.0:
 			continue
@@ -73,10 +77,64 @@ static func move_free(a: Agent, motion: Vector2) -> Vector2:
 				p[axis] = min(a.pos[axis], edge)
 			if _box_clear(a, p, stuck):
 				a.pos = p
+	_push_out_of_nodes(a, start, motion, stuck, stuck_nodes)
 	var moved := World.delta(start, a.pos)
 	if moved != Vector2.ZERO:
 		a.move_dir = moved.normalized()
 	return moved
+
+
+const NODE_RADIUS := 0.42 # collision circle of a blocking resource node, in cells
+
+
+## True for a cell holding a blocking resource node: it collides as a circle, not a box.
+static func _is_round(c: Vector2i) -> bool:
+	var n: ResourceNode = World.nodes.get(c)
+	return n != null and not n.walk_through()
+
+
+## Vector from the circle centre cc to the nearest point of the player's box at p.
+static func _box_to_circle(p: Vector2, cc: Vector2) -> Vector2:
+	var q := Vector2(clampf(cc.x, p.x - PLAYER_HALF, p.x + PLAYER_HALF), clampf(cc.y, p.y - PLAYER_HALF, p.y + PLAYER_HALF))
+	return q - cc
+
+
+## Round node cells whose circle the box at p overlaps (minus `ignore`).
+static func _round_nodes_hit(p: Vector2, ignore: Array) -> Array[Vector2i]:
+	var out: Array[Vector2i] = []
+	var r := PLAYER_HALF + NODE_RADIUS
+	for x in range(int(floor(p.x - r)), int(floor(p.x + r)) + 1):
+		for y in range(int(floor(p.y - r)), int(floor(p.y + r)) + 1):
+			var c := Vector2i(x, y)
+			if ignore.has(c) or not _is_round(c):
+				continue
+			if _box_to_circle(p, World.center(c)).length() < NODE_RADIUS:
+				out.append(c)
+	return out
+
+
+## Push the box out of the node circles it overlaps (a few passes for tight spots). If a push
+## would shove it into a blocking cell, the move is cancelled instead.
+static func _push_out_of_nodes(a: Agent, start: Vector2, motion: Vector2, stuck: Array[Vector2i], stuck_nodes: Array) -> void:
+	for pass_i in 3:
+		var hits := _round_nodes_hit(a.pos, stuck_nodes)
+		if hits.is_empty():
+			return
+		for c in hits:
+			var cc := World.center(c)
+			var off := _box_to_circle(a.pos, cc)
+			var d := off.length()
+			var normal: Vector2
+			if d > 0.0001:
+				normal = off / d
+			else: # the box's centre region covers the circle centre: back out the way it came
+				normal = -motion.normalized() if motion != Vector2.ZERO else Vector2.UP
+			a.pos += normal * (NODE_RADIUS - d + 0.001)
+		if not _box_clear(a, a.pos, stuck):
+			a.pos = start
+			return
+	if not _round_nodes_hit(a.pos, stuck_nodes).is_empty():
+		a.pos = start
 
 
 static func _box_cells(p: Vector2) -> Array[Vector2i]:
@@ -87,9 +145,10 @@ static func _box_cells(p: Vector2) -> Array[Vector2i]:
 	return out
 
 
+## Round node cells are left to the circle test in move_free.
 static func _box_clear(a: Agent, p: Vector2, ignore: Array[Vector2i]) -> bool:
 	for c in _box_cells(p):
-		if not ignore.has(c) and not World.passable(a, c):
+		if not ignore.has(c) and not _is_round(c) and not World.passable(a, c):
 			return false
 	return true
 
